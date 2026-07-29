@@ -251,21 +251,25 @@ namespace ICE.Config
         private static CancellationTokenSource? _saveCts;
         private static readonly object _saveLock = new();
 
-        // Standard async save (fire-and-forget)
-        public void Save()
-        {
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await SaveAsync().ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    PluginLog.Error($"Failed to save MissionConfigs: {ex}");
-                }
-            });
-        }
+        // Standard save. Deliberately routed through the debounced path.
+        //
+        // This used to be a bare fire-and-forget Task.Run with no serialisation
+        // of any kind, while its sibling SaveDebounced already had both a lock
+        // and cancellation. Observed live on TC 2026-07-29: plugin startup
+        // issued hundreds of Save() calls within three seconds (one per mission
+        // being constructed) and every one of them raced on the same file -
+        // 527 IOExceptions in 3s ("The process cannot access the file ...
+        // because it is being used by another process"), i.e. 527 LOST writes,
+        // not merely 527 noisy log lines.
+        //
+        // Serialising them would not have been enough on its own: this config
+        // is ~330 KB, so 527 queued writes means re-serialising and rewriting
+        // ~170 MB during startup. Debouncing collapses a burst into one write.
+        // No caller can observe the difference - Save() was already
+        // asynchronous and returned long before the write happened. Anything
+        // that genuinely needs the bytes on disk before continuing already has
+        // SaveSync().
+        public void Save() => SaveDebounced();
 
         // Debounced save for rapid operations
         public void SaveDebounced(int delayMs = 500)
