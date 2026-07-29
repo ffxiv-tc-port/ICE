@@ -29,6 +29,9 @@
 
 	<ItemGroup>
 		<Content Include="ICE.json" />
+		<Content Include="LanguageChineseTraditional.ini">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
 		<EmbeddedResource Include="Resources\GreyscaleJobs\ALC.png" />
 		<EmbeddedResource Include="Resources\GreyscaleJobs\ARM.png" />
 		<EmbeddedResource Include="Resources\GreyscaleJobs\BSM.png" />

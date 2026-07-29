@@ -16,30 +16,30 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
         public static void Draw()
         {
-            if (ImGui.Checkbox("Ignore non-Cosmic prompts", ref rejectUnknownYesNo))
+            if (ImGui.Checkbox("Ignore non-Cosmic prompts".Loc() + "###ICEIgnoreNonCosmicPrompts", ref rejectUnknownYesNo))
             {
                 C.RejectUnknownYesno = rejectUnknownYesNo;
                 C.Save();
             }
             ImGuiEx.HelpMarker(
-                "Warning! This is a safety feature to avoid joining random parties!\n" +
+                ("Warning! This is a safety feature to avoid joining random parties!\n" +
                 "If you you uncheck this, YOU WILL JOIN random party invites.\n" +
-                "You have been warned. Disable at your own risk."
+                "You have been warned. Disable at your own risk.").Loc()
             );
-            if (ImGui.Checkbox("Add delay to mission menu", ref delayGrabMission))
+            if (ImGui.Checkbox("Add delay to mission menu".Loc() + "###ICEAddDelayMissionMenu", ref delayGrabMission))
             {
                 C.DelayGrabMission = delayGrabMission;
                 C.Save();
             }
             ImGuiEx.HelpMarker(
-                "This is here for safety! If you want to decrease the delay between missions be my guest.\n" +
+                ("This is here for safety! If you want to decrease the delay between missions be my guest.\n" +
                 "Safety is around... 250? If you're having animation locks you can absolutely increase it higher\n" +
-                "Or if you're feeling daredevil. Lower it. I'm not your dad (will tell dad jokes though.");
+                "Or if you're feeling daredevil. Lower it. I'm not your dad (will tell dad jokes though.").Loc());
             if (delayGrabMission)
             {
                 ImGui.SetNextItemWidth(150);
                 ImGui.SameLine();
-                if (ImGui.SliderInt("ms###Mission", ref delayAmount, 0, 1000))
+                if (ImGui.SliderInt("ms".Loc() + "###Mission", ref delayAmount, 0, 1000))
                 {
                     if (C.DelayIncrease != delayAmount)
                     {
@@ -48,20 +48,20 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     }
                 }
             }
-            if (ImGui.Checkbox("Add delay to crafting menu", ref delayCraft))
+            if (ImGui.Checkbox("Add delay to crafting menu".Loc() + "###ICEAddDelayCraftingMenu", ref delayCraft))
             {
                 C.DelayCraft = delayCraft;
                 C.Save();
             }
             ImGuiEx.HelpMarker(
-                "This is here for safety! If you want to decrease the delay before turnin be my guest.\n" +
+                ("This is here for safety! If you want to decrease the delay before turnin be my guest.\n" +
                 "Safety is around... 2500? If you're having animation locks you can absolutely increase it higher\n" +
-                "Or if you're feeling daredevil. Lower it. I'm not your dad (will tell dad jokes though.");
+                "Or if you're feeling daredevil. Lower it. I'm not your dad (will tell dad jokes though.").Loc());
             if (delayCraft)
             {
                 ImGui.SetNextItemWidth(150);
                 ImGui.SameLine();
-                if (ImGui.SliderInt("ms###Crafting", ref delayCraftAmount, 500, 5000))
+                if (ImGui.SliderInt("ms".Loc() + "###Crafting", ref delayCraftAmount, 500, 5000))
                 {
                     if (C.DelayCraftIncrease != delayCraftAmount)
                     {
@@ -71,15 +71,15 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 }
             }
             bool jumpIfStuck = C.JumpIfStuck;
-            if (ImGui.Checkbox("Jump if stuck during nav movement", ref jumpIfStuck))
+            if (ImGui.Checkbox("Jump if stuck during nav movement".Loc() + "###ICEJumpIfStuck", ref jumpIfStuck))
             {
                 C.JumpIfStuck = jumpIfStuck;
                 C.Save();
             }
             ImGuiEx.HelpMarker(
-                "If you get stuck while navmesh moving, this will allow you to jump after a certain time has passed (3s currently)\n" +
+                ("If you get stuck while navmesh moving, this will allow you to jump after a certain time has passed (3s currently)\n" +
                 "NOTE: THIS IS EXPERIMENTAL. IT WORKS, BUT IT STILL LOOKS SUS. IF YOU SEE A POINT AND YOUR STUCK, REPORT IT PLEASE\n" +
-                "through the logs function, and give info about it so we can fix it.");
+                "through the logs function, and give info about it so we can fix it.").Loc());
         }
     }
 }

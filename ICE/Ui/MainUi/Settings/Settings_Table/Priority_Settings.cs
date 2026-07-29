@@ -11,9 +11,9 @@ namespace ICE.Ui.SettingTabs
     {
         public static void Draw()
         {
-            ImGui.Text("Mission Priority Organizer");
+            ImGui.Text("Mission Priority Organizer".Loc());
 
-            ImGui.Text("Drag items to reorder mission priority (higher = processed first):");
+            ImGui.Text("Drag items to reorder mission priority (higher = processed first):".Loc());
             ImGui.Separator();
 
             // Create a copy for manipulation
@@ -47,7 +47,7 @@ namespace ICE.Ui.SettingTabs
                         byte* data = (byte*)&draggedIndex;
                         ImGui.SetDragDropPayload("MISSION_TYPE", new ReadOnlySpan<byte>(data, sizeof(int)));
                     }
-                    ImGui.Text($"Moving: {GetMissionTypeName(missionType)}");
+                    ImGui.Text("Moving: ??".Loc(GetMissionTypeName(missionType)));
                     ImGui.EndDragDropSource();
                 }
 
@@ -75,7 +75,7 @@ namespace ICE.Ui.SettingTabs
 
                 // Show priority number
                 ImGui.SameLine();
-                ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), $"(Priority: {i + 1})");
+                ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), "(Priority: ??)".Loc(i + 1));
 
                 ImGui.PopID();
             }
@@ -90,7 +90,7 @@ namespace ICE.Ui.SettingTabs
             ImGui.Separator();
 
             // Reset to default button
-            if (ImGui.Button("Reset to Default##Mission"))
+            if (ImGui.Button("Reset to Default".Loc() + "##Mission"))
             {
                 C.MissionPrio = new List<ProvisionalTypes>
                 {
@@ -106,8 +106,8 @@ namespace ICE.Ui.SettingTabs
             ImGui.Spacing();
 
             // JOB PRIORITY SECTION
-            ImGui.Text("Job Priority Organizer");
-            ImGui.Text("Drag items to reorder job priority (higher = processed first):");
+            ImGui.Text("Job Priority Organizer".Loc());
+            ImGui.Text("Drag items to reorder job priority (higher = processed first):".Loc());
             ImGui.Separator();
 
             // Create a copy for manipulation
@@ -149,7 +149,7 @@ namespace ICE.Ui.SettingTabs
                         byte* data = (byte*)&draggedIndex;
                         ImGui.SetDragDropPayload("JOB_TYPE", new ReadOnlySpan<byte>(data, sizeof(int)));
                     }
-                    ImGui.Text($"Moving: {GetJobName(jobId)}");
+                    ImGui.Text("Moving: ??".Loc(GetJobName(jobId)));
                     ImGui.EndDragDropSource();
                 }
 
@@ -176,7 +176,7 @@ namespace ICE.Ui.SettingTabs
 
                 // Show priority number
                 ImGui.SameLine();
-                ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), $"(Priority: {i + 1})");
+                ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), "(Priority: ??)".Loc(i + 1));
 
                 ImGui.PopID();
             }
@@ -190,7 +190,7 @@ namespace ICE.Ui.SettingTabs
             ImGui.Separator();
 
             // Reset to default button
-            if (ImGui.Button("Reset to Default##Job"))
+            if (ImGui.Button("Reset to Default".Loc() + "##Job"))
             {
                 C.JobPrio = new List<uint> { 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18 };
                 C.Save();
@@ -202,9 +202,9 @@ namespace ICE.Ui.SettingTabs
         {
             return type switch
             {
-                ProvisionalTypes.ProvisionalWeather => "Weather Missions",
-                ProvisionalTypes.ProvisionalSequential => "Sequence Missions",
-                ProvisionalTypes.ProvisionalTimed => "Timed Missions",
+                ProvisionalTypes.ProvisionalWeather => "Weather Missions".Loc(),
+                ProvisionalTypes.ProvisionalSequential => "Sequence Missions".Loc(),
+                ProvisionalTypes.ProvisionalTimed => "Timed Missions".Loc(),
                 _ => type.ToString()
             };
         }
@@ -226,18 +226,18 @@ namespace ICE.Ui.SettingTabs
         {
             return jobId switch
             {
-                8 => "Carpenter",
-                9 => "Blacksmith",
-                10 => "Armorer",
-                11 => "Goldsmith",
-                12 => "Leatherworker",
-                13 => "Weaver",
-                14 => "Alchemist",
-                15 => "Culinarian",
-                16 => "Miner",
-                17 => "Botanist",
-                18 => "Fisher",
-                _ => "Unknown Job"
+                8 => "Carpenter".Loc(),
+                9 => "Blacksmith".Loc(),
+                10 => "Armorer".Loc(),
+                11 => "Goldsmith".Loc(),
+                12 => "Leatherworker".Loc(),
+                13 => "Weaver".Loc(),
+                14 => "Alchemist".Loc(),
+                15 => "Culinarian".Loc(),
+                16 => "Miner".Loc(),
+                17 => "Botanist".Loc(),
+                18 => "Fisher".Loc(),
+                _ => "Unknown Job".Loc()
             };
         }
 

@@ -20,12 +20,12 @@ namespace ICE.Ui.MainUi.HelpFolder
                 if (!headerChild.Success) return; // Ensures that it was loaded properly before continuing.
                 if (ImGui.BeginTabBar("Ice Log Tabs"))
                 {
-                    if (ImGui.BeginTabItem("Main Logs"))
+                    if (ImGui.BeginTabItem("Main Logs".Loc() + "###ICELogsMain"))
                     {
                         LogHelperViewer();
                         ImGui.EndTabItem();
                     }
-                    if (ImGui.BeginTabItem("Destination Logs"))
+                    if (ImGui.BeginTabItem("Destination Logs".Loc() + "###ICELogsDestination"))
                     {
                         DestinationLogViewer();
                         ImGui.EndTabItem();
@@ -38,7 +38,7 @@ namespace ICE.Ui.MainUi.HelpFolder
 
         public static void Draw_Debug()
         {
-            if (ImGui.Button("Copy logs to clipboard"))
+            if (ImGui.Button("Copy logs to clipboard".Loc() + "###ICECopyLogsToClipboard"))
             {
                 LogSystem.CopyToClipboard();
             }
@@ -49,10 +49,10 @@ namespace ICE.Ui.MainUi.HelpFolder
         {
             // Search input
             ImGui.SetNextItemWidth(300);
-            ImGui.InputTextWithHint("##LogSearch", "Search logs...", ref searchFilter, 256);
+            ImGui.InputTextWithHint("##LogSearch", "Search logs...".Loc(), ref searchFilter, 256);
 
             ImGui.SameLine();
-            if (ImGui.Button("Clear"))
+            if (ImGui.Button("Clear".Loc() + "###ICEClearLogSearch"))
             {
                 searchFilter = string.Empty;
             }
@@ -66,10 +66,10 @@ namespace ICE.Ui.MainUi.HelpFolder
 
             if (ImGui.BeginTable("LogTable", 4, flags))
             {
-                ImGui.TableSetupColumn("Time");
-                ImGui.TableSetupColumn("Level");
-                ImGui.TableSetupColumn("Category");
-                ImGui.TableSetupColumn("Message");
+                ImGui.TableSetupColumn("Time".Loc());
+                ImGui.TableSetupColumn("Level".Loc());
+                ImGui.TableSetupColumn("Category".Loc());
+                ImGui.TableSetupColumn("Message".Loc());
                 ImGui.TableHeadersRow();
 
                 // Filter logs based on search input
@@ -122,10 +122,10 @@ namespace ICE.Ui.MainUi.HelpFolder
 
             if (ImGui.BeginTable("Destination Log Viewer", 5, flags))
             {
-                ImGui.TableSetupColumn("Timestamp");
-                ImGui.TableSetupColumn("Start");
-                ImGui.TableSetupColumn("Destination");
-                ImGui.TableSetupColumn("Distance");
+                ImGui.TableSetupColumn("Timestamp".Loc());
+                ImGui.TableSetupColumn("Start".Loc());
+                ImGui.TableSetupColumn("Destination".Loc());
+                ImGui.TableSetupColumn("Distance".Loc());
 
                 ImGui.TableHeadersRow();
 
@@ -151,13 +151,13 @@ namespace ICE.Ui.MainUi.HelpFolder
                     Table_VertCenterText($"{log.Distance}");
 
                     ImGui.TableNextColumn();
-                    if (ImGui.Button("Copy Info"))
+                    if (ImGui.Button("Copy Info".Loc() + "###ICECopyDestinationInfo"))
                     {
                         var clipboardText = new StringBuilder();
                         clipboardText.AppendLine($"Start: X: {log.PlayerStart.X:N2}, Y: {log.PlayerStart.Y:N2}, Z: {log.PlayerStart.Z:N2}");
                         clipboardText.Append($"End: X: {log.PlayerDestination.X:N2}, Y: {log.PlayerDestination.Y:N2}, Z: {log.PlayerDestination.Z:N2}");
                         ImGui.SetClipboardText($"{clipboardText}");
-                        Notify.Success("Log copied to clipbard");
+                        Notify.Success("Log copied to clipbard".Loc());
                     }
                     ImGui.PopID();
 

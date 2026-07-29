@@ -54,40 +54,40 @@ namespace ICE.Ui.MainUi
                     ImGui.Dummy(new Vector2(0, 10));
                 }
 
-                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Cosmic Helper", icon: FontAwesomeIcon.ListAlt))
+                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Cosmic Helper".Loc(), icon: FontAwesomeIcon.ListAlt))
                 {
-                    DrawSelectableWithIcon(FontAwesomeIcon.List, "Standard", "modeSelect_Standard");
-                    DrawSelectableWithIcon(FontAwesomeIcon.Trophy, "Completion", "modeSelect_Completion");
+                    DrawSelectableWithIcon(FontAwesomeIcon.List, "Standard".Loc(), "modeSelect_Standard");
+                    DrawSelectableWithIcon(FontAwesomeIcon.Trophy, "Completion".Loc(), "modeSelect_Completion");
                 }
-                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Settings", icon: FontAwesomeIcon.Cog))
+                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Settings".Loc(), icon: FontAwesomeIcon.Cog))
                 {
                     if (C.Show_StopWhen)
-                        DrawSelectableWithIcon(FontAwesomeIcon.Stop, "Stop When...", "setting_StopWhen");
+                        DrawSelectableWithIcon(FontAwesomeIcon.Stop, "Stop When...".Loc(), "setting_StopWhen");
                     if (C.Show_GatheringProfile)
-                        DrawSelectableWithIcon(FontAwesomeIcon.Leaf, "Gathering Profile", "setting_GatheringProfile");
+                        DrawSelectableWithIcon(FontAwesomeIcon.Leaf, "Gathering Profile".Loc(), "setting_GatheringProfile");
                     if (C.Show_MissionPriority)
-                        DrawSelectableWithIcon(FontAwesomeIcon.SortAmountUp, "Mission Priority", "setting_MissionPriority");
+                        DrawSelectableWithIcon(FontAwesomeIcon.SortAmountUp, "Mission Priority".Loc(), "setting_MissionPriority");
                     if (C.Show_MiscSettings)
-                        DrawSelectableWithIcon(FontAwesomeIcon.UserCog, "Misc Settings", "setting_Misc");
+                        DrawSelectableWithIcon(FontAwesomeIcon.UserCog, "Misc Settings".Loc(), "setting_Misc");
 
-                    DrawSelectableWithIcon(FontAwesomeIcon.Cog, "All Settings", "helpSelect_AllSettings");
+                    DrawSelectableWithIcon(FontAwesomeIcon.Cog, "All Settings".Loc(), "helpSelect_AllSettings");
                 }
                 if (C.Show_HubActivities)
                 {
-                    if (ImGui_Tools.DrawCategoryHeader_AutoSize("Hub Activities", icon: FontAwesomeIcon.Home))
+                    if (ImGui_Tools.DrawCategoryHeader_AutoSize("Hub Activities".Loc(), icon: FontAwesomeIcon.Home))
                     {
-                        DrawSelectableWithImage(65112, "Credit Shopping", "hubActivities_CreditShopping");
-                        DrawSelectableWithImage(65127, "Gambling Settings", "hubActivites_GambaSetting");
+                        DrawSelectableWithImage(65112, "Credit Shopping".Loc(), "hubActivities_CreditShopping");
+                        DrawSelectableWithImage(65127, "Gambling Settings".Loc(), "hubActivites_GambaSetting");
                     }
                 }
                 var currentJob = C.SelectedJob;
-                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Moon Selection", FontAwesomeIcon.Moon))
+                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Moon Selection".Loc(), FontAwesomeIcon.Moon))
                 {
                     string SinusAsset = "ICE.Resources.Sinus_Ardorum.png";
                     string PhaennaAsset = "ICE.Resources.Phaenna.png";
 
                     bool autoSelectMoon = C.AutoSelectMoon;
-                    if (ImGui.Checkbox("Auto Select Moon", ref autoSelectMoon))
+                    if (ImGui.Checkbox("Auto Select Moon".Loc() + "###ICEAutoSelectMoon", ref autoSelectMoon))
                     {
                         C.AutoSelectMoon = autoSelectMoon;
                         C.Save();
@@ -125,7 +125,7 @@ namespace ICE.Ui.MainUi
                     }
                     if (ImGui.IsItemHovered())
                     {
-                        ImGui.SetTooltip("Sinus Ardorum");
+                        ImGui.SetTooltip("Sinus Ardorum".Loc());
                     }
 
                     ImGui.SameLine();
@@ -140,7 +140,7 @@ namespace ICE.Ui.MainUi
                     }
                     if (ImGui.IsItemHovered())
                     {
-                        ImGui.SetTooltip("Phaenna");
+                        ImGui.SetTooltip("Phaenna".Loc());
                     }
                 }
                 if (C.AutoPickCurrentJob && (CosmicHelper.CrafterJobList.Contains(Player.JobId) || CosmicHelper.GatheringJobList.Contains(Player.JobId)) && C.SelectedJob != Player.JobId)
@@ -148,7 +148,7 @@ namespace ICE.Ui.MainUi
                     C.SelectedJob = Player.JobId;
                     C.Save();
                 }
-                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Class Selection", imageTexture: GreyscaleJob()))
+                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Class Selection".Loc(), imageTexture: GreyscaleJob()))
                 {
                     float iconSize = 26 * scale;
                     float iconSpacing = 4;
@@ -157,38 +157,38 @@ namespace ICE.Ui.MainUi
                     
                     ImGui.SetCursorPosX(startX);
                     bool autoSelectJob = C.AutoPickCurrentJob;
-                    if (ImGui.Checkbox("Auto Select##AutoSelectJob", ref autoSelectJob))
+                    if (ImGui.Checkbox("Auto Select".Loc() + "##AutoSelectJob", ref autoSelectJob))
                     {
                         C.AutoPickCurrentJob = autoSelectJob;
                         C.Save();
                     }
 
                     ImGui.SetCursorPosX(startX);
-                    ImGui_Tools.DrawJobButtons(8, "CRP");
+                    ImGui_Tools.DrawJobButtons(8, "CRP".Loc());
                     ImGui.SameLine(0, iconSpacing);
-                    ImGui_Tools.DrawJobButtons(9, "BSM");
+                    ImGui_Tools.DrawJobButtons(9, "BSM".Loc());
                     ImGui.SameLine(0, iconSpacing);
-                    ImGui_Tools.DrawJobButtons(10, "ARM");
+                    ImGui_Tools.DrawJobButtons(10, "ARM".Loc());
                     ImGui.SameLine(0, iconSpacing);
-                    ImGui_Tools.DrawJobButtons(11, "GSM");
+                    ImGui_Tools.DrawJobButtons(11, "GSM".Loc());
 
                     ImGui.SetCursorPosX(startX);
-                    ImGui_Tools.DrawJobButtons(12, "LTW");
+                    ImGui_Tools.DrawJobButtons(12, "LTW".Loc());
                     ImGui.SameLine(0, iconSpacing);
-                    ImGui_Tools.DrawJobButtons(13, "WVR");
+                    ImGui_Tools.DrawJobButtons(13, "WVR".Loc());
                     ImGui.SameLine(0, iconSpacing);
-                    ImGui_Tools.DrawJobButtons(14, "ALC");
+                    ImGui_Tools.DrawJobButtons(14, "ALC".Loc());
                     ImGui.SameLine(0, iconSpacing);
-                    ImGui_Tools.DrawJobButtons(15, "CUL");
+                    ImGui_Tools.DrawJobButtons(15, "CUL".Loc());
 
                     ImGui.SetCursorPosX(startX);
-                    ImGui_Tools.DrawJobButtons(16, "MIN");
+                    ImGui_Tools.DrawJobButtons(16, "MIN".Loc());
                     ImGui.SameLine(0, iconSpacing);
-                    ImGui_Tools.DrawJobButtons(17, "BTN");
+                    ImGui_Tools.DrawJobButtons(17, "BTN".Loc());
                     ImGui.SameLine(0, iconSpacing);
-                    ImGui_Tools.DrawJobButtons(18, "FSH");
+                    ImGui_Tools.DrawJobButtons(18, "FSH".Loc());
                 }
-                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Tool Relic XP", icon: FontAwesomeIcon.ArrowUpRightDots))
+                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Tool Relic XP".Loc(), icon: FontAwesomeIcon.ArrowUpRightDots))
                 {
                     if (PlayerHelper.IsInCosmicZone())
                     {
@@ -200,13 +200,13 @@ namespace ICE.Ui.MainUi
                     }
                     else
                     {
-                        ImGui.TextWrapped("You have to be in a cosmic area for us to view this info. Blame square for not making it always accesable");
+                        ImGui.TextWrapped("You have to be in a cosmic area for us to view this info. Blame square for not making it always accesable".Loc());
                     }
                 }
-                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Help", icon: FontAwesomeIcon.QuestionCircle))
+                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Help".Loc(), icon: FontAwesomeIcon.QuestionCircle))
                 {
-                    DrawSelectableWithIcon(FontAwesomeIcon.Question, "Requirements", "helpSelect_Requirements");
-                    DrawSelectableWithIcon(FontAwesomeIcon.Book, "Ice Logs", "helpSelect_Logs");
+                    DrawSelectableWithIcon(FontAwesomeIcon.Question, "Requirements".Loc(), "helpSelect_Requirements");
+                    DrawSelectableWithIcon(FontAwesomeIcon.Book, "Ice Logs".Loc(), "helpSelect_Logs");
                 }
             }
             ImGui.EndChild();

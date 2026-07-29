@@ -34,39 +34,39 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             PostMissionCommands();
             Separator();
 
-            ImGuiEx.IconWithText(FontAwesomeIcon.ExclamationTriangle, "Safety Settings");
+            ImGuiEx.IconWithText(FontAwesomeIcon.ExclamationTriangle, "Safety Settings".Loc());
             ImGui.Dummy(new Vector2(0, 5));
             SafetySettings.Draw();
         }
 
         private static void OverlaySettings()
         {
-            ImGuiEx.IconWithText(FontAwesomeIcon.WindowMaximize, "Overlay Window");
+            ImGuiEx.IconWithText(FontAwesomeIcon.WindowMaximize, "Overlay Window".Loc());
             ImGui.Dummy(new (0, 5));
 
             bool showOverlay = C.ShowOverlay;
-            if (ImGui.Checkbox("Show Overlay", ref showOverlay))
+            if (ImGui.Checkbox("Show Overlay".Loc() + "###ICEShowOverlay", ref showOverlay))
             {
                 C.ShowOverlay = showOverlay;
                 C.Save();
             }
 
             bool ShowSeconds = C.ShowSeconds;
-            if (ImGui.Checkbox("Show Seconds", ref ShowSeconds))
+            if (ImGui.Checkbox("Show Seconds".Loc() + "###ICEShowSeconds", ref ShowSeconds))
             {
                 C.ShowSeconds = ShowSeconds;
                 C.Save();
             }
 
             bool showExpOverlay = C.ShowExpBars;
-            if (ImGui.Checkbox("Show Experience Bars on Overlay", ref showExpOverlay))
+            if (ImGui.Checkbox("Show Experience Bars on Overlay".Loc() + "###ICEShowExpBars", ref showExpOverlay))
             {
                 C.ShowExpBars = showExpOverlay;
                 C.Save();
             }
 
             bool showTotalScore = C.ShowTotalScore;
-            if (ImGui.Checkbox("Show Total Score", ref showTotalScore))
+            if (ImGui.Checkbox("Show Total Score".Loc() + "###ICEShowTotalScore", ref showTotalScore))
             {
                 C.ShowTotalScore = showTotalScore;
                 C.Save();
@@ -76,25 +76,25 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
         private static void AutoUse()
         {
-            ImGuiEx.IconWithText(FontAwesomeIcon.PersonRays, "Auto-Use");
+            ImGuiEx.IconWithText(FontAwesomeIcon.PersonRays, "Auto-Use".Loc());
             ImGui.Dummy(new Vector2(0, 5));
 
             bool AutoMoonSprint = C.MoonSprint;
-            if (ImGui.Checkbox("Auto-Use Moon Sprint", ref AutoMoonSprint))
+            if (ImGui.Checkbox("Auto-Use Moon Sprint".Loc() + "###ICEAutoMoonSprint", ref AutoMoonSprint))
             {
                 C.MoonSprint = AutoMoonSprint;
                 C.Save();
             }
 
             bool DisableLunarAura = C.RemoveStellarStatus;
-            if (ImGui.Checkbox("Auto-Remove Stellar Status", ref DisableLunarAura))
+            if (ImGui.Checkbox("Auto-Remove Stellar Status".Loc() + "###ICEAutoRemoveStellarStatus", ref DisableLunarAura))
             {
                 C.RemoveStellarStatus = DisableLunarAura;
                 C.Save();
             }
 
             bool DisableRedAlertPathing = C.DisablePathfindingToRedAlert;
-            if (ImGui.Checkbox("Disable Pathfinding to Red Alerts", ref DisableRedAlertPathing))
+            if (ImGui.Checkbox("Disable Pathfinding to Red Alerts".Loc() + "###ICEDisableRedAlertPathing", ref DisableRedAlertPathing))
             {
                 C.DisablePathfindingToRedAlert = DisableRedAlertPathing;
                 C.Save();
@@ -103,11 +103,11 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
         private static void RepairSettings()
         {
-            ImGuiEx.IconWithText(FontAwesomeIcon.Hammer, "Repair Settings");
+            ImGuiEx.IconWithText(FontAwesomeIcon.Hammer, "Repair Settings".Loc());
             ImGui.Dummy(new Vector2(0, 5));
 
             bool repairAtVendor = C.RepairAtVendor;
-            if (ImGui.Checkbox("Repair at Vendor", ref repairAtVendor))
+            if (ImGui.Checkbox("Repair at Vendor".Loc() + "###ICERepairAtVendor", ref repairAtVendor))
             {
                 C.RepairAtVendor = repairAtVendor;
                 C.Save();
@@ -116,14 +116,14 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             using (ImRaii.Disabled(repairAtVendor))
             {
                 bool selfRepairGather = C.SelfRepairGather;
-                if (ImGui.Checkbox("Self Repair Gather", ref selfRepairGather))
+                if (ImGui.Checkbox("Self Repair Gather".Loc() + "###ICESelfRepairGather", ref selfRepairGather))
                 {
                     C.SelfRepairGather = selfRepairGather;
                     C.Save();
                 }
 
                 bool selfRepairCrafter = C.SelfRepairCrafter;
-                if (ImGui.Checkbox("Self Repair Crafter", ref selfRepairCrafter))
+                if (ImGui.Checkbox("Self Repair Crafter".Loc() + "###ICESelfRepairCrafter", ref selfRepairCrafter))
                 {
                     C.SelfRepairCrafter= selfRepairCrafter;
                     C.Save();
@@ -144,12 +144,12 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
         private static void TimeRecords()
         {
-            ImGuiEx.IconWithText(FontAwesomeIcon.Clock, "Record Settings");
+            ImGuiEx.IconWithText(FontAwesomeIcon.Clock, "Record Settings".Loc());
             ImGui.Dummy(new Vector2(0, 5));
 
             int TimeHistory = C.TimeHistoryLimit;
             ImGui.SetNextItemWidth(100);
-            if (ImGui.InputInt("Average Time History to keep", ref TimeHistory))
+            if (ImGui.InputInt("Average Time History to keep".Loc() + "###ICETimeHistoryLimit", ref TimeHistory))
             {
                 C.TimeHistoryLimit = TimeHistory;
                 C.Save();
@@ -158,8 +158,8 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             ImGui.TextDisabled("?");
             if (ImGui.IsItemHovered())
             {
-                ImGui.SetTooltip("Anything below 0 to keep all logs\n" +
-                                 "Above 0 to keep a set limit");
+                ImGui.SetTooltip(("Anything below 0 to keep all logs\n" +
+                                 "Above 0 to keep a set limit").Loc());
             }
         }
 
@@ -178,10 +178,10 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             float minMountRange = C.MountRadius;
             float dismountRange = C.DismountRadius;
 
-            ImGuiEx.IconWithText(FontAwesomeIcon.Feather, "Mount Settings");
+            ImGuiEx.IconWithText(FontAwesomeIcon.Feather, "Mount Settings".Loc());
             ImGui.Dummy(new Vector2(0, 5));
 
-            if (ImGui.Button("Select Mounting Option"))
+            if (ImGui.Button("Select Mounting Option".Loc() + "###ICESelectMountingOption"))
             {
                 availableMounts.Clear();
                 availableMounts[0] = "Mount Roulette";
@@ -206,12 +206,12 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             }
             ImGui.SameLine();
             ImGui.AlignTextToFramePadding();
-            ImGui.Text($"Mount: {C.MountName}");
+            ImGui.Text("Mount: ??".Loc(C.MountName.Loc()));
 
             if (ImGui.BeginPopup("Mount Options"))
             {
                 // Search box
-                ImGui.InputText("Search", ref mountSearchText, 100);
+                ImGui.InputText("Search".Loc() + "###ICEMountSearch", ref mountSearchText, 100);
 
                 // Filter mounts based on search
                 var filteredMounts = availableMounts
@@ -231,7 +231,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
                 foreach (var mount in displayMounts)
                 {
-                    if (ImGui.Selectable($"{mount.Value}##{mount.Key}"))
+                    if (ImGui.Selectable($"{mount.Value.Loc()}##{mount.Key}"))
                     {
                         C.MountId = mount.Key;
                         C.MountName = mount.Value;
@@ -243,16 +243,16 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 // Navigation buttons
                 ImGui.Separator();
 
-                if (ImGui.Button("Previous") && mountDisplayOffset > 0)
+                if (ImGui.Button("Previous".Loc() + "###ICEMountPrev") && mountDisplayOffset > 0)
                 {
                     mountDisplayOffset = Math.Max(0, mountDisplayOffset - mountItemsPerPage);
                 }
 
                 ImGui.SameLine();
-                ImGui.Text($"{mountDisplayOffset + 1}-{Math.Min(mountDisplayOffset + mountItemsPerPage, totalItems)} of {totalItems}");
+                ImGui.Text("??-?? of ??".Loc(mountDisplayOffset + 1, Math.Min(mountDisplayOffset + mountItemsPerPage, totalItems), totalItems));
 
                 ImGui.SameLine();
-                if (ImGui.Button("Next") && mountDisplayOffset < maxOffset)
+                if (ImGui.Button("Next".Loc() + "###ICEMountNext") && mountDisplayOffset < maxOffset)
                 {
                     mountDisplayOffset = Math.Min(maxOffset, mountDisplayOffset + mountItemsPerPage);
                 }
@@ -260,34 +260,34 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 ImGui.EndPopup();
             }
 
-            if (ImGui.Checkbox("Use mount outside mission", ref mountOutsideMission))
+            if (ImGui.Checkbox("Use mount outside mission".Loc() + "###ICEUseMountOutsideMission", ref mountOutsideMission))
             {
                 C.UseMountOutsideMission = mountOutsideMission;
                 C.Save();
             }
 
-            if (ImGui.Checkbox("Use mount in mission", ref mountInMission))
+            if (ImGui.Checkbox("Use mount in mission".Loc() + "###ICEUseMountInMission", ref mountInMission))
             {
                 C.UseMountInMission = mountInMission;
                 C.Save();
             }
 
             ImGui.SetNextItemWidth(100);
-            if (ImGui.DragFloat("Minimum Mounting Range", ref minMountRange, 1))
+            if (ImGui.DragFloat("Minimum Mounting Range".Loc() + "###ICEMinMountRange", ref minMountRange, 1))
             {
                 C.MountRadius = minMountRange;
                 C.Save();
             }
             ImGui.SameLine();
-            ImGui.Checkbox("Visualize radius", ref visualizeRadius);
+            ImGui.Checkbox("Visualize radius".Loc() + "###ICEVisualizeMountRadius", ref visualizeRadius);
             ImGui.SetNextItemWidth(100);
-            if (ImGui.DragFloat("Dismount Target Range", ref dismountRange, 1))
+            if (ImGui.DragFloat("Dismount Target Range".Loc() + "###ICEDismountRange", ref dismountRange, 1))
             {
                 C.DismountRadius = dismountRange;
                 C.Save();
             }
             ImGui.SameLine();
-            ImGui.Checkbox("Visualize Dismount Radius", ref visualizeDismountRadius);
+            ImGui.Checkbox("Visualize Dismount Radius".Loc() + "###ICEVisualizeDismountRadius", ref visualizeDismountRadius);
 
             using (var drawList = PictoService.Draw())
             {
@@ -305,39 +305,39 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
         private static void ShowSystemButtons()
         {
-            ImGuiEx.IconWithText(FontAwesomeIcon.WindowRestore, "Show / Hide Tabs");
+            ImGuiEx.IconWithText(FontAwesomeIcon.WindowRestore, "Show / Hide Tabs".Loc());
             ImGui.Dummy(new(0, 5));
 
             bool showStopWhen = C.Show_StopWhen;
-            if (ImGui.Checkbox("Show Stop When... Tab", ref showStopWhen))
+            if (ImGui.Checkbox("Show Stop When... Tab".Loc() + "###ICEShowStopWhenTab", ref showStopWhen))
             {
                 C.Show_StopWhen = showStopWhen;
                 C.Save();
             }
 
             bool showGProfile = C.Show_GatheringProfile;
-            if (ImGui.Checkbox("Show Gathering Profile Tab", ref showGProfile))
+            if (ImGui.Checkbox("Show Gathering Profile Tab".Loc() + "###ICEShowGatheringProfileTab", ref showGProfile))
             {
                 C.Show_GatheringProfile = showGProfile;
                 C.Save();
             }
 
             bool showMissionPrio = C.Show_MissionPriority;
-            if (ImGui.Checkbox("Show Mission Priority Tab", ref showMissionPrio))
+            if (ImGui.Checkbox("Show Mission Priority Tab".Loc() + "###ICEShowMissionPriorityTab", ref showMissionPrio))
             {
                 C.Show_MissionPriority = showMissionPrio;
                 C.Save();
             }
 
             bool showMisc = C.Show_MiscSettings;
-            if (ImGui.Checkbox("Show Misc Settings Tab", ref showMisc))
+            if (ImGui.Checkbox("Show Misc Settings Tab".Loc() + "###ICEShowMiscSettingsTab", ref showMisc))
             {
                 C.Show_MiscSettings = showMisc;
                 C.Save();
             }
 
             bool showHubActivities = C.Show_HubActivities;
-            if (ImGui.Checkbox("Show Hub Activities Section", ref showHubActivities))
+            if (ImGui.Checkbox("Show Hub Activities Section".Loc() + "###ICEShowHubActivitiesSection", ref showHubActivities))
             {
                 C.Show_HubActivities = showHubActivities;
                 C.Save();
@@ -345,14 +345,14 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
         }
         private static void PostMissionCommands()
         {
-            ImGuiEx.IconWithText(FontAwesomeIcon.Play, "Post Mission Commands");
+            ImGuiEx.IconWithText(FontAwesomeIcon.Play, "Post Mission Commands".Loc());
             ImGui.Dummy(new Vector2(0, 5));
 
-            ImGui.TextWrapped("Input below a list of commands that you would like to run after a run has been completed. \n" +
+            ImGui.TextWrapped(("Input below a list of commands that you would like to run after a run has been completed. \n" +
                               "This is kind of my way of letting you somewhat script/set up a sequence of other things that you would like to do that might not be included in the plugin itself. \n" +
-                              "If you want something more complex, just make an SND script at that point. And have this run that script post lol.");
+                              "If you want something more complex, just make an SND script at that point. And have this run that script post lol.").Loc());
 
-            if (ImGui.Button("Add New Command"))
+            if (ImGui.Button("Add New Command".Loc() + "###ICEAddNewCommand"))
             {
                 C.PostMissionCommands.Add(new Config.MissionCommand 
                 { 
@@ -367,9 +367,9 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
             if (ImGui.BeginTable("Mission Commands", 3, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.Borders))
             {
-                ImGui.TableSetupColumn("Command");
-                ImGui.TableSetupColumn("Delay");
-                ImGui.TableSetupColumn("Remove");
+                ImGui.TableSetupColumn("Command".Loc());
+                ImGui.TableSetupColumn("Delay".Loc());
+                ImGui.TableSetupColumn("Remove".Loc());
 
                 ImGui.TableHeadersRow();
 

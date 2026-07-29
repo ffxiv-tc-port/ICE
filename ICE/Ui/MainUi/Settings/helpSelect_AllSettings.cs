@@ -18,12 +18,12 @@ namespace ICE.Ui.MainUi.Settings
         {
             ImGui.BeginChild("##tab_scroll", new Vector2(0, ImGui.GetTextLineHeight() + 16), false, ImGuiWindowFlags.HorizontalScrollbar);
 
-            DrawCategoryTab("Gathering Profile", "settings_GatheringProfile", FontAwesomeIcon.Leaf);
-            DrawCategoryTab("Cosmocredit Shopping", "settings_CosmoShopping", textureId: 65112);
-            DrawCategoryTab("Cosmowheel", "settings_CosmoWheel", textureId: 65127);
-            DrawCategoryTab("Stop When...", "settings_StopWhen", FontAwesomeIcon.Stop);
-            DrawCategoryTab("Mission Priority", "settings_MissionPrio", FontAwesomeIcon.SortAmountUp);
-            DrawCategoryTab("Misc", "settings_Misc", icon: FontAwesomeIcon.Cog);
+            DrawCategoryTab("Gathering Profile".Loc(), "settings_GatheringProfile", FontAwesomeIcon.Leaf);
+            DrawCategoryTab("Cosmocredit Shopping".Loc(), "settings_CosmoShopping", textureId: 65112);
+            DrawCategoryTab("Cosmowheel".Loc(), "settings_CosmoWheel", textureId: 65127);
+            DrawCategoryTab("Stop When...".Loc(), "settings_StopWhen", FontAwesomeIcon.Stop);
+            DrawCategoryTab("Mission Priority".Loc(), "settings_MissionPrio", FontAwesomeIcon.SortAmountUp);
+            DrawCategoryTab("Misc".Loc(), "settings_Misc", icon: FontAwesomeIcon.Cog);
             EndCategoryButtonRow();
 
             ImGui.EndChild();

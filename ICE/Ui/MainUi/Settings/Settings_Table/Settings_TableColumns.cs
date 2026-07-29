@@ -10,12 +10,12 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table;
 
 public static class Settings_TableColumns
 {
-    private static string[] missionSortOptions = ["Id", "Name", "Cosmo Credits", "Lunar Credits", "Exp I", "Exp II", "Exp III", "Exp IV", "Exp V", "Map Location", "Class Score"];
+    private static string[] missionSortOptions => ["Id", "Name".Loc(), "Cosmo Credits".Loc(), "Lunar Credits".Loc(), "Exp I".Loc(), "Exp II".Loc(), "Exp III".Loc(), "Exp IV".Loc(), "Exp V".Loc(), "Map Location".Loc(), "Class Score".Loc()];
 
     public static void ColumnSettings()
     {
         int missionSelectedOption = C.TableSortOption;
-        if (ImGui.BeginCombo("Sort By", missionSortOptions[missionSelectedOption]))
+        if (ImGui.BeginCombo("Sort By".Loc() + "###ICETableSortOption", missionSortOptions[missionSelectedOption]))
         {
             for (int i = 0; i < missionSortOptions.Length; i++)
             {
@@ -38,21 +38,21 @@ public static class Settings_TableColumns
         }
 
         bool hideUnsupported = C.HideUnsupportedMissions;
-        if (ImGui.Checkbox("Hide Unsupported Missions", ref hideUnsupported))
+        if (ImGui.Checkbox("Hide Unsupported Missions".Loc() + "###ICEHideUnsupportedMissions", ref hideUnsupported))
         {
             C.HideUnsupportedMissions = hideUnsupported;
             C.Save();
         }
 
         bool showExtraInfo = C.ShowExtraMissionInfo;
-        if (ImGui.Checkbox("Show Extra Mission Info Side-Window", ref showExtraInfo))
+        if (ImGui.Checkbox("Show Extra Mission Info Side-Window".Loc() + "###ICEShowExtraMissionInfo", ref showExtraInfo))
         {
             C.ShowExtraMissionInfo = showExtraInfo;
             C.Save();
         }
 
         bool autoShowToken = C.Auto_ShowTokens;
-        if (ImGui.Checkbox("Auto Hide/Show Planet Tokens", ref autoShowToken))
+        if (ImGui.Checkbox("Auto Hide/Show Planet Tokens".Loc() + "###ICEAutoShowTokens", ref autoShowToken))
         {
             C.Auto_ShowTokens = autoShowToken;
             C.Save();
@@ -61,7 +61,7 @@ public static class Settings_TableColumns
 
 
         bool showManualMode = C.ShowManualMode;
-        if (ImGui.Checkbox("Show Manual Mode Column", ref showManualMode))
+        if (ImGui.Checkbox("Show Manual Mode Column".Loc() + "###ICEShowManualMode", ref showManualMode))
         {
             C.ShowManualMode = showManualMode;
             if (!showManualMode)
@@ -73,8 +73,8 @@ public static class Settings_TableColumns
             }
             C.Save();
         }
-        ImGuiEx.HelpMarker("Only enable this if you want plan on doing missions YOURSELF. AND NOT AUTOMATING IT. " +
-                           "Or if you're letting a different plugin do all the automating of turning in, craftings, gathering... and not letting I.C.E. handle interacting with those plugins");
+        ImGuiEx.HelpMarker(("Only enable this if you want plan on doing missions YOURSELF. AND NOT AUTOMATING IT. " +
+                           "Or if you're letting a different plugin do all the automating of turning in, craftings, gathering... and not letting I.C.E. handle interacting with those plugins").Loc());
     }
 
     private static bool ApplyToAllClasses = true;
@@ -82,19 +82,19 @@ public static class Settings_TableColumns
     private static int SpecificClass = 8;
     private static int selectedClassIndex = 0;
 
-    private static readonly string[] classOptions = new[]
+    private static string[] classOptions => new[]
     {
-        "Carpenter (CRP)",      // 0
-        "Blacksmith (BSM)",     // 1
-        "Armorer (ARM)",        // 2
-        "Goldsmith (GSM)",      // 3
-        "Leatherworker (LTW)",  // 4
-        "Weaver (WVR)",         // 5
-        "Alchemist (ALC)",      // 6
-        "Culinarian (CUL)",     // 7
-        "Miner (MIN)",          // 8
-        "Botanist (BTN)",       // 9
-        "Fisher (FSH)"          // 10
+        "Carpenter (CRP)".Loc(),      // 0
+        "Blacksmith (BSM)".Loc(),     // 1
+        "Armorer (ARM)".Loc(),        // 2
+        "Goldsmith (GSM)".Loc(),      // 3
+        "Leatherworker (LTW)".Loc(),  // 4
+        "Weaver (WVR)".Loc(),         // 5
+        "Alchemist (ALC)".Loc(),      // 6
+        "Culinarian (CUL)".Loc(),     // 7
+        "Miner (MIN)".Loc(),          // 8
+        "Botanist (BTN)".Loc(),       // 9
+        "Fisher (FSH)".Loc()          // 10
     };
 
     private static readonly int[] classIds = new[]
@@ -120,22 +120,22 @@ public static class Settings_TableColumns
     public static void GeneralMissionSettings()
     {
         bool onlyGrabMission = C.OnlyGrabMission;
-        if (ImGui.Checkbox($"Only grab mission", ref onlyGrabMission))
+        if (ImGui.Checkbox("Only grab mission".Loc() + "###ICEOnlyGrabMission", ref onlyGrabMission))
         {
             C.OnlyGrabMission = onlyGrabMission;
             C.Save();
         }
 
         bool removeGold = C.RemoveAfterGold;
-        if (ImGui.Checkbox("Remove Mission Upon Gold Completion", ref removeGold))
+        if (ImGui.Checkbox("Remove Mission Upon Gold Completion".Loc() + "###ICERemoveAfterGold", ref removeGold))
         {
             C.RemoveAfterGold = removeGold;
             C.Save();
         }
 
-        ImGui.Checkbox("Stop after current mission", ref Mission_Settings.StopAfterCurrent);
+        ImGui.Checkbox("Stop after current mission".Loc() + "###ICEGeneralStopAfterCurrent", ref Mission_Settings.StopAfterCurrent);
         bool relicTurnin = C.TurninRelic;
-        if (ImGui.Checkbox($"Turnin if relic is complete##RelicTurnin_GeneralSetting", ref relicTurnin))
+        if (ImGui.Checkbox("Turnin if relic is complete".Loc() + "##RelicTurnin_GeneralSetting", ref relicTurnin))
         {
             if (relicTurnin)
                 C.GrindProvisionals = false;
@@ -147,28 +147,28 @@ public static class Settings_TableColumns
         ImGui.TextDisabled("?");
         if (ImGui.IsItemHovered())
         {
-            ImGui.SetTooltip("THIS IS YOUR HEADS UP ON HOW THIS WORKS. If I change this in the future, this tooltip will also change.\n" +
+            ImGui.SetTooltip(("THIS IS YOUR HEADS UP ON HOW THIS WORKS. If I change this in the future, this tooltip will also change.\n" +
                              "1: This will check for your current CLASS [not menu class, actual current class] for relic turnin.\n" +
                              "2: You must not have the tool eqipped for this to run full auto. \n" +
                              "\t- This is due to the fact that I cba coding this in at this time. (might change my mind in the future *shrugs*)\n" +
                              "3: This will take prio over \"Stop @ Relic Turnin\", in the sense that if you have both enabled, it will turnin vs stop. And continue about it's day\n" +
                              "4: If you're on a crafting class, it will return you back to the stop you were crafting post turnin. \n" +
-                             "\t- This is optional, you can disable it at your own free will, I just like this so I can just go back to an isolated area of my choosing");
+                             "\t- This is optional, you can disable it at your own free will, I just like this so I can just go back to an isolated area of my choosing").Loc());
         }
-        if (ImGui.Button("Quick Apply Turnins"))
+        if (ImGui.Button("Quick Apply Turnins".Loc() + "###ICEQuickApplyTurnins"))
         {
             ImGui.OpenPopup("Quick Apply_Mission Turnins");
         }
 
         if (ImGui.BeginPopup("Quick Apply_Mission Turnins"))
         {
-            if (ImGui.RadioButton("Apply to all classes", ApplyToAllClasses))
+            if (ImGui.RadioButton("Apply to all classes".Loc() + "###ICEApplyToAllClasses", ApplyToAllClasses))
             {
                 ApplyToAllClasses = true;
                 ApplyToSpecicClass = false;
             }
 
-            if (ImGui.RadioButton("Apply to specific class", ApplyToSpecicClass))
+            if (ImGui.RadioButton("Apply to specific class".Loc() + "###ICEApplyToSpecificClass", ApplyToSpecicClass))
             {
                 ApplyToAllClasses = false;
                 ApplyToSpecicClass = true;
@@ -180,10 +180,10 @@ public static class Settings_TableColumns
                 IceLogging.Debug($"Selected class: {classOptions[selectedClassIndex]}, ID: {SpecificClass}");
             }
             ImGui.Separator();
-            ImGui.Text("Select Turnin Options");
+            ImGui.Text("Select Turnin Options".Loc());
             ImGui.Dummy(new Vector2(0, 2));
 
-            if (ImGui.Checkbox("Auto", ref AnyTurnin))
+            if (ImGui.Checkbox("Auto".Loc() + "###ICEQuickTurninAuto", ref AnyTurnin))
             {
                 if (AnyTurnin)
                 {
@@ -203,23 +203,23 @@ public static class Settings_TableColumns
 
                 C.Save();
             }
-            ImGuiEx.HelpMarker("This option will strive to get the best result, but will turn in any result if necessary without stopping.");
+            ImGuiEx.HelpMarker("This option will strive to get the best result, but will turn in any result if necessary without stopping.".Loc());
 
             ImGui.Separator();
 
-            if (ImGui.Checkbox("Gold", ref TurninGold))
+            if (ImGui.Checkbox("Gold".Loc() + "###ICEQuickTurninGold", ref TurninGold))
             {
                 if (AnyTurnin && TurninGold)
                     AnyTurnin = false;
 
             }
-            if (ImGui.Checkbox("Silver", ref TurninSilver))
+            if (ImGui.Checkbox("Silver".Loc() + "###ICEQuickTurninSilver", ref TurninSilver))
             {
                 if (AnyTurnin && TurninSilver)
                     AnyTurnin = false;
 
             }
-            if (ImGui.Checkbox("Bronze", ref TurninBronze))
+            if (ImGui.Checkbox("Bronze".Loc() + "###ICEQuickTurninBronze", ref TurninBronze))
             {
                 if (AnyTurnin && TurninBronze)
                     AnyTurnin = false;
@@ -231,7 +231,7 @@ public static class Settings_TableColumns
 
             ImGui.Separator();
 
-            if (ImGui.Button("Apply"))
+            if (ImGui.Button("Apply".Loc() + "###ICEQuickApplyConfirm"))
             {
                 var amountApplied = 0;
                 foreach (var mission in C.MissionConfig)
@@ -256,7 +256,7 @@ public static class Settings_TableColumns
                 }
                 C.SaveDebounced();
 
-                Notify.Success($"Applied settings to: {amountApplied} missions, just for you buddy.");
+                Notify.Success("Applied settings to: ?? missions, just for you buddy.".Loc(amountApplied));
                 ImGui.CloseCurrentPopup();
             }
 

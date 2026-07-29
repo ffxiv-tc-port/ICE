@@ -15,7 +15,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
         {
             bool BuyItems = C.BuyItems;
 
-            if (ImGui.Checkbox("Buy Items", ref BuyItems))
+            if (ImGui.Checkbox("Buy Items".Loc() + "###ICEBuyItems", ref BuyItems))
             {
                 C.BuyItems = BuyItems;
                 C.StopOnceHitCosmoCredits = false;
@@ -24,7 +24,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
             int buyAtAmount = C.CosmoBuyAtAmount;
             ImGui.SetNextItemWidth(150);
-            if (ImGui.InputInt("Go buy items when you reach", ref buyAtAmount, 1))
+            if (ImGui.InputInt("Go buy items when you reach".Loc() + "###ICECosmoBuyAtAmount", ref buyAtAmount, 1))
             {
                 if (buyAtAmount < 0)
                     buyAtAmount = 0;
@@ -37,14 +37,14 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             CheckConfigState();
             if (Task_BuyCosmoItems.CanPurchaseAnyItem())
             {
-                ImGui.Text("You can buy cosmocredit items from the list!");
+                ImGui.Text("You can buy cosmocredit items from the list!".Loc());
             }
             else
             {
-                ImGui.Text("You can't buy any items with your current credit value/items (tis fine, this just a test)");
+                ImGui.Text("You can't buy any items with your current credit value/items (tis fine, this just a test)".Loc());
             }
 
-            if (ImGui.Button("Add Items to List"))
+            if (ImGui.Button("Add Items to List".Loc() + "###ICEAddItemsToList"))
             {
                 ImGui.OpenPopup("CosmocreditMateriaPopup");
             }
@@ -99,20 +99,20 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 ImGui.EndPopup();
             }
 
-            ImGui.Text($"Order Count {C.CosmoShoppingOrder.Count}");
+            ImGui.Text("Order Count ??".Loc(C.CosmoShoppingOrder.Count));
 
             if (ImGui.BeginTable("Current Shopping List", 10, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders))
             {
-                ImGui.TableSetupColumn("Up");
-                ImGui.TableSetupColumn("Down");
-                ImGui.TableSetupColumn("Name");
-                ImGui.TableSetupColumn("Have");
-                ImGui.TableSetupColumn("Cost");
-                ImGui.TableSetupColumn("Kind");
-                ImGui.TableSetupColumn("Keep");
-                ImGui.TableSetupColumn("Buy");
-                ImGui.TableSetupColumn("Keep Buying");
-                ImGui.TableSetupColumn("Remove");
+                ImGui.TableSetupColumn("Up".Loc());
+                ImGui.TableSetupColumn("Down".Loc());
+                ImGui.TableSetupColumn("Name".Loc());
+                ImGui.TableSetupColumn("Have".Loc());
+                ImGui.TableSetupColumn("Cost".Loc());
+                ImGui.TableSetupColumn("Kind".Loc());
+                ImGui.TableSetupColumn("Keep".Loc());
+                ImGui.TableSetupColumn("Buy".Loc());
+                ImGui.TableSetupColumn("Keep Buying".Loc());
+                ImGui.TableSetupColumn("Remove".Loc());
 
                 ImGui.TableHeadersRow();
 
@@ -165,7 +165,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
                     // Kind (you can add logic for this)
                     ImGui.TableNextColumn();
-                    ImGui.Text("Material"); // Replace with actual kind logic
+                    ImGui.Text("Material".Loc()); // Replace with actual kind logic
 
                     // Keep Amount
                     ImGui.TableNextColumn();

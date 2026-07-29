@@ -65,6 +65,7 @@ public sealed partial class ICE : IDalamudPlugin
     {
         P = this;
         ECommonsMain.Init(pi, P, Module.DalamudReflector, ECommons.Module.ObjectFunctions);
+        ECommons.LanguageHelpers.Localization.Init("ChineseTraditional");
         PictoService.Initialize(pi);
 
         EzConfig.Migrate<Configuration>();
@@ -95,9 +96,9 @@ public sealed partial class ICE : IDalamudPlugin
             /ice clear - removes all missions
             /ice stop - stops ICE
             /ice start - Starts ICE
-            /ice add | remove | toggle | only 
+            /ice add | remove | toggle | only
             /ice flag [id] - Opens the map and marks where the area of gathering is.
-            """);
+            """.Loc());
         EzCmd.Add("/ice", OnCommand);
         EzCmd.Add("/IceCosmic", OnCommand);
         Init();
@@ -279,20 +280,20 @@ public sealed partial class ICE : IDalamudPlugin
         }
         else if (firstArg.ToLower() == "help")
         {
-            string helpMessage = $"- - ICE Commands Help - - \n" +
-                                 $"/ice help - show all available commands\n" +
-                                 $"/ice -> opens the main settings\n" +
-                                 $"/ice s -> opens the settings menu\n" +
-                                 $" - - - Mission specific - - - \n" +
-                                 $"/ice stop - Stops ICE\n" +
-                                 $"/ice start - starts ICE \n" +
-                                 $"The rest of the commands work by doing a single id/multiple in a row \n" +
-                                 $"EX. /ice add 10 155 185\n" +
-                                 $"/ice add (ids) - enables select missions\n" +
-                                 $"/ice remove (ids) - removes/disables select missions\n" +
-                                 $"/ice toggle (ids) - toggles select mission ids" +
-                                 $"/ice only (ids) - makes only select missions enabled" +
-                                 $"/ice flag (id) - opens the map and flags the mission (if it has one).\n";
+            string helpMessage = ("- - ICE Commands Help - - \n" +
+                                 "/ice help - show all available commands\n" +
+                                 "/ice -> opens the main settings\n" +
+                                 "/ice s -> opens the settings menu\n" +
+                                 " - - - Mission specific - - - \n" +
+                                 "/ice stop - Stops ICE\n" +
+                                 "/ice start - starts ICE \n" +
+                                 "The rest of the commands work by doing a single id/multiple in a row \n" +
+                                 "EX. /ice add 10 155 185\n" +
+                                 "/ice add (ids) - enables select missions\n" +
+                                 "/ice remove (ids) - removes/disables select missions\n" +
+                                 "/ice toggle (ids) - toggles select mission ids" +
+                                 "/ice only (ids) - makes only select missions enabled" +
+                                 "/ice flag (id) - opens the map and flags the mission (if it has one).\n").Loc();
             Svc.Chat.Print(helpMessage);
         }
     }

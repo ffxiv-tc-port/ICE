@@ -13,22 +13,22 @@ namespace ICE.Ui.MainUi.HelpFolder
     {
         public static void Draw()
         {
-            ImGui.TextWrapped("These are a list of the following plugins that are required for the plugin to function. If you don't have these installed, it will not function properly");
+            ImGui.TextWrapped("These are a list of the following plugins that are required for the plugin to function. If you don't have these installed, it will not function properly".Loc());
 
             ImGui.Separator();
-            ImGuiEx.IconWithText(FontAwesomeIcon.Hammer, "Crafting");
+            ImGuiEx.IconWithText(FontAwesomeIcon.Hammer, "Crafting".Loc());
             HasPlugin("https://love.puni.sh/ment.json", "Artisan");
 
             ImGui.Separator();
-            ImGuiEx.IconWithText(FontAwesomeIcon.Feather, "Gathering");
-            ImGui.Text("For botanist/miner/fisher");
+            ImGuiEx.IconWithText(FontAwesomeIcon.Feather, "Gathering".Loc());
+            ImGui.Text("For botanist/miner/fisher".Loc());
             HasPlugin("https://puni.sh/api/repository/veyn", "vnavmesh");
             ImGui.Dummy(new Vector2(0, 10));
-            ImGui.Text("For fisher only");
+            ImGui.Text("For fisher only".Loc());
             HasPlugin("https://love.puni.sh/ment.json", "AutoHook");
 
             ImGui.Separator();
-            ImGuiEx.IconWithText(FontAwesomeIcon.Running, "Automating Hub Activities");
+            ImGuiEx.IconWithText(FontAwesomeIcon.Running, "Automating Hub Activities".Loc());
             HasPlugin("https://puni.sh/api/repository/veyn", "vnavmesh");
         }
 
@@ -39,13 +39,13 @@ namespace ICE.Ui.MainUi.HelpFolder
             {
                 FontAwesome.Print(EColor.Green, FontAwesome.Check);
                 ImGui.SameLine();
-                ImGui.Text($"{pluginName} Repo is Installed");
+                ImGui.Text("?? Repo is Installed".Loc(pluginName));
             }
             else
             {
                 FontAwesome.Print(EColor.Red, FontAwesome.Cross);
                 ImGui.SameLine();
-                if (ImGui.Button($"Install {pluginName} Repo"))
+                if (ImGui.Button("Install ?? Repo".Loc(pluginName) + $"###ICEInstallRepo_{pluginName}"))
                 {
                     DalamudReflector.AddRepo(repo, true);
                     DalamudReflector.SaveDalamudConfig();
@@ -58,7 +58,7 @@ namespace ICE.Ui.MainUi.HelpFolder
             {
                 FontAwesome.Print(EColor.Green, FontAwesome.Check);
                 ImGui.SameLine();
-                ImGui.Text($"{pluginName} is installed");
+                ImGui.Text("?? is installed".Loc(pluginName));
             }
             else
             {
@@ -66,7 +66,7 @@ namespace ICE.Ui.MainUi.HelpFolder
                 ImGui.SameLine();
                 using (ImRaii.Disabled(installingPlugin))
                 {
-                    if (ImGui.Button($"Install {pluginName}"))
+                    if (ImGui.Button("Install ??".Loc(pluginName) + $"###ICEInstallPlugin_{pluginName}"))
                     {
                         _ = InstallPlugin(repo, pluginName);
                     }

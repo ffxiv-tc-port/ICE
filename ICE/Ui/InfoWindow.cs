@@ -16,7 +16,7 @@ namespace ICE.Ui
 {
     internal class InfoWindow : Window
     {
-        public InfoWindow() : base($"Ice's Cosmic Exploration - Info")
+        public InfoWindow() : base("Ice's Cosmic Exploration - Info".Loc() + "###ICEInfoWindow")
         {
             Flags = ImGuiWindowFlags.None;
             SizeConstraints = new()
@@ -39,23 +39,23 @@ namespace ICE.Ui
 
         public override void Draw()
         {
-            ImGui.Text("Hi! Welcome to Ice's Cosmic Exploration [Short form, I.C.E.]");
+            ImGui.Text("Hi! Welcome to Ice's Cosmic Exploration [Short form, I.C.E.]".Loc());
             ImGui.Bullet();
-            ImGui.TextWrapped("This plugin is meant to help you with your cosmic exploration needs, " +
-                              "from automating the gathering and crafting process, to the buying of shop items or spending those planetary credits away.");
+            ImGui.TextWrapped(("This plugin is meant to help you with your cosmic exploration needs, " +
+                              "from automating the gathering and crafting process, to the buying of shop items or spending those planetary credits away.").Loc());
 
             helpSelect_Required.Draw();
 
             ImGui.Separator();
 
-            ImGuiEx.IconWithText(FontAwesomeIcon.Feather, "Gathering Setup");
+            ImGuiEx.IconWithText(FontAwesomeIcon.Feather, "Gathering Setup".Loc());
             ImGui.Dummy(new Vector2(0, 5));
 
-            ImGui.Text("If you would like to auto setup gathering to where all missions have their gathering buffs to what I would recommend");
+            ImGui.Text("If you would like to auto setup gathering to where all missions have their gathering buffs to what I would recommend".Loc());
 
             if (!HasGatheringSetup)
             {
-                if (ImGui.Button("Setup Gathering Profiles"))
+                if (ImGui.Button("Setup Gathering Profiles".Loc() + "###ICESetupGatheringProfiles"))
                 {
                     foreach (var profile in C.GatherProfiles)
                     {
@@ -95,7 +95,7 @@ namespace ICE.Ui
             }
             else
             {
-                ImGui.Text("All gathering profile have been updated/automatically applied");
+                ImGui.Text("All gathering profile have been updated/automatically applied".Loc());
             }
         }
     }
