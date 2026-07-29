@@ -57,7 +57,7 @@ namespace ICE.Utilities
                 classId = missionInfo.JobId;
             else
             */
-            classId = Player.ClassJob.RowId;
+            classId = Player.JobId;
 
             if (classId is >= 8 and <= 18)
             {

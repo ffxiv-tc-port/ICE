@@ -240,13 +240,13 @@ namespace ICE.Ui.DebugWindowTabs
                 {
                     foreach (var ffObjects in Svc.Objects.OrderBy(x => Player.DistanceTo(x.Position)))
                     {
-                        if (ffObjects.BaseId == 2014616 || ffObjects.BaseId == 2014618)
+                        if (ffObjects.DataId == 2014616 || ffObjects.DataId == 2014618)
                         {
-                            ImGui.Text($"--> Name: {ffObjects.Name} | ID: {ffObjects.BaseId}");
+                            ImGui.Text($"--> Name: {ffObjects.Name} | ID: {ffObjects.DataId}");
                         }
                         else
                         {
-                            ImGui.Text($"Name: {ffObjects.Name} | ID: {ffObjects.BaseId}");
+                            ImGui.Text($"Name: {ffObjects.Name} | ID: {ffObjects.DataId}");
                         }
                     }
                 }
@@ -282,7 +282,7 @@ namespace ICE.Ui.DebugWindowTabs
                 var gatheringPoint = Svc.ClientState.LocalPlayer.TargetObject;
                 if (gatheringPoint is not null)
                 {
-                    var nodeId = gatheringPoint.BaseId;
+                    var nodeId = gatheringPoint.DataId;
                     var position = gatheringPoint.Position;
                     var landZone = gatheringPoint.Position;
                     var gatheringType = Player.Job == Job.MIN ? 2 : 3;

@@ -34,9 +34,9 @@ namespace ICE.Ui.DebugWindowTabs
                 {
                     ImGui.SetClipboardText(currentTarget.Name.ToString());
                 }
-                if (ImGui.Button($"Id: {currentTarget.BaseId}"))
+                if (ImGui.Button($"Id: {currentTarget.DataId}"))
                 {
-                    ImGui.SetClipboardText(currentTarget.BaseId.ToString());
+                    ImGui.SetClipboardText(currentTarget.DataId.ToString());
                 }
                 if (ImGui.Button($"Position: X: {currentTarget.Position.X:N2}, Y: {currentTarget.Position.Y:N2}, Z: {currentTarget.Position.Z:N2}"))
                 {

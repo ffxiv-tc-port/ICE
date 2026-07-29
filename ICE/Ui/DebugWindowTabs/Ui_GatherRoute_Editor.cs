@@ -279,9 +279,9 @@ namespace ICE.Ui.DebugWindowTabs
                         foreach (var x in Svc.Objects.Where(x => x.ObjectKind == ObjectKind.GatheringPoint && Player.DistanceTo(x.Position) <= maxDistance)
                                                      .OrderBy(x => Player.DistanceTo(x.Position)))
                         {
-                            ImGui.PushID($"{x.BaseId}_{x.Position}_NodeViewer");
+                            ImGui.PushID($"{x.DataId}_{x.Position}_NodeViewer");
 
-                            ImGui.Text($"Id: {x.BaseId} | Distance: {Player.DistanceTo(x.Position):N2}");
+                            ImGui.Text($"Id: {x.DataId} | Distance: {Player.DistanceTo(x.Position):N2}");
                             if (ImGui.IsMouseClicked(ImGuiMouseButton.Right) && ImGui.IsItemHovered())
                             {
                                 ImGui.OpenPopup("Node Viewer Popup");
@@ -293,7 +293,7 @@ namespace ICE.Ui.DebugWindowTabs
                                 {
                                     routeList.Add(new Resources.GatheringRoutes.GathNodeInfo()
                                     {
-                                        NodeId = x.BaseId,
+                                        NodeId = x.DataId,
                                         Position = x.Position,
                                         LandZone = Player.Position,
                                     });

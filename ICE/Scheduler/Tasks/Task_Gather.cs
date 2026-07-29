@@ -64,10 +64,10 @@ namespace ICE.Scheduler.Tasks
                     // We're currently at a whole new area. So going to check the gathering nodes to see which one we're closest to
                     Mission_Settings.previousMap = missionFlag;
                     var closestNodeIndex = gatherInfo.Select((node, index) => new { Node = node, Index = index })
-                                                     .Where(x => Svc.Objects.Any(obj => obj.ObjectKind == ObjectKind.GatheringPoint && obj.IsTargetable && obj.BaseId == x.Node.NodeId))
+                                                     .Where(x => Svc.Objects.Any(obj => obj.ObjectKind == ObjectKind.GatheringPoint && obj.IsTargetable && obj.DataId == x.Node.NodeId))
                                                      .OrderBy(x =>
                                                      {
-                                                         var gameObject = Svc.Objects.First(obj => obj.BaseId == x.Node.NodeId);
+                                                         var gameObject = Svc.Objects.First(obj => obj.DataId == x.Node.NodeId);
                                                          return Player.DistanceTo(gameObject.Position);
                                                      })
                                                      .Select(x => x.Index)
@@ -94,7 +94,7 @@ namespace ICE.Scheduler.Tasks
                     {
                         // We're currently close to a node, time to check and see if it's a viable node, or if we need to pathfind to the next
                         var nodeId = closestDistance.NodeId;
-                        var closestNode = Svc.Objects.Where(x => x.BaseId == nodeId && x.IsTargetable).FirstOrDefault();
+                        var closestNode = Svc.Objects.Where(x => x.DataId == nodeId && x.IsTargetable).FirstOrDefault();
 
                         if (closestNode != null)
                         {
