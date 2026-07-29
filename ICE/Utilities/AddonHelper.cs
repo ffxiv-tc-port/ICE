@@ -10,6 +10,11 @@ public static class AddonHelper
 {
     public static unsafe void OpenRecipeNote()
     {
+        // 冪等守衛：台服上對已開啟的 RecipeNote 重複呼叫 OpenRecipeByRecipeId 會關閉重建視窗
+        // (國際服則是無害的重新選取)。已開啟就不要再呼叫。
+        if (IsAddonActive("RecipeNote"))
+            return;
+
         int[] basicCrafts = [1008, 1, 170, 663, 302, 464, 1101, 901];
         uint recipeId = (uint)basicCrafts[Player.JobId-8];
 

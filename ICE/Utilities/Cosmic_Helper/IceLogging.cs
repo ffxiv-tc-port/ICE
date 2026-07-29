@@ -181,33 +181,35 @@ internal static class IceLogging
 
     public static class DestinationLogs
     {
-        private static List<DestinationEntry> logs = new();
+        // Queue 淘汰是 O(1) Dequeue；先前用 List.RemoveAt(0) 每次都要搬移整份陣列 (O(n))。
+        private static readonly Queue<DestinationEntry> logs = new();
         private static int maxDestinationCount = 3000;
 
-        public static IReadOnlyList<DestinationEntry> Logs => logs.AsReadOnly();
+        public static IReadOnlyCollection<DestinationEntry> Logs => logs;
         public static void Log(Vector3 end)
         {
-            logs.Add(new DestinationEntry(end));
+            logs.Enqueue(new DestinationEntry(end));
             if (logs.Count > maxDestinationCount)
-                logs.RemoveAt(0);
+                logs.Dequeue();
         }
     }
 
     public static class LogSystem
     {
-        private static List<LogEntry> logs = new();
+        // Queue 淘汰是 O(1) Dequeue；先前用 List.RemoveAt(0) 每次都要搬移整份陣列 (O(n))。
+        private static readonly Queue<LogEntry> logs = new();
         private static int maxLogCount = 3000; // Prevent memory bloat
 
-        public static IReadOnlyList<LogEntry> Logs => logs.AsReadOnly();
+        public static IReadOnlyCollection<LogEntry> Logs => logs;
 
         public static void Log(LogLevel level, string message, string? category = null)
         {
-            logs.Add(new LogEntry(level, message, category));
+            logs.Enqueue(new LogEntry(level, message, category));
 
             // Keep only recent logs
             if (logs.Count > maxLogCount)
             {
-                logs.RemoveAt(0);
+                logs.Dequeue();
             }
         }
 
