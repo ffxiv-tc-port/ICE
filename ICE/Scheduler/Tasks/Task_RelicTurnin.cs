@@ -103,7 +103,7 @@ namespace ICE.Scheduler.Tasks
                 {
                     IceLogging.Warning(
                         $"Unable to find the relic NPC near {npcEntry.NpcLocation}; " +
-                        $"configured NPC ID: {npcEntry.NpcId}.",
+                        $"configured NPC IDs: {string.Join(", ", npcEntry.AlternateNpcIds.Prepend(npcEntry.NpcId))}.",
                         "[Relic Turnin]");
                 }
 

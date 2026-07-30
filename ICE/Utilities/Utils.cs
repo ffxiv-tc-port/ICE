@@ -99,16 +99,20 @@ public static unsafe class Utils
     internal static bool TryGetObjectByDataId(ulong dataId, out IGameObject? gameObject) => (gameObject = Svc.Objects.OrderBy(PlayerHelper.GetDistanceToPlayer).FirstOrDefault(x => x.DataId == dataId)) != null;
     internal static bool TryGetNpcObject(NpcData.NPCInfo npc, out IGameObject? gameObject)
     {
-        if (TryGetObjectByDataId(npc.NpcId, out gameObject))
-            return true;
+        foreach (var npcId in npc.AlternateNpcIds.Prepend(npc.NpcId))
+        {
+            if (TryGetObjectByDataId(npcId, out gameObject))
+                return true;
+        }
 
         const float fallbackRadius = 5f;
+        var configuredIds = string.Join(", ", npc.AlternateNpcIds.Prepend(npc.NpcId));
         var currentTarget = Svc.Targets.Target;
         if (IsNpcNearConfiguredLocation(currentTarget, npc.NpcLocation, fallbackRadius))
         {
             gameObject = currentTarget;
             IceLogging.Warning(
-                $"Configured NPC ID {npc.NpcId} was not found; using targeted NPC " +
+                $"Configured NPC IDs [{configuredIds}] were not found; using targeted NPC " +
                 $"{gameObject.DataId} ({gameObject.Name}) near the configured location.",
                 "[NPC Resolver]");
             return true;
@@ -122,7 +126,7 @@ public static unsafe class Utils
         if (gameObject != null)
         {
             IceLogging.Warning(
-                $"Configured NPC ID {npc.NpcId} was not found; using nearby NPC " +
+                $"Configured NPC IDs [{configuredIds}] were not found; using nearby NPC " +
                 $"{gameObject.DataId} ({gameObject.Name}) at the configured location.",
                 "[NPC Resolver]");
             return true;

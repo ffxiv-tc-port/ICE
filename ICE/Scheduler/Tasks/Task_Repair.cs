@@ -58,7 +58,7 @@ namespace ICE.Scheduler.Tasks
         public static unsafe bool? PathToRepair()
         {
             var zoneId = Player.Territory;
-            var npcEntry = NpcData.MoonNpcs[zoneId].Where(x => x.type == NpcData.NpcType.Repair).FirstOrDefault();
+            var npcEntry = NpcData.MoonNpcs[zoneId].First(x => x.type == NpcData.NpcType.Repair);
 
             if (EzThrottler.Throttle("Log Throttle for repair", 2000))
             {
@@ -102,10 +102,9 @@ namespace ICE.Scheduler.Tasks
         public static unsafe bool? RepairAtNpc()
         {
             var zoneId = Player.Territory;
-            var npcEntry = NpcData.MoonNpcs[zoneId].Where(x => x.type == NpcData.NpcType.Repair).FirstOrDefault();
+            var npcEntry = NpcData.MoonNpcs[zoneId].First(x => x.type == NpcData.NpcType.Repair);
 
-            IGameObject? gameObject = null;
-            Utils.TryGetObjectByDataId(npcEntry.NpcId, out gameObject);
+            Utils.TryGetNpcObject(npcEntry, out var gameObject);
             var currentTarget = Svc.Targets.Target;
             var repairAmount = C.RepairPercent;
 

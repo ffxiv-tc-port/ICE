@@ -94,9 +94,9 @@ namespace ICE.Scheduler.Tasks
             }
             else
             {
-                var researchId = NpcData.MoonNpcs[Player.Territory].Where(x => x.type == NpcData.NpcType.Credit).FirstOrDefault().NpcId;
-
-                Utils.TryGetObjectByDataId(researchId, out var researchNpc);
+                var npcEntry = NpcData.MoonNpcs[Player.Territory]
+                    .First(x => x.type == NpcData.NpcType.Credit);
+                Utils.TryGetNpcObject(npcEntry, out var researchNpc);
                 if (EzThrottler.Throttle("Interacting with researchingway"))
                 {
                     Utils.TargetgameObject(researchNpc);

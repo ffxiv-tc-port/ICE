@@ -22,6 +22,7 @@ internal static class NpcData // Renamed the class to avoid conflict
     {
         public NpcType type { get; set; }
         public uint NpcId { get; set; }
+        public uint[] AlternateNpcIds { get; set; } = [];
         public string Name { get; set; }
         public Vector2 BoxCorner1 { get; set; }
         public Vector2 BoxCorner2 { get; set; }
@@ -40,6 +41,7 @@ internal static class NpcData // Renamed the class to avoid conflict
             {
                 type = NpcType.Repair,
                 NpcId = 1052610,
+                AlternateNpcIds = [1052589, 1052601, 1052609],
                 Name = "Godgyth",
                 NpcLocation = new Vector3(19.46f, 1.69f, 18.11f),
                 Corner1 = new Vector3(18.50f, 1.69f, 15.25f),
@@ -51,6 +53,7 @@ internal static class NpcData // Renamed the class to avoid conflict
             {
                 type = NpcType.Credit,
                 NpcId = 1052608,
+                AlternateNpcIds = [1052588, 1052600, 1052607],
                 Name = "Mesouaidonque",
                 NpcLocation = new Vector3(18.23f, 1.69f, 19.42f),
                 Corner1 = new Vector3(17.80f, 1.69f, 15.94f),
@@ -62,6 +65,7 @@ internal static class NpcData // Renamed the class to avoid conflict
             {
                 type = NpcType.Relic,
                 NpcId = 1052605,
+                AlternateNpcIds = [1052583, 1052586, 1052598],
                 Name = "Researchingway",
                 NpcLocation = new Vector3(-18.91f, 2.15f, 18.84f),
                 Corner1 = new Vector3(-14.67f, 1.69f, 19.09f),
@@ -73,6 +77,7 @@ internal static class NpcData // Renamed the class to avoid conflict
             {
                 type = NpcType.Gamba,
                 NpcId = 1052612,
+                AlternateNpcIds = [1052590, 1052602, 1052611],
                 Name = "Orbitingway",
                 NpcLocation = new Vector3(18.84f, 2.24f, -18.91f),
                 Corner1 = new Vector3(14.97f, 1.69f, -18.79f),
