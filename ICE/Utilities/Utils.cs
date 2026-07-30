@@ -12,6 +12,7 @@ using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using ICE.Utilities.Cosmic_Helper;
 using SharpDX.Direct3D11;
 using System;
+using System.Numerics;
 
 namespace ICE.Utilities;
 
@@ -76,6 +77,9 @@ public static unsafe class Utils
     public static bool? TargetgameObjectTask(IGameObject? gameObject)
     {
         var x = gameObject;
+        if (x == null)
+            return false;
+
         if (Svc.Targets.Target != null && Svc.Targets.Target.DataId == x.DataId)
             return true;
 
@@ -93,6 +97,52 @@ public static unsafe class Utils
         return false;
     }
     internal static bool TryGetObjectByDataId(ulong dataId, out IGameObject? gameObject) => (gameObject = Svc.Objects.OrderBy(PlayerHelper.GetDistanceToPlayer).FirstOrDefault(x => x.DataId == dataId)) != null;
+    internal static bool TryGetNpcObject(NpcData.NPCInfo npc, out IGameObject? gameObject)
+    {
+        if (TryGetObjectByDataId(npc.NpcId, out gameObject))
+            return true;
+
+        const float fallbackRadius = 5f;
+        var currentTarget = Svc.Targets.Target;
+        if (IsNpcNearConfiguredLocation(currentTarget, npc.NpcLocation, fallbackRadius))
+        {
+            gameObject = currentTarget;
+            IceLogging.Warning(
+                $"Configured NPC ID {npc.NpcId} was not found; using targeted NPC " +
+                $"{gameObject.DataId} ({gameObject.Name}) near the configured location.",
+                "[NPC Resolver]");
+            return true;
+        }
+
+        gameObject = Svc.Objects
+            .Where(x => IsNpcNearConfiguredLocation(x, npc.NpcLocation, fallbackRadius))
+            .OrderBy(x => Vector3.Distance(x.Position, npc.NpcLocation))
+            .FirstOrDefault();
+
+        if (gameObject != null)
+        {
+            IceLogging.Warning(
+                $"Configured NPC ID {npc.NpcId} was not found; using nearby NPC " +
+                $"{gameObject.DataId} ({gameObject.Name}) at the configured location.",
+                "[NPC Resolver]");
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsNpcNearConfiguredLocation(IGameObject? gameObject, Vector3 location, float radius)
+    {
+        if (gameObject == null || !gameObject.IsTargetable)
+            return false;
+
+        if (gameObject.ObjectKind != Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventNpc
+            && gameObject.ObjectKind != Dalamud.Game.ClientState.Objects.Enums.ObjectKind.BattleNpc)
+            return false;
+
+        return Vector3.Distance(gameObject.Position, location) <= radius;
+    }
+
     public static IGameObject? TryGetObjectNearestEventObject()
     {
         return Svc.Objects.OrderBy(PlayerHelper.GetDistanceToPlayer).FirstOrDefault(x => x.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventObj);
@@ -104,6 +154,9 @@ public static unsafe class Utils
     public static void TargetgameObject(IGameObject? gameObject)
     {
         var x = gameObject;
+        if (x == null)
+            return;
+
         var currentTarget = Svc.Targets.Target;
         if (currentTarget != null && currentTarget.DataId == x.DataId)
             return;
