@@ -38,7 +38,9 @@ namespace ICE.Scheduler
             }
             if (CosmoBuy)
             {
-                P.TaskManager.Enqueue(() => IceLogging.Info("Starting Relic Turnin task at the npc", "Task_HubActivities"));;
+                // 原本這裡複製貼上寫成 "Starting Relic Turnin task"，害 log 裡分不出
+                // 到底是宇宙工具回報還是購買在跑。
+                P.TaskManager.Enqueue(() => IceLogging.Info("Starting Cosmo Buy task at the npc", "Task_HubActivities"));
                 Task_BuyCosmoItems.Enqueue();
             }
             if (CanGamba)

@@ -13,11 +13,14 @@ namespace ICE.Scheduler.Tasks
     {
         public static void Enqueue()
         {
+            // 四個都要帶 Utils.TaskConfig。NeoTaskManager 預設是 TimeLimitMS = 30000 且
+            // AbortOnTimeout = true —— 實機 log 顯示這條流程每 30 秒精確逾時一次、
+            // 整個佇列被中止後又從頭開始，永遠回報不了（狀態一直停在 HubReturn）。
             P.TaskManager.EnqueueMulti
             (
-                new(PathToRelicNPC, "Heading to the relic NPC for turnin"),
-                new(TalkToResearchWay, "Talk to researchway"),
-                new(SelectReport, "Selecting Report"),
+                new(PathToRelicNPC, "Heading to the relic NPC for turnin", Utils.TaskConfig),
+                new(TalkToResearchWay, "Talk to researchway", Utils.TaskConfig),
+                new(SelectReport, "Selecting Report", Utils.TaskConfig),
                 new(SelectRelicClass, "Selecting the class to turnin on", Utils.TaskConfig)
             );
         }
@@ -90,11 +93,35 @@ namespace ICE.Scheduler.Tasks
                 }
             }
 
-            var researchId = NpcData.MoonNpcs[Player.Territory].Where(x => x.type == NpcData.NpcType.Relic).FirstOrDefault().NpcId;
+            // 這條流程在台服會卡住不完成，而原本一行診斷都沒有：researchId 解不出來、
+            // 物件表找不到 NPC、互動送出但沒有任何視窗開起來——三種情況的表徵完全一樣。
+            // 用 Information 等級（使用者的記錄等級會濾掉 Debug）＋節流避免洗版。
+            if (!NpcData.MoonNpcs.TryGetValue(Player.Territory, out var npcsInZone))
+            {
+                if (EzThrottler.Throttle("RelicTurnin: no npc table", 5000))
+                    IceLogging.Info($"沒有 territory {Player.Territory} 的 NPC 資料表，無法回報宇宙工具", "[Task Relic Turnin]");
+                return false;
+            }
 
-            Utils.TryGetObjectByDataId(researchId, out var researchNpc);
+            var researchId = npcsInZone.Where(x => x.type == NpcData.NpcType.Relic).FirstOrDefault().NpcId;
+            if (researchId == 0)
+            {
+                if (EzThrottler.Throttle("RelicTurnin: no relic npc", 5000))
+                    IceLogging.Info($"territory {Player.Territory} 的 NPC 表裡沒有 Relic 類型的 NPC", "[Task Relic Turnin]");
+                return false;
+            }
+
+            if (!Utils.TryGetObjectByDataId(researchId, out var researchNpc) || researchNpc == null)
+            {
+                if (EzThrottler.Throttle("RelicTurnin: npc not found", 5000))
+                    IceLogging.Info($"物件表裡找不到 DataId {researchId} 的研究員 NPC（距離太遠或 DataId 與台服不符）", "[Task Relic Turnin]");
+                return false;
+            }
+
             if (EzThrottler.Throttle("Interacting with researchingway"))
             {
+                if (EzThrottler.Throttle("RelicTurnin: interact log", 5000))
+                    IceLogging.Info($"對 DataId {researchId} 送出互動，距離 {Player.DistanceTo(researchNpc.Position):F1}；等待 Talk/SelectString 開啟", "[Task Relic Turnin]");
                 Utils.TargetgameObject(researchNpc);
                 Utils.InteractWithObject(researchNpc);
             }
