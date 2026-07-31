@@ -1,6 +1,7 @@
 ﻿using Dalamud.Game.ClientState.Conditions;
 using ECommons.GameHelpers;
 using ICE.Sounds;
+using ICE.Ui.MainUi.ModeSelect;
 using FFXIVClientStructs.FFXIV.Client.Game.WKS;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using ICE.Utilities.Cosmic;
@@ -446,7 +447,13 @@ namespace ICE.Scheduler.Tasks
                     // Look for missions of this rank type
                     var candidates = x.StellerMissions.Where(m => missionHashSet.Contains(m.MissionId)).ToList();
 
+                    // 「依表格排序方式挑任務」：沿用「表格設定 → 排序方式」那個下拉選單的順序
+                    // （經驗 I～V／宇宙點數／月面點數／地圖位置／職業分數…），與表格顯示共用同一份邏輯。
+                    if (C.UseTableSortForMissionOrder && candidates.Count > 1)
+                        candidates = modeSelect_TableInfo.SortByTableOption(candidates, m => m.MissionId).ToList();
+
                     // 「沒金星的優先」：同一階級之內，把還沒拿到金星的任務排前面（補完成度用）。
+                    // 放在表格排序「之後」：OrderBy 是穩定排序，所以未金星優先，同組之內維持表格順序。
                     // ⚠️ 先在 unsafe 區塊把「是否已金星」算成純量再排序，不要把原生指標放進
                     //    OrderBy 的 lambda —— 那等於跨呼叫持有指標，正是要避免的那一類問題。
                     // ⚠️ WKSManager.Instance() 可能是 null（還沒進入宇宙探索內容），此時不排序，

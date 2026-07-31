@@ -26,6 +26,10 @@ namespace ICE.Config
         // 排序會回到原本的順序。
         public bool PrioritizeUngoldedMissions { get; set; } = false;
 
+        // 同一階級之內改用「表格設定 → 排序方式」的順序來挑任務（預設關閉＝維持遊戲清單順序）。
+        // 與 PrioritizeUngoldedMissions 可以並用：先套表格排序，再把未金星的穩定排到前面。
+        public bool UseTableSortForMissionOrder { get; set; } = false;
+
         // 連續重骰幾次都找不到可接任務就停下來（0 = 不限制，維持舊行為）。
         // 沒有這個上限時，只要候選池空了（例如開了「取得金星後自動停用」而目前
         // 可接的全都拿過金星），CheckReroll 就會無限重骰、卡在原地不會有任何提示。

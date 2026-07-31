@@ -65,47 +65,40 @@ namespace ICE.Ui.MainUi.ModeSelect
         }
 
         public static List<Mission> SortMissionList(List<Mission> missions)
+            => SortByTableOption(missions, m => m.id).ToList();
+
+        /// <summary>
+        /// 依「表格設定 → 排序方式」排序任意帶有任務 ID 的集合。
+        /// 表格顯示與（啟用時）任務挑選共用同一份邏輯，避免兩邊各寫一次而漂移。
+        /// ⚠️ 查不到任務資料的項目一律排到最後，不要用字典 indexer —— 那會丟例外。
+        /// </summary>
+        public static IEnumerable<T> SortByTableOption<T>(IEnumerable<T> items, Func<T, uint> idSelector)
         {
-            int sortOption = C.TableSortOption;
             var missionInfo = CosmicHelper.SheetMissionDict;
 
-            switch (sortOption)
+            string NameOf(T m) => missionInfo.TryGetValue(idSelector(m), out var i) ? i.Name : string.Empty;
+            uint CosmoOf(T m) => missionInfo.TryGetValue(idSelector(m), out var i) ? i.CosmoCredit : 0;
+            uint LunarOf(T m) => missionInfo.TryGetValue(idSelector(m), out var i) ? i.LunarCredit : 0;
+            uint MarkerOf(T m) => missionInfo.TryGetValue(idSelector(m), out var i) ? i.MarkerId : uint.MaxValue;
+            uint ScoreOf(T m) => missionInfo.TryGetValue(idSelector(m), out var i) ? i.ClassScore : 0;
+            double ExpOf(T m, uint type) => missionInfo.TryGetValue(idSelector(m), out var i)
+                ? i.RelicXpInfo.Where(exp => exp.Key == type).Sum(exp => exp.Value)
+                : 0d;
+
+            return C.TableSortOption switch
             {
-                case 0: // Sorting by Id
-                    return missions.ToList();
-                case 1: // Name 
-                    return missions.OrderBy(m => missionInfo[m.id].Name).ToList();
-                case 2: // Cosmo Credits
-                    return missions.OrderByDescending(m => missionInfo[m.id].CosmoCredit).ToList();
-                case 3: // Lunar Credits
-                    return missions.OrderByDescending(m => missionInfo[m.id].LunarCredit).ToList();
-                case 4: // Exp Type 1:
-                    return missions.OrderByDescending(m => missionInfo[m.id].RelicXpInfo
-                                                     .Where(exp => exp.Key == 1)
-                                                     .Sum(exp => exp.Value)).ToList();
-                case 5: // Exp Type 2:
-                    return missions.OrderByDescending(m => missionInfo[m.id].RelicXpInfo
-                                                     .Where(exp => exp.Key == 2)
-                                                     .Sum(exp => exp.Value)).ToList();
-                case 6: // Exp Type 3:
-                    return missions.OrderByDescending(m => missionInfo[m.id].RelicXpInfo
-                                                     .Where(exp => exp.Key == 3)
-                                                     .Sum(exp => exp.Value)).ToList();
-                case 7: // Exp Type 4:
-                    return missions.OrderByDescending(m => missionInfo[m.id].RelicXpInfo
-                                                     .Where(exp => exp.Key == 4)
-                                                     .Sum(exp => exp.Value)).ToList();
-                case 8: // Exp Type 5:
-                    return missions.OrderByDescending(m => missionInfo[m.id].RelicXpInfo
-                                                     .Where(exp => exp.Key == 5)
-                                                     .Sum(exp => exp.Value)).ToList();
-                case 9: // Map Location
-                    return missions.OrderBy(m => missionInfo[m.id].MarkerId).ToList();
-                case 10: // Mission Score
-                    return missions.OrderByDescending(m => missionInfo[m.id].ClassScore).ToList();
-                default:
-                    return missions.ToList();
-            }
+                1 => items.OrderBy(NameOf),
+                2 => items.OrderByDescending(CosmoOf),
+                3 => items.OrderByDescending(LunarOf),
+                4 => items.OrderByDescending(m => ExpOf(m, 1)),
+                5 => items.OrderByDescending(m => ExpOf(m, 2)),
+                6 => items.OrderByDescending(m => ExpOf(m, 3)),
+                7 => items.OrderByDescending(m => ExpOf(m, 4)),
+                8 => items.OrderByDescending(m => ExpOf(m, 5)),
+                9 => items.OrderBy(MarkerOf),
+                10 => items.OrderByDescending(ScoreOf),
+                _ => items,   // 0 = 依 ID，也就是維持原本的順序
+            };
         }
 
         public static void DrawCollapsibleHeader(string id, string label, float spacing = 4f, Vector4? borderColor = null, Vector4? backgroundColor = null)

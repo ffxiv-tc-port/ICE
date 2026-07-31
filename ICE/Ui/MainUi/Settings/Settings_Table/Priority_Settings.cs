@@ -26,6 +26,18 @@ namespace ICE.Ui.SettingTabs
             ImGuiEx.HelpMarker(
                 "Within the same rank, missions you have not yet earned a gold star on are picked first. Once every mission is golded this option has no effect and ordering returns to normal.".Loc());
 
+            var useTableSort = C.UseTableSortForMissionOrder;
+            if (ImGui.Checkbox("Pick missions using the table sort order".Loc() + "###ICEUseTableSort", ref useTableSort))
+            {
+                C.UseTableSortForMissionOrder = useTableSort;
+                C.Save();
+            }
+            ImGuiEx.HelpMarker(
+                ("Within the same rank, missions are picked in the order set by 'Sort By' in the table settings " +
+                "(Exp I-V, Cosmo/Lunar credits, map location, class score...). Off means the game's own list order.\n" +
+                "Can be combined with the gold star option above: the table order applies first, then missions " +
+                "without a gold star are moved to the front.").Loc());
+
             ImGui.Separator();
             ImGui.Text("Drag items to reorder mission priority (higher = processed first):".Loc());
             ImGui.Separator();
