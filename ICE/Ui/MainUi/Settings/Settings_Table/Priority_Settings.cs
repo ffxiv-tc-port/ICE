@@ -13,6 +13,16 @@ namespace ICE.Ui.SettingTabs
         {
             ImGui.Text("Mission Priority Organizer".Loc());
 
+            var prioritizeUngolded = C.PrioritizeUngoldedMissions;
+            if (ImGui.Checkbox("Prioritize missions without a gold star".Loc() + "###ICEPrioritizeUngolded", ref prioritizeUngolded))
+            {
+                C.PrioritizeUngoldedMissions = prioritizeUngolded;
+                C.Save();
+            }
+            ImGuiEx.HelpMarker(
+                "Within the same rank, missions you have not yet earned a gold star on are picked first. Once every mission is golded this option has no effect and ordering returns to normal.".Loc());
+
+            ImGui.Separator();
             ImGui.Text("Drag items to reorder mission priority (higher = processed first):".Loc());
             ImGui.Separator();
 

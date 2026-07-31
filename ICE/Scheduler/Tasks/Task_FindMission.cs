@@ -420,7 +420,37 @@ namespace ICE.Scheduler.Tasks
                         continue;
 
                     // Look for missions of this rank type
-                    foreach (var mission in x.StellerMissions.Where(m => missionHashSet.Contains(m.MissionId)))
+                    var candidates = x.StellerMissions.Where(m => missionHashSet.Contains(m.MissionId)).ToList();
+
+                    // 「沒金星的優先」：同一階級之內，把還沒拿到金星的任務排前面（補完成度用）。
+                    // ⚠️ 先在 unsafe 區塊把「是否已金星」算成純量再排序，不要把原生指標放進
+                    //    OrderBy 的 lambda —— 那等於跨呼叫持有指標，正是要避免的那一類問題。
+                    // ⚠️ WKSManager.Instance() 可能是 null（還沒進入宇宙探索內容），此時不排序，
+                    //    行為與關閉此選項完全相同。
+                    if (C.PrioritizeUngoldedMissions && candidates.Count > 1)
+                    {
+                        Dictionary<uint, int> goldRank = new();
+                        unsafe
+                        {
+                            var mgr = (WKSManagerCustom*)WKSManager.Instance();
+                            if (mgr != null)
+                            {
+                                foreach (var m in candidates)
+                                    goldRank[m.MissionId] = mgr->IsMissionGolded(m.MissionId) ? 1 : 0;
+                            }
+                        }
+
+                        if (goldRank.Count > 0)
+                        {
+                            // OrderBy 是穩定排序，所以同組之內維持原本順序，只是把已金星的往後推。
+                            candidates = candidates.OrderBy(m => goldRank.GetValueOrDefault(m.MissionId)).ToList();
+                            IceLogging.Debug(
+                                $"沒金星優先：{goldRank.Count(kv => kv.Value == 0)}/{goldRank.Count} 個尚未金星，已排到前面",
+                                "[FindMission: CheckStandard]");
+                        }
+                    }
+
+                    foreach (var mission in candidates)
                     {
                         mission.Select();
                         InsertGrabMission(mission.MissionId);
