@@ -11,7 +11,10 @@ namespace ICE.Scheduler.Tasks
         {
             if (P.Artisan.IsBusy())
             {
-                P.TaskManager.Enqueue(() => WaitingForArtisan(), "Waiting for artisan to finish crafting");
+                // 等待 Artisan 完成製作必須帶 Utils.TaskConfig。NeoTaskManager 的預設是
+                // TimeLimitMS = 30000 且 AbortOnTimeout = true —— 一個宇宙製作(尤其第二階段
+                // 還要跑 Raphael 解算)實測要 77 秒,用預設值必定逾時並把整個佇列中止。
+                P.TaskManager.Enqueue(() => WaitingForArtisan(), "Waiting for artisan to finish crafting", Utils.TaskConfig);
                 P.TaskManager.Enqueue(() => Task_CheckScore.Crafts(), "Checking score");
             }
             else
@@ -54,9 +57,15 @@ namespace ICE.Scheduler.Tasks
 
         private static void InsertArtisanWait(ushort craftId, int amount)
         {
+            // 這兩個任務原本沒帶設定,吃到 NeoTaskManager 的預設值:
+            // TimeLimitMS = 30000、AbortOnTimeout = true。
+            // 實機證據(2026-07-31 dalamud.log):每一次「Telling artisan to craft」之後
+            // 都在 32.5 秒精確逾時,而第二階段製作實際需要 77 秒 —— 也就是說它從來沒有
+            // 等成功過,每次都是逾時把 ICE 的整個任務佇列中止。
+            // Utils.TaskConfig 是 30 分鐘 + abortOnTimeout: false,本來就是為這種長等待準備的。
             P.TaskManager.InsertMulti(
-                new(() => ThrottleArtisanTask(craftId, amount), "Telling artisan to craft"),
-                new(() => WaitingForArtisan(), "Waiting for artisan")
+                new(() => ThrottleArtisanTask(craftId, amount), "Telling artisan to craft", Utils.TaskConfig),
+                new(() => WaitingForArtisan(), "Waiting for artisan", Utils.TaskConfig)
             );
         }
 
@@ -73,7 +82,10 @@ namespace ICE.Scheduler.Tasks
             {
                 if (EzThrottler.Throttle("Artisan Crafting Task"))
                 {
-                    IceLogging.Debug($"Telling Artisan to craft: {craftId} -> {amount} times");
+                    // Information 而非 Debug:這是「IPC 真的送出去了」的唯一證據,
+                    // 而使用者的記錄等級會濾掉 Debug。上面那行 CheckMaterials 的
+                    // 「Telling artisan to craft」只是宣告要做,不代表真的呼叫了。
+                    IceLogging.Info($"Artisan IPC CraftItem sent: recipe {craftId} x{amount}");
                     P.Artisan.CraftItem(craftId, amount);
                 }
 
