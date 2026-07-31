@@ -1,4 +1,5 @@
 ﻿using Lumina.Excel.Sheets;
+using ICE.Utilities.AddonMasters;
 using System.Text;
 using static ECommons.UIHelpers.AddonMasterImplementations.AddonMaster;
 
@@ -15,7 +16,7 @@ namespace ICE.Ui.DebugWindowTabs
                              ImGuiTableFlags.Reorderable |         // Allow column reordering
                              ImGuiTableFlags.Hideable;             // Allow hiding columns via right-click
 
-            if (GenericHelpers.TryGetAddonMaster<ECommons.UIHelpers.AddonMasterImplementations.AddonMaster.InclusionShop>("InclusionShop", out var itemExchange) && itemExchange.IsAddonReady)
+            if (GenericHelpers.TryGetAddonMaster<global::ICE.Utilities.AddonMasters.InclusionShop>("InclusionShop", out var itemExchange) && itemExchange.IsAddonReady)
             {
 
                 ImGui.Text($"Currency Amount: {itemExchange.CurrencyAmount}");

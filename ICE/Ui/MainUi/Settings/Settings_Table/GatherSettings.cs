@@ -254,7 +254,11 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 }
                 else
                 {
-                    var itemName = Svc.Data.GetExcelSheet<Item>().Where(x => x.RowId == C.GatheringFood).FirstOrDefault().Name.ToString();
+                    // 原為 Where(x => x.RowId == C.GatheringFood).FirstOrDefault():對整張 Item 表
+                    // (約 4.5 萬列)做 O(n) 線性走訪來找主鍵,而這裡在 Draw 路徑上、每幀執行。
+                    // GetRowOrDefault 是索引查詢 O(1)。找不到時原本會拿到 default(Item),
+                    // Name.ToString() 得到空字串;這裡用 ?? "" 維持完全相同的行為。
+                    var itemName = Svc.Data.GetExcelSheet<Item>().GetRowOrDefault(C.GatheringFood)?.Name.ToString() ?? "";
                     ImGui.Text($"{itemName}");
                 }
 
