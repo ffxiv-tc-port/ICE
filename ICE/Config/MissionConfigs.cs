@@ -78,6 +78,12 @@ namespace ICE.Config
             ProvisionalTypes.ProvisionalTimed
         };
         public bool GrindProvisionals { get; set; } = false;
+
+        // 標準任務的階級挑選順序。原本 CheckStandard 裡是寫死的 { ExA, A, B, C, D }，
+        // 拉出來讓使用者可以拖曳調整（例如想先刷低階把任務數衝上去）。
+        // ⚠️ 讀取端一定要補上這裡缺少的階級，否則舊設定檔或手動編輯少了某一階，
+        //    那一階的任務會永遠不被挑到 —— 靜默失效。見 Task_FindMission.RankOrder。
+        public List<string> RankPrio { get; set; } = new() { "ExA", "A", "B", "C", "D" };
         public List<uint> JobPrio { get; set; } = new()
         {
             8, 9, 10, 11, 12, 13, 14, 15,  // Crafters: CRP, BSM, ARM, GSM, LTW, WVR, ALC, CUL

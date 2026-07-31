@@ -396,13 +396,36 @@ namespace ICE.Scheduler.Tasks
 
             return false;
         }
+        /// <summary>
+        /// 標準任務的階級挑選順序（使用者可在「任務優先度」拖曳調整）。
+        /// ⚠️ 一定要把設定裡缺少的階級補在後面：舊設定檔、手動編輯、或日後新增階級時，
+        ///    少掉的那一階會永遠不被挑到 —— 而且是靜默的，看起來就像「沒有可接任務」。
+        /// </summary>
+        private static readonly string[] DefaultRankOrder = ["ExA", "A", "B", "C", "D"];
+
+        private static IEnumerable<string> RankOrder()
+        {
+            var configured = C.RankPrio ?? [];
+            var seen = new HashSet<string>();
+
+            foreach (var rank in configured)
+            {
+                if (DefaultRankOrder.Contains(rank) && seen.Add(rank))
+                    yield return rank;
+            }
+
+            foreach (var rank in DefaultRankOrder)
+            {
+                if (seen.Add(rank))
+                    yield return rank;
+            }
+        }
+
         public static bool? CheckStandard()
         {
             if (GenericHelpers.TryGetAddonMaster<WKSMission>("WKSMission", out var x) && x.IsAddonReady)
             {
-                List<string> RankPriority = new() { "ExA", "A", "B", "C", "D" };
-
-                foreach (var rankType in RankPriority)
+                foreach (var rankType in RankOrder())
                 {
                     // Get the appropriate HashSet for this rank
                     HashSet<uint> missionHashSet = rankType switch

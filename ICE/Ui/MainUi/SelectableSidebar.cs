@@ -299,6 +299,7 @@ namespace ICE.Ui.MainUi
             ImGui.SetCursorScreenPos(new Vector2(ImGui.GetItemRectMin().X + 8 * scale, itemY + 2 * scale));
 
             Svc.Texture.TryGetFromGameIcon(iconId, out var iconImage);
+            var drewIcon = false;
             if (iconImage != null)
             {
                 var image = iconImage.GetWrapOrEmpty();
@@ -307,9 +308,24 @@ namespace ICE.Ui.MainUi
                 float imageYOffset = (25 * scale - imageSize.Y) / 2;
                 ImGui.SetCursorScreenPos(new Vector2(ImGui.GetCursorScreenPos().X, ImGui.GetCursorScreenPos().Y + imageYOffset));
                 ImGui.Image(image.Handle, imageSize);
+                drewIcon = true;
             }
 
-            ImGui.SameLine();
+            if (drewIcon)
+            {
+                ImGui.SameLine();
+            }
+            else
+            {
+                // 🔴 圖示載不到時「不能」呼叫 SameLine：這一行前面沒有畫過任何東西，
+                // SameLine 會把文字接到「上一個項目」的行上，位置整個跑掉，看起來就是
+                // 一整列空白（實機：據點活動底下的「賭博設定」，圖示 65127 在台服載不到，
+                // 而同一區的 65112「點數購物」載得到、顯示正常）。
+                // 改成自己把游標挪到圖示原本會佔的寬度之後 —— 失敗形式變成「有字沒圖」。
+                ImGui.SetCursorScreenPos(new Vector2(
+                    ImGui.GetItemRectMin().X + (8 + 25 + 8) * scale,
+                    itemY + 4 * scale));
+            }
             ImGui.AlignTextToFramePadding();
             ImGui.Text(label);
 
