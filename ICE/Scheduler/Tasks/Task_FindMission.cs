@@ -1,5 +1,6 @@
 ﻿using Dalamud.Game.ClientState.Conditions;
 using ECommons.GameHelpers;
+using ICE.Sounds;
 using FFXIVClientStructs.FFXIV.Client.Game.WKS;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using ICE.Utilities.Cosmic;
@@ -1389,15 +1390,42 @@ namespace ICE.Scheduler.Tasks
 
             return false;
         }
+        // 連續重骰但一直沒找到任務的次數。找到任務時歸零。
+        private static int consecutiveRerolls = 0;
+
         private static bool? CheckReroll()
         {
             if (SchedulerMain.State == IceState.ExecutingMission)
             {
                 IceLogging.Debug("No reason to reroll, you found a proper mission");
+                consecutiveRerolls = 0;
             }
             else
             {
-                IceLogging.Debug("No mission was found, time for rerolling!", "[Check Reroll]");
+                consecutiveRerolls++;
+
+                // 沒有上限時，只要候選池空了（例如開了「取得金星後自動停用」而目前可接的
+                // 全都拿過金星），這裡就會無限重骰、卡在原地而且完全沒有提示。
+                // 使用者 2026-07-31 回報的正是這個情形。
+                var limit = C.MaxConsecutiveRerolls;
+                if (limit > 0 && consecutiveRerolls >= limit)
+                {
+                    IceLogging.Info(
+                        $"連續重骰 {consecutiveRerolls} 次仍找不到可接任務，停止。" +
+                        "常見原因：啟用了「取得金星後自動停用該任務」，而目前可接的任務都已經拿過金星。" +
+                        "可改用「沒金星的優先」（只排序不移出候選池），或放寬啟用中的任務清單。",
+                        "[Check Reroll]");
+                    consecutiveRerolls = 0;
+                    SchedulerMain.State = IceState.Idle;
+                    P.TaskManager.Tasks.Clear();
+
+                    if (C.PlaySoundAlert)
+                        _ = SoundPlayer.PlaySoundAsync();
+
+                    return true;
+                }
+
+                IceLogging.Debug($"No mission was found, time for rerolling! ({consecutiveRerolls})", "[Check Reroll]");
 
                 P.TaskManager.Insert(() => OpenTab("Reset"), "Opening tab to the reset mission");
                 IceLogging.Debug("Task for re-roll thrown in", "[Check Reroll]");

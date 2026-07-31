@@ -13,9 +13,26 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
         private static int delayAmount = C.DelayIncrease;
         private static bool delayCraft = C.DelayCraft;
         private static int delayCraftAmount = C.DelayCraftIncrease;
+        private static int maxRerolls = C.MaxConsecutiveRerolls;
 
         public static void Draw()
         {
+            ImGui.SetNextItemWidth(120f);
+            if (ImGui.InputInt("Stop after this many failed rerolls".Loc() + "###ICEMaxRerolls", ref maxRerolls))
+            {
+                if (maxRerolls < 0) maxRerolls = 0;
+                C.MaxConsecutiveRerolls = maxRerolls;
+                C.Save();
+            }
+            ImGuiEx.HelpMarker(
+                ("Stops the plugin after this many consecutive rerolls that found no mission. 0 disables the limit.\n" +
+                "Without it an empty candidate pool makes the plugin reroll forever with no indication at all - " +
+                "the usual cause is 'disable mission after gold' combined with every currently available mission " +
+                "already being golded.\n" +
+                "Consider 'Prioritize missions without a gold star' instead: it only reorders, it never removes " +
+                "missions from the pool.").Loc()
+            );
+
             if (ImGui.Checkbox("Ignore non-Cosmic prompts".Loc() + "###ICEIgnoreNonCosmicPrompts", ref rejectUnknownYesNo))
             {
                 C.RejectUnknownYesno = rejectUnknownYesNo;
