@@ -20,6 +20,10 @@ namespace ICE.Ui
         public OverlayWindow() : base("ICE Overlay".Loc() + "###ICEOverlayWindow", ImGuiWindowFlags.AlwaysAutoResize)
         {
             P.windowSystem.AddWindow(this);
+
+            // Do not swallow the game's ESC key while this window is focused.
+            // Trade-off: ESC no longer closes this window; toggle it in ICE settings.
+            RespectCloseHotkey = false;
         }
 
         public void Dispose()
