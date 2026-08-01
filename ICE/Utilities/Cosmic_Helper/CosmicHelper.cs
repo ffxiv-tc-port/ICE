@@ -103,6 +103,36 @@ public static unsafe partial class CosmicHelper
 
     public static Dictionary<uint, CosmicInfo> SheetMissionDict = new();
 
+    /// <summary>
+    /// 任務類型分類鍵——跟主視窗任務分頁（<c>modeSelect_Standard.Draw</c> 的 Standard 分類，也就是
+    /// <c>C.GrindProvisionals</c> 關閉時那個 if/else-if 鏈）用完全同一套互斥、依序判斷的優先序：<br/>
+    /// Critical → ProvisionalWeather → ProvisionalTimed → ProvisionalSequential → Rank(A/B/C/D)。<br/>
+    /// 回傳的字串沿用既有 zh-TW 字典裡已經存在的裸詞條（"Critical"／"Weather"／"Timed"／"Sequence"／
+    /// "A Rank"…——主視窗的任務分頁按鈕已經在用同一批鍵），呼叫端只需要
+    /// <c>.Loc()</c> 再自行決定要不要加框、上色。理論上每個任務都會落在某一類（Rank 保底是 1），
+    /// 但仍以 <c>null</c> 表示「查不到」，呼叫端要能不畫。
+    /// </summary>
+    public static string? GetMissionCategoryKey(CosmicInfo info)
+    {
+        if (info.Attributes.HasFlag(MissionAttributes.Critical))
+            return "Critical";
+        if (info.Attributes.HasFlag(MissionAttributes.ProvisionalWeather))
+            return "Weather";
+        if (info.Attributes.HasFlag(MissionAttributes.ProvisionalTimed))
+            return "Timed";
+        if (info.Attributes.HasFlag(MissionAttributes.ProvisionalSequential))
+            return "Sequence";
+        if (info.Rank > 3)
+            return "A Rank";
+        if (info.Rank == 3)
+            return "B Rank";
+        if (info.Rank == 2)
+            return "C Rank";
+        if (info.Rank == 1)
+            return "D Rank";
+        return null;
+    }
+
     public class GatheringInfo
     {
         public Dictionary<uint, int> MinGatherItems = [];

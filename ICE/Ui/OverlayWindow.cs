@@ -47,7 +47,10 @@ namespace ICE.Ui
             var currentMissionId = CosmicHelper.CurrentLunarMission;
             if (CosmicHelper.SheetMissionDict.TryGetValue(currentMissionId, out var missionName) && SchedulerMain.State != IceState.AbandonMission)
             {
-                ImGui.Text("Current Mission: [??] ??".Loc(currentMissionId, missionName.Name));
+                ImGui.Text("Current Mission: [??]".Loc(currentMissionId));
+                ImGui.SameLine(0, 4);
+                DrawMissionTypeTag(missionName);
+                ImGui.Text(missionName.Name);
                 ImGui.SameLine();
                 DrawMissionStatusIcons(currentMissionId);
                 DrawObjectives(currentMissionId);
@@ -61,7 +64,10 @@ namespace ICE.Ui
                 var target = Task_FindMission.TargetMissionId;
                 if (target != 0 && CosmicHelper.SheetMissionDict.TryGetValue(target, out var targetInfo))
                 {
-                    ImGui.TextColored(ImGuiColors.DalamudYellow, "Heading to pick up: [??] ??".Loc(target, targetInfo.Name));
+                    ImGui.TextColored(ImGuiColors.DalamudYellow, "Heading to pick up: [??]".Loc(target));
+                    ImGui.SameLine(0, 4);
+                    DrawMissionTypeTag(targetInfo);
+                    ImGui.TextColored(ImGuiColors.DalamudYellow, targetInfo.Name);
                     ImGui.SameLine();
                     DrawMissionStatusIcons(target);
                 }
@@ -354,6 +360,28 @@ namespace ICE.Ui
             }
 
             return scoreReadable;
+        }
+
+        /// <summary>
+        /// 任務類型標籤——用 <see cref="CosmicHelper.GetMissionCategoryKey"/> 同一套跟主視窗任務分頁
+        /// （緊急任務／天氣限定／時間限定／連續任務／A~D 階，互斥、依優先序判斷）一致的分類，
+        /// 畫在任務名稱前面。查不到分類（理論上不會發生，Rank 保底是 1）就什麼都不畫，不畫假標籤。<br/>
+        /// 這跟任務名稱本身可能自帶的「【高難】」前綴（部分任務在台服 sheet 資料裡原文就寫死這個
+        /// 詞——不是 ICE 加的，也跟這裡的分類無關，見 CosmicHelper.SheetMissionDict 的 Name 來源）
+        /// 是兩件事，兩者同時出現不算重複標記。<br/>
+        /// 緊急任務用醒目橘色，其餘分類用中性灰色，跟疊加層既有配色
+        /// （DalamudRed／HealerGreen／DalamudYellow／ParsedGold）並列不衝突。呼叫端要自己在呼叫前
+        /// 先 SameLine 出間距；這裡畫完標籤後也會自己 SameLine 一次，方便緊接著畫任務名。
+        /// </summary>
+        private static void DrawMissionTypeTag(CosmicHelper.CosmicInfo info)
+        {
+            var key = CosmicHelper.GetMissionCategoryKey(info);
+            if (key == null)
+                return;
+
+            var color = key == "Critical" ? ImGuiColors.DalamudOrange : ImGuiColors.DalamudGrey3;
+            ImGui.TextColored(color, $"【{key.Loc()}】");
+            ImGui.SameLine(0, 4);
         }
 
         /// <summary>
