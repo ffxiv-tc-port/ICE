@@ -6,12 +6,15 @@ using Dalamud.Interface.Utility.Raii;
 using ECommons.GameHelpers;
 using FFXIVClientStructs.FFXIV.Client.Game.WKS;
 using ICE.Config;
+using ICE.Utilities.Cosmic_Helper;
+using ICE.Utilities.GatheringHelper;
 using Lumina.Excel.Sheets;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using System.Windows.Forms;
+using static ECommons.UIHelpers.AddonMasterImplementations.AddonMaster;
 
 namespace ICE.Ui
 {
@@ -45,6 +48,8 @@ namespace ICE.Ui
             if (CosmicHelper.SheetMissionDict.TryGetValue(currentMissionId, out var missionName) && SchedulerMain.State != IceState.AbandonMission)
             {
                 ImGui.Text("Current Mission: [??] ??".Loc(currentMissionId, missionName.Name));
+                ImGui.SameLine();
+                DrawMissionStatusIcons(currentMissionId);
                 DrawObjectives(currentMissionId);
             }
             else
@@ -57,6 +62,8 @@ namespace ICE.Ui
                 if (target != 0 && CosmicHelper.SheetMissionDict.TryGetValue(target, out var targetInfo))
                 {
                     ImGui.TextColored(ImGuiColors.DalamudYellow, "Heading to pick up: [??] ??".Loc(target, targetInfo.Name));
+                    ImGui.SameLine();
+                    DrawMissionStatusIcons(target);
                 }
             }
 #if DEBUG
@@ -253,15 +260,14 @@ namespace ICE.Ui
         }
 
         /// <summary>
-        /// 畫出目前任務各目標的完成進度。資料完全來自遊戲的 <c>WKSMissionInfomation</c> 面板文字
-        /// （見 <see cref="MissionObjectiveReader"/>），面板沒開或抓不到符合形狀的資料時就什麼都不畫，
-        /// 不會退回去猜。
+        /// 畫出目前任務各目標的完成進度、時間限制剩餘時間，以及（沒有逐項目標列時的）分數進度。
+        /// 目標列資料完全來自遊戲的 <c>WKSMissionInfomation</c> 面板文字（見
+        /// <see cref="MissionObjectiveReader"/>），抓不到符合形狀的資料就什麼都不畫，不會退回去猜。
+        /// 目標列與分數列可以並存：目標列優先顯示，分數列（若讀得到）附加在後面。
         /// </summary>
         private static void DrawObjectives(uint missionId)
         {
             var objectives = MissionObjectiveReader.Get(missionId);
-            if (objectives.Count == 0)
-                return;
 
             foreach (var objective in objectives)
             {
@@ -278,6 +284,133 @@ namespace ICE.Ui
                     ImGui.TextUnformatted($"{objective.Text}  {objective.Progress}");
                 }
             }
+
+            var timeRemaining = MissionObjectiveReader.TimeRemaining;
+            if (timeRemaining != null)
+            {
+                ImGui.Text("    ");
+                ImGui.SameLine(0, 0);
+                ImGui.TextUnformatted("Time Remaining: ??".Loc(timeRemaining));
+            }
+
+            var scoreReadable = DrawScoreProgress(missionId);
+
+            LogScanDiagnosticsOnce(missionId, objectives.Count, scoreReadable, timeRemaining != null);
+        }
+
+        /// <summary>
+        /// 評價型任務（沒有逐項目標列、只看分數的任務，例如採集特殊裝甲板材料）的分數進度：
+        /// 目前評價／銀星／金星門檻，達標的門檻文字變綠。高難任務另外附加緊急進度那一段。
+        /// 資料來源是 ECommons AddonMaster 的 <c>WKSMissionInfomation.CurrentScore/SilverScore/
+        /// GoldScore/CriticalScore</c>，型別全是 <c>uint?</c>——讀不到就整段不畫，<b>不要 <c>?? 0</c></b>：
+        /// 0 會畫出一個假的「評價 0」，讓掛機使用者誤判進度。
+        /// </summary>
+        /// <returns>供 <see cref="LogScanDiagnosticsOnce"/> 用的診斷旗標，不影響畫面。</returns>
+        private static bool DrawScoreProgress(uint missionId)
+        {
+            if (!GenericHelpers.TryGetAddonMaster<WKSMissionInfomation>("WKSMissionInfomation", out var missionInfo) || !missionInfo.IsAddonReady)
+                return false;
+
+            bool scoreReadable;
+            if (missionInfo.CurrentScore is uint current && missionInfo.SilverScore is uint silver && missionInfo.GoldScore is uint gold)
+            {
+                scoreReadable = true;
+
+                ImGui.Text("    ");
+                ImGui.SameLine(0, 0);
+                ImGui.TextUnformatted("Current Score: ??".Loc(current.ToString("N0", CultureInfo.InvariantCulture)));
+
+                ImGui.SameLine(0, 8);
+                var silverText = "Silver Threshold: ??".Loc(silver.ToString("N0", CultureInfo.InvariantCulture));
+                if (current >= silver)
+                    ImGui.TextColored(ImGuiColors.HealerGreen, silverText);
+                else
+                    ImGui.TextUnformatted(silverText);
+
+                ImGui.SameLine(0, 8);
+                var goldText = "Gold Threshold: ??".Loc(gold.ToString("N0", CultureInfo.InvariantCulture));
+                if (current >= gold)
+                    ImGui.TextColored(ImGuiColors.HealerGreen, goldText);
+                else
+                    ImGui.TextUnformatted(goldText);
+            }
+            else
+            {
+                scoreReadable = false;
+            }
+
+            var isCritical = CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var missionEntry)
+                && missionEntry.Attributes.HasFlag(MissionAttributes.Critical);
+
+            if (isCritical && missionInfo.CriticalScore is { } critical)
+            {
+                ImGui.Text("    ");
+                ImGui.SameLine(0, 0);
+                var criticalText = "Critical Progress: ??/1".Loc(critical);
+                if (critical >= 1)
+                    ImGui.TextColored(ImGuiColors.HealerGreen, criticalText);
+                else
+                    ImGui.TextUnformatted(criticalText);
+            }
+
+            return scoreReadable;
+        }
+
+        /// <summary>
+        /// 疊加層版的任務狀態標記——跟主視窗任務清單「✓」欄＋任務名稱後面的旗標圖示同一份資料源
+        /// （<see cref="ICE.Utilities.MissionStatusHelper"/>），只是換成疊加層自己慣用的
+        /// <c>ImGuiEx.Icon</c> 畫法，不是照抄主視窗那份用材質裁切金牌圖的程式碼。
+        /// 金牌＝已完成且已拿金章；綠勾＝已完成但還沒金章；紅叉＝尚未完成。
+        /// 另外比照主視窗，有採集座標旗標／緊急任務地點的任務也一併標出來。
+        /// </summary>
+        private static void DrawMissionStatusIcons(uint missionId)
+        {
+            var (completed, gold) = MissionStatusHelper.GetStatus(missionId);
+            if (completed)
+            {
+                if (gold)
+                    ImGuiEx.Icon(ImGuiColors.ParsedGold, FontAwesomeIcon.Medal);
+                else
+                    ImGuiEx.Icon(ImGuiColors.HealerGreen, FontAwesomeIcon.Check);
+            }
+            else
+            {
+                ImGuiEx.Icon(ImGuiColors.DalamudRed, FontAwesomeIcon.Times);
+            }
+
+            if (CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var info))
+            {
+                if (info.MarkerId != 0)
+                {
+                    ImGui.SameLine(0, 4);
+                    ImGuiEx.Icon(FontAwesomeIcon.Flag);
+                }
+
+                if (GatheringUtil.CriticalLocations.ContainsKey(missionId))
+                {
+                    ImGui.SameLine(0, 4);
+                    ImGuiEx.Icon(FontAwesomeIcon.FlagCheckered);
+                }
+            }
+        }
+
+        /// <summary>已經為哪個任務印過掃描結果診斷，避免每幀洗記錄檔——同款節流手法見 <see cref="MissionObjectiveReader"/>。</summary>
+        private static uint diagnosticsLoggedForMission;
+
+        /// <summary>
+        /// 任務切換時把「目標列幾筆／分數面板讀不讀得到／時間限制讀不讀得到」寫一次 Information，
+        /// 供日後校準其他任務型別（例如製作型可能真的有目標列）時比對用。
+        /// </summary>
+        private static void LogScanDiagnosticsOnce(uint missionId, int objectiveCount, bool scoreReadable, bool timeReadable)
+        {
+            if (diagnosticsLoggedForMission == missionId)
+                return;
+            diagnosticsLoggedForMission = missionId;
+
+            IceLogging.Info(
+                $"任務 {missionId}：目標列 {objectiveCount} 筆／分數面板{(scoreReadable ? "可讀" : "不可讀")}" +
+                $"／時間限制{(timeReadable ? "可讀" : "不可讀")}。（供疊加層顯示校準用）",
+                "[OverlayWindow]");
         }
 
         void DrawScore()

@@ -25,6 +25,15 @@ namespace ICE.Ui;
 /// </para>
 ///
 /// <para>⚠️ 節點指標一律不跨影格保存 —— 每次刷新都重新走訪，快取的只有字串。</para>
+///
+/// <para><b>評價型任務（實機 2026-08-02 dump 確認）</b><br/>
+/// 有些任務面板完全沒有「n/m」形式的逐項目標列（例如採集特殊裝甲板材料任務），只有
+/// 「當前評價／銀星達成條件／金星達成條件」三個分數欄位——這種任務下 <see cref="Get"/>
+/// 回傳空清單是<b>正確行為</b>，不是掃描漏抓。分數改由 <c>OverlayWindow</c> 直接讀
+/// ECommons AddonMaster 的 <c>WKSMissionInfomation.CurrentScore/SilverScore/GoldScore</c>
+/// （全是 <c>uint?</c>，這幾個欄位已加固過型別/邊界檢查）。<see cref="TimeRemaining"/>
+/// 則是「時間限制」那一列，跟目標列共用同一次節點走訪，用內容比對（找含「時間限制」
+/// 字樣的節點群組）取得，不寫死索引。</para>
 /// </summary>
 internal static class MissionObjectiveReader
 {
@@ -43,6 +52,9 @@ internal static class MissionObjectiveReader
     /// </summary>
     private static readonly Regex LabelWithFraction = new(@"^(.*\S)\s+([\d,]+\s*/\s*[\d,]+)\s*$", RegexOptions.Compiled);
 
+    /// <summary>只認「M:SS/M:SS」這種時間格式，跟目標進度的純數字 n/m 分開判斷，不會互相誤中。</summary>
+    private static readonly Regex TimeFraction = new(@"^\d{1,2}:\d{2}\s*/\s*\d{1,2}:\d{2}$", RegexOptions.Compiled);
+
     private const string AddonName = "WKSMissionInfomation";
 
     /// <summary>走訪上限，純粹是防呆用的天花板，正常的 addon 遠遠用不到。</summary>
@@ -56,6 +68,12 @@ internal static class MissionObjectiveReader
     private static uint loggedEmptyForMission;
 
     /// <summary>
+    /// 「時間限制」那一列的原文（例如 <c>"9:45/10:00"</c>），來源與目標列同一次節點走訪，
+    /// 用內容比對（找含「時間限制」字樣的節點群組）取得，不靠寫死索引。抓不到就是 null。
+    /// </summary>
+    internal static string? TimeRemaining { get; private set; }
+
+    /// <summary>
     /// 取得目前任務的目標進度。面板沒開、或找不到符合形狀的資料時回傳空清單。
     /// </summary>
     internal static IReadOnlyList<ObjectiveLine> Get(uint missionId)
@@ -64,6 +82,7 @@ internal static class MissionObjectiveReader
         {
             if (Cache.Count > 0)
                 Cache.Clear();
+            TimeRemaining = null;
             cachedMissionId = 0;
             return Cache;
         }
@@ -92,6 +111,7 @@ internal static class MissionObjectiveReader
             if (ptr.Address == nint.Zero)
             {
                 Cache.Clear();
+                TimeRemaining = null;
                 return;
             }
 
@@ -99,6 +119,7 @@ internal static class MissionObjectiveReader
             if (!addon->IsVisible || !addon->IsReady)
             {
                 Cache.Clear();
+                TimeRemaining = null;
                 return;
             }
 
@@ -108,6 +129,32 @@ internal static class MissionObjectiveReader
             var budget = MaxNodes;
 
             CollectTexts(&addon->UldManager, groups, index, ref budget, 0);
+
+            // 時間限制列跟目標列是不同形狀（"M:SS/M:SS" 含冒號，FractionOnly 不會誤中），
+            // 獨立掃一輪、用內容比對（找含「時間限制」的節點）取數字，不靠寫死索引。
+            // 刻意跟下面的目標列迴圈分開：目標列迴圈遇到形狀不符會 continue，會把這個群組跳過。
+            string? timeRemaining = null;
+            foreach (var group in groups)
+            {
+                bool hasTimeLimitLabel = false;
+                string? timeText = null;
+
+                foreach (var text in group.Texts)
+                {
+                    var trimmed = text.Trim();
+                    if (trimmed.Contains("時間限制") || trimmed.Contains("時間限定"))
+                        hasTimeLimitLabel = true;
+                    else if (TimeFraction.IsMatch(trimmed))
+                        timeText = trimmed;
+                }
+
+                if (hasTimeLimitLabel && timeText != null)
+                {
+                    timeRemaining = timeText;
+                    break;
+                }
+            }
+            TimeRemaining = timeRemaining;
 
             foreach (var group in groups.OrderBy(g => g.ScreenY))
             {
@@ -164,6 +211,7 @@ internal static class MissionObjectiveReader
         {
             IceLogging.Debug($"讀取任務目標進度時發生例外：{ex.Message}", "[MissionObjectiveReader]");
             Cache.Clear();
+            TimeRemaining = null;
             return;
         }
 

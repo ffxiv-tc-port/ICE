@@ -1688,14 +1688,9 @@ namespace ICE.Ui.MainUi.ModeSelect
             chain.AddRange(GetOnlyNextMissionsRecursive(nextMissionId.Value));
             return chain;
         }
-        private static unsafe void CompletionStatus_Formatted(uint id)
+        private static void CompletionStatus_Formatted(uint id)
         {
-            var managerPtr = WKSManager.Instance();
-            if (managerPtr == null) return;
-
-            var manager = (WKSManagerCustom*)managerPtr;
-            var isCompleted = manager->IsMissionCompleted(id);
-            var isGold = manager->IsMissionGolded(id);
+            var (isCompleted, isGold) = MissionStatusHelper.GetStatus(id);
 
             float availableWidth = ImGui.GetContentRegionAvail().X;
 
@@ -1739,14 +1734,9 @@ namespace ICE.Ui.MainUi.ModeSelect
                 Table_FullCenterText(FontAwesome.Cross, EColor.Red);
             }
         }
-        private static unsafe void CompletionStatus_Normal(uint id)
+        private static void CompletionStatus_Normal(uint id)
         {
-            var managerPtr = WKSManager.Instance();
-            if (managerPtr == null) return;
-
-            var manager = (WKSManagerCustom*)managerPtr;
-            var isCompleted = manager->IsMissionCompleted(id);
-            var isGold = manager->IsMissionGolded(id);
+            var (isCompleted, isGold) = MissionStatusHelper.GetStatus(id);
 
             var containerSize = new Vector2(23, 23);
 
