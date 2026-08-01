@@ -75,6 +75,16 @@ namespace ICE.Config
         public bool ShowTotalScore { get; set; } = true;
         public bool ShowExpBars { get; set; } = true;
 
+        // 機甲行動技能範圍標示（Utilities/MechaOps）。預設關閉。
+        public bool ShowMechaAoeOverlay { get; set; } = false;
+
+        // 宇宙火焰噴射器（42258）的扇形角度（度）。遊戲資料裡沒有（Omen=0），
+        // 預設 90°，待實機校準。
+        public float MechaConeAngleDeg { get; set; } = 90f;
+
+        // 個別技能顯示開關；沒有紀錄的 ActionId ＝ 開。
+        public Dictionary<uint, bool> MechaAoeSkillToggles { get; set; } = new();
+
         #endregion
 
         #region MissionSettings

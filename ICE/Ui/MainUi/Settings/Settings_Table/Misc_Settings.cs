@@ -3,6 +3,7 @@ using Dalamud.Interface.Utility.Raii;
 using ECommons.GameHelpers;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using ICE.Config;
+using ICE.Utilities.MechaOps;
 using Lumina.Excel.Sheets;
 using Pictomancy;
 using System.Collections.Generic;
@@ -14,6 +15,9 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
         public static void Draw()
         {
             OverlaySettings();
+            Separator();
+
+            MechaAoeSettings();
             Separator();
 
             AutoUse();
@@ -72,6 +76,70 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 C.Save();
             }
 
+        }
+
+        /// <summary>
+        /// 機甲行動技能範圍標示（Utilities/MechaOps）。純顯示、零自動化。
+        /// </summary>
+        private static void MechaAoeSettings()
+        {
+            ImGuiEx.IconWithText(FontAwesomeIcon.Crosshairs, "Mecha Skill Range Hints".Loc());
+            ImGui.Dummy(new Vector2(0, 5));
+
+            bool showMechaAoe = C.ShowMechaAoeOverlay;
+            if (ImGui.Checkbox("Show Mecha Skill Ranges".Loc() + "###ICEShowMechaAoe", ref showMechaAoe))
+            {
+                C.ShowMechaAoeOverlay = showMechaAoe;
+                C.Save();
+            }
+            ImGui.SameLine();
+            ImGui.TextDisabled("?");
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip(("Draws range hints on the ground for mecha event skills while piloting or assisting.\n" +
+                                  "Display only - never casts skills or moves for you.").Loc());
+            }
+
+            using (ImRaii.Disabled(!showMechaAoe))
+            {
+                float coneAngle = C.MechaConeAngleDeg;
+                ImGui.SetNextItemWidth(150);
+                if (ImGui.SliderFloat("Flamethrower Cone Angle".Loc() + "###ICEMechaConeAngle", ref coneAngle, 15f, 180f, "%.0f"))
+                {
+                    C.MechaConeAngleDeg = coneAngle;
+                    C.SaveDebounced();
+                }
+                ImGui.SameLine();
+                ImGui.TextDisabled("?");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("The game data does not contain this cone's angle.\n" +
+                                      "Default is 90 degrees - awaiting in-game calibration.").Loc());
+                }
+
+                if (ImGui.TreeNode("Per-skill Toggles".Loc() + "###ICEMechaSkillToggles"))
+                {
+                    // 保底清單（離線驗證過的六技）＋執行期在 PetHotbar 上發現的新技能。
+                    var ids = new List<uint>(MechaActionShapes.BaselineActionIds);
+                    foreach (var candidate in MechaOpsMonitor.ActiveCandidates)
+                    {
+                        if (!ids.Contains(candidate.ActionId))
+                            ids.Add(candidate.ActionId);
+                    }
+
+                    foreach (var id in ids)
+                    {
+                        MechaActionShapes.TryResolve(id, out _, out var name);
+                        bool enabled = !C.MechaAoeSkillToggles.TryGetValue(id, out var v) || v;
+                        if (ImGui.Checkbox($"{name}###ICEMechaSkill{id}", ref enabled))
+                        {
+                            C.MechaAoeSkillToggles[id] = enabled;
+                            C.Save();
+                        }
+                    }
+                    ImGui.TreePop();
+                }
+            }
         }
 
         private static void AutoUse()
