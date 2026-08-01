@@ -61,7 +61,7 @@ namespace ICE.Scheduler.Tasks
                     if (fishingInfo.AmountRequired == 0 && !missionEntry.Attributes.HasFlag(MissionAttributes.Critical))
                     {
                         IceLogging.Debug("We're in a mission where score is the only importants. Checking to see if we meet the minimum score thresh", tag);
-                        var currentScore = missionInfo.CurrentScore;
+                        var currentScore = (missionInfo.CurrentScore ?? 0);
                         if (currentScore >= missionEntry.BronzeScore)
                         {
                             IceLogging.Info($"We've met the bronze scoring threshold. Current Score: {currentScore} | Bronze Score Requirement: {missionEntry.BronzeScore}", tag);
@@ -150,7 +150,7 @@ namespace ICE.Scheduler.Tasks
                 {
                     IceLogging.Debug("WE'RE NOT IN A CRITICAL MISSION");
 
-                    var currentScore = missionInfo.CurrentScore;
+                    var currentScore = (missionInfo.CurrentScore ?? 0);
                     var silverScore = mission.SilverScore;
                     var goldScore = mission.GoldScore;
 
@@ -219,7 +219,7 @@ namespace ICE.Scheduler.Tasks
                                     else
                                     {
                                         IceLogging.Debug("We've met the minimum bronze threshold, so checking the rest now", handle);
-                                        var currentScore = missionInfo.CurrentScore;
+                                        var currentScore = (missionInfo.CurrentScore ?? 0);
                                         var bronzeScore = mission.BronzeScore;
                                         var silverScore = mission.SilverScore;
                                         var goldScore = mission.GoldScore;
@@ -361,17 +361,17 @@ namespace ICE.Scheduler.Tasks
 
                         // Next, need to check to see if there is a bronze threshold that is required, and make sure we're hitting it (if there is any)
 
-                        if (mission.BronzeScore != 0 && (missionInfo.CurrentScore <= mission.BronzeScore))
+                        if (mission.BronzeScore != 0 && ((missionInfo.CurrentScore ?? 0) <= mission.BronzeScore))
                         {
                             IceLogging.Info("Bronze score is recorded at not 0. Which means that it needs a minimum score. \n" +
-                                            $"Current Score: {missionInfo.CurrentScore}\n" +
+                                            $"Current Score: {(missionInfo.CurrentScore ?? 0)}\n" +
                                             $"Minimum Score: {mission.BronzeScore}\n" +
                                             $"Continuing on with the crafting process");
                             return true;
                         }
                         else
                         {
-                            var currentScore = missionInfo.CurrentScore;
+                            var currentScore = (missionInfo.CurrentScore ?? 0);
                             var bronzeScore = mission.BronzeScore;
                             var silverScore = mission.SilverScore;
                             var goldScore = mission.GoldScore;
@@ -429,7 +429,7 @@ namespace ICE.Scheduler.Tasks
                             Mission_Settings.TurninState = TurninState.Critical;
                         else
                         {
-                            var currentScore = missionInfo.CurrentScore;
+                            var currentScore = (missionInfo.CurrentScore ?? 0);
                             var silverScore = mission.SilverScore;
                             var goldScore = mission.GoldScore;
 
@@ -445,7 +445,7 @@ namespace ICE.Scheduler.Tasks
                             IceLogging.Debug("Critical score is still 0", tag);
                         else
                         {
-                            var currentScore = missionInfo.CurrentScore;
+                            var currentScore = (missionInfo.CurrentScore ?? 0);
                             var silverScore = mission.SilverScore;
                             var goldScore = mission.GoldScore;
 
@@ -576,7 +576,7 @@ namespace ICE.Scheduler.Tasks
                         else
                         {
                             // a minimum threshold of bronze scoring is required. Time to check that.
-                            var currentScore = missionInfo.CurrentScore;
+                            var currentScore = (missionInfo.CurrentScore ?? 0);
                             if (currentScore >= mission.BronzeScore)
                                 canTurnin = true;
                         }
@@ -584,7 +584,7 @@ namespace ICE.Scheduler.Tasks
                         if (canTurnin)
                         {
                             // Turnin threshold has been met. Time to check to see if we're at the point where we want to turn in minimumly
-                            var currentScore = missionInfo.CurrentScore;
+                            var currentScore = (missionInfo.CurrentScore ?? 0);
                             var bronzeScore = mission.BronzeScore;
                             var silverScore = mission.SilverScore;
                             var goldScore = mission.GoldScore;
@@ -692,17 +692,17 @@ namespace ICE.Scheduler.Tasks
                     var mission = CosmicHelper.SheetMissionDict[Id];
                     bool shouldTurnin = false;
 
-                    if (mission.BronzeScore != 0 && (missionInfo.CurrentScore <= mission.BronzeScore))
+                    if (mission.BronzeScore != 0 && ((missionInfo.CurrentScore ?? 0) <= mission.BronzeScore))
                     {
                         IceLogging.Info("Bronze score is recorded at not 0. Which means that it needs a minimum score. \n" +
-                                        $"Current Score: {missionInfo.CurrentScore}\n" +
+                                        $"Current Score: {(missionInfo.CurrentScore ?? 0)}\n" +
                                         $"Minimum Score: {mission.BronzeScore}\n" +
                                         $"Continuing on with the crafting process");
                         return true;
                     }
                     else
                     {
-                        var currentScore = missionInfo.CurrentScore;
+                        var currentScore = (missionInfo.CurrentScore ?? 0);
                         var bronzeScore = mission.BronzeScore;
                         var silverScore = mission.SilverScore;
                         var goldScore = mission.GoldScore;
@@ -756,7 +756,7 @@ namespace ICE.Scheduler.Tasks
                             Mission_Settings.TurninState = TurninState.Gold;
                         else
                         {
-                            var currentScore = missionInfo.CurrentScore;
+                            var currentScore = (missionInfo.CurrentScore ?? 0);
                             var silverScore = mission.SilverScore;
                             var goldScore = mission.GoldScore;
                             MedalChecker(currentScore, silverScore, goldScore);
@@ -770,7 +770,7 @@ namespace ICE.Scheduler.Tasks
                     else
                     {
                         var config = C.MissionConfig[Id];
-                        var currentScore = missionInfo.CurrentScore;
+                        var currentScore = (missionInfo.CurrentScore ?? 0);
                         var bronzeScore = mission.BronzeScore;
                         var silverScore = mission.SilverScore;
                         var goldScore = mission.GoldScore;
@@ -781,7 +781,7 @@ namespace ICE.Scheduler.Tasks
                                         $"Silver Enable: {config.TurninSilver} | Score: {silverScore}" +
                                         $"Gold Enabled: {config.TurninGold} | Score: {goldScore}" +
                                         $"Any Turnin Enabled: {config.AutoTurnin}" +
-                                        $"Current Score: {missionInfo.CurrentScore}");
+                                        $"Current Score: {(missionInfo.CurrentScore ?? 0)}");
 
                         return true;
                     }

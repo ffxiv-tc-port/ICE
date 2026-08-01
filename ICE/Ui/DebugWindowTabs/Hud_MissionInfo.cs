@@ -14,7 +14,9 @@ namespace ICE.Ui.DebugWindowTabs
 
             if (GenericHelpers.TryGetAddonMaster<WKSMissionInfomation>("WKSMissionInfomation", out var x) && x.IsAddonReady)
             {
-                currentScore = x.CurrentScore;
+                // ECommons 加固後 CurrentScore 是 uint?(讀不到回 null);
+                // 這裡是除錯 HUD,顯示 0 即可。
+                currentScore = x.CurrentScore ?? 0;
                 silverScore = x.SilverScore;
                 goldScore = x.GoldScore;
 
