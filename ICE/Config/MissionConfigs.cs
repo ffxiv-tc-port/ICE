@@ -22,7 +22,7 @@ namespace ICE.Config
         public bool JumpIfStuck { get; set; } = false;
 
         // 任務優先度：同一階級之內優先挑「還沒拿到金星」的任務（補完成度用）。
-        // 判定來源是 WKSManagerCustom.IsMissionGolded；全部拿完之後這個選項自然失去作用，
+        // 判定來源是 WKSManager.IsMissionGolded；全部拿完之後這個選項自然失去作用，
         // 排序會回到原本的順序。
         public bool PrioritizeUngoldedMissions { get; set; } = false;
 

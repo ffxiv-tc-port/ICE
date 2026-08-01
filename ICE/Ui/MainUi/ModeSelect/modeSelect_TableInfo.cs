@@ -543,8 +543,7 @@ namespace ICE.Ui.MainUi.ModeSelect
                             var managerPtr = WKSManager.Instance();
                             if (managerPtr == null) continue;
 
-                            var manager = (WKSManagerCustom*)managerPtr;
-                            var isGold = manager->IsMissionGolded(Id);
+                            var isGold = managerPtr->IsMissionGolded(Id);
 
                             if (isGold)
                                 continue;

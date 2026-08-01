@@ -254,8 +254,7 @@ namespace ICE.Scheduler.Tasks
             var managerPtr = WKSManager.Instance();
             if (managerPtr == null) return false;
 
-            var manager = (WKSManagerCustom*)managerPtr;
-            var isGold = manager->IsMissionGolded(PreviousMissionId);
+            var isGold = managerPtr->IsMissionGolded(PreviousMissionId);
 
             if (C.RemoveAfterGold && isGold)
             {

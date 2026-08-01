@@ -507,7 +507,7 @@ namespace ICE.Scheduler.Tasks
                         Dictionary<uint, int> goldRank = new();
                         unsafe
                         {
-                            var mgr = (WKSManagerCustom*)WKSManager.Instance();
+                            var mgr = WKSManager.Instance();
                             if (mgr != null)
                             {
                                 foreach (var m in candidates)
