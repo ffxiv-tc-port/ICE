@@ -45,6 +45,18 @@ namespace ICE.Config
         public bool XPRelicGrind { get; set; } = false;
         public bool XPRelicIgnoreManual { get; set; } = false;
         public bool XPRelicOnlyEnabled { get; set; } = false;
+
+        /// <summary>
+        /// 宇宙工具經驗模式是否也把「臨時任務」分頁（連續／時間限定／天氣限定）納入挑選。
+        /// 預設關閉＝維持上游行為。資料面沒有障礙 —— 台服 7.20 的 544 個具名任務
+        /// <b>全部</b>都有宇宙工具經驗獎勵（WKSMissionReward 逐筆核對過），限制純粹是
+        /// 上游的挑選流程只開一般任務分頁。
+        /// </summary>
+        public bool XPRelicIncludeProvisional { get; set; } = false;
+
+        /// <summary>宇宙工具經驗模式是否也把「緊急任務」分頁納入挑選。預設關閉＝維持上游行為。</summary>
+        public bool XPRelicIncludeCritical { get; set; } = false;
+
         public bool ShowCritical { get; set; } = true;
         public bool ShowSequential { get; set; } = true;
         public bool ShowWeather { get; set; } = true;

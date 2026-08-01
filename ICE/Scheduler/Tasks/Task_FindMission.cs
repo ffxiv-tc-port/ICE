@@ -48,6 +48,19 @@ namespace ICE.Scheduler.Tasks
         private static int timeoutAmount = 0;
         private static int maxTimeout = 10;
 
+        /// <summary>
+        /// 排程器已經挑好、正要去領的任務 ID（尚未接下來）。0 = 目前沒有選定目標。
+        /// <para>
+        /// 疊加層在「目前任務：無」時用這個顯示「正要去領哪一個」。設定點一律是實際把
+        /// 領取任務堆進佇列的地方，所以它代表的是<b>已決定</b>而不是<b>已接受</b>。
+        /// 重擲（reroll/abandon）不會設定這個值 —— 那是要丟掉的任務，不是目標。
+        /// </para>
+        /// </summary>
+        public static uint TargetMissionId { get; private set; }
+
+        /// <summary>清掉選定目標。每輪重新找任務、以及任務真的接下來之後都要呼叫，避免顯示過期資訊。</summary>
+        public static void ClearTargetMission() => TargetMissionId = 0;
+
         public static void Enqueue()
         {
             IceLogging.Info("Starting the find mission queue", "[Task Find Mission]");
@@ -56,6 +69,15 @@ namespace ICE.Scheduler.Tasks
             P.TaskManager.Enqueue(RefreshSelectedMissions, "Refreshing the list of viable missions");
             if (C.XPRelicGrind)
             {
+                // 宇宙工具經驗模式：預設只掃「一般任務」分頁（上游行為）。
+                // 兩個開關可以額外把緊急／臨時（連續・時間・天氣）分頁也納入挑選，
+                // 順序刻意跟標準模式一致：緊急 -> 臨時 -> 一般。
+                // OpenTab 一開頭就會在「任務已接下」時直接返回，所以前面的分頁一旦選到，
+                // 後面的分頁就不會再動作。
+                if (C.XPRelicIncludeCritical)
+                    P.TaskManager.Enqueue(() => OpenTab("ExpCheckCritical"), "Opening Critical tab for relic grind");
+                if (C.XPRelicIncludeProvisional)
+                    P.TaskManager.Enqueue(() => OpenTab("ExpCheckProvisional"), "Opening Provisional tab for relic grind");
                 P.TaskManager.Enqueue(() => OpenTab("ExpCheck"), "Opening Standard tab for relic grind");
             }
             else if (C.GrindProvisionals)
@@ -112,6 +134,8 @@ namespace ICE.Scheduler.Tasks
         }
         public static bool? RefreshSelectedMissions()
         {
+            // 新的一輪挑選開始，把上一輪殘留的目標清掉，免得疊加層顯示過期資訊。
+            ClearTargetMission();
             CriticalMissions.Clear();
             WeatherMissions.Clear();
             TimedMissions.Clear();
@@ -284,6 +308,26 @@ namespace ICE.Scheduler.Tasks
                             (
                                 new(() => FrameDelay(16), "Delaying 8 frames for the tab"),
                                 new(() => CheckExp(), "Checking Exp Missions")
+                            );
+                            break;
+                        }
+                    case "ExpCheckCritical":
+                        {
+                            x.CriticalMissions();
+                            P.TaskManager.InsertMulti
+                            (
+                                new(() => FrameDelay(16), "Delaying 8 frames for the tab"),
+                                new(() => CheckExp(isFallbackTab: false, requireCurrentJob: true), "Checking Exp Missions [Critical]")
+                            );
+                            break;
+                        }
+                    case "ExpCheckProvisional":
+                        {
+                            x.ProvisionalMissions();
+                            P.TaskManager.InsertMulti
+                            (
+                                new(() => FrameDelay(16), "Delaying 8 frames for the tab"),
+                                new(() => CheckExp(isFallbackTab: false, requireCurrentJob: true), "Checking Exp Missions [Provisional]")
                             );
                             break;
                         }
@@ -499,11 +543,21 @@ namespace ICE.Scheduler.Tasks
 
             return false;
         }
-        private static unsafe bool? CheckExp()
+        /// <param name="isFallbackTab">
+        /// 這個分頁是不是「最後一道防線」。只有一般任務分頁是 true —— 挑不到東西時才由它負責
+        /// 走重擲流程／停止外掛。緊急與臨時分頁挑不到是正常的（那兩種任務本來就不常有），
+        /// 挑不到就安靜地把控制權交給下一個分頁。
+        /// </param>
+        /// <param name="requireCurrentJob">
+        /// 是否只接受「任務職業包含目前職業」的候選。緊急／臨時分頁會列出其他職業的任務，
+        /// 而宇宙工具經驗是加在<b>任務所屬職業</b>的工具上，接錯職業等於練錯工具。
+        /// 一般任務分頁本來就已依職業分頁，所以維持 false 以免動到既有行為。
+        /// </param>
+        private static unsafe bool? CheckExp(bool isFallbackTab = true, bool requireCurrentJob = false)
         {
             if (GenericHelpers.TryGetAddonMaster<WKSMission>("WKSMission", out var x) && x.IsAddonReady)
             {
-                var bestIndex = FindBestRelicMission();
+                var bestIndex = FindBestRelicMission(requireCurrentJob);
 
                 if (bestIndex > 0)
                 {
@@ -516,6 +570,19 @@ namespace ICE.Scheduler.Tasks
                         InsertGrabMission(selectedMission.MissionId);
                         return true;
                     }
+
+                    // 挑到了 ID 卻在清單裡找不到（分頁在這幾幀之間被換掉之類）。
+                    // 額外分頁不能卡在這裡重試，直接交給下一個分頁。
+                    if (!isFallbackTab)
+                    {
+                        IceLogging.Debug($"選到的任務 {bestIndex} 不在目前清單裡，交給下一個分頁", "[Xp Grind]");
+                        return true;
+                    }
+                }
+                else if (!isFallbackTab)
+                {
+                    IceLogging.Debug("這個分頁沒有適合的宇宙工具經驗任務，交給下一個分頁", "[Xp Grind]");
+                    return true;
                 }
                 else
                 {
@@ -564,7 +631,11 @@ namespace ICE.Scheduler.Tasks
 
             return false;
         }
-        public static unsafe uint? FindBestRelicMission()
+        /// <param name="requireCurrentJob">
+        /// 只保留「任務職業包含目前職業」的候選。緊急／臨時分頁會列出其他職業的任務，
+        /// 而經驗是加在任務所屬職業的宇宙工具上，所以那兩個分頁必須開啟這個過濾。
+        /// </param>
+        public static unsafe uint? FindBestRelicMission(bool requireCurrentJob = false)
         {
             string tip = "[Relic XP Finder]";
 
@@ -649,6 +720,12 @@ namespace ICE.Scheduler.Tasks
                     var id = availMission.MissionId;
                     if (CosmicHelper.SheetMissionDict.TryGetValue(id, out var mission))
                     {
+                        if (requireCurrentJob && !mission.Jobs.Contains(Player.JobId))
+                        {
+                            IceLogging.Debug($"[Mission: {id}] 不是目前職業的任務，跳過（經驗會加到別的工具上）", tip);
+                            continue;
+                        }
+
                         var missionConfig = C.MissionConfig[id];
 
                         int minLevel = 10;
@@ -824,6 +901,8 @@ namespace ICE.Scheduler.Tasks
                         if (mission != null)
                         {
                             mission.Select();
+                            // 這條路徑沒走 InsertGrabMission，所以要自己標記目標任務。
+                            TargetMissionId = id;
                             P.TaskManager.InsertMulti
                             (
                                 new(() => ChangeJob(id), "Changing job if necessary"),
@@ -1051,6 +1130,8 @@ namespace ICE.Scheduler.Tasks
         }
         public static void InsertGrabMission(uint missionId)
         {
+            // 這裡就是「已經決定要領哪一個」的時間點 —— 疊加層要顯示的正是這個。
+            TargetMissionId = missionId;
             P.TaskManager.InsertMulti(
                 new(() => Navmesh_MoveToMission(missionId), "Checking if movement is necessary", Utils.TaskConfig),
                 new(() => FrameDelay(8), "Waiting 8 frames before next action"),
@@ -1062,6 +1143,8 @@ namespace ICE.Scheduler.Tasks
         {
             if (CosmicHelper.CurrentLunarMission != 0)
             {
+                // 任務真的接下來了，「正要去領」的目標就過期了。
+                ClearTargetMission();
                 Mission_Settings.ResetNodeCounter();
                 SchedulerMain.State = IceState.ExecutingMission;
                 timeoutAmount = 0;

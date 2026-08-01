@@ -1,5 +1,6 @@
 ﻿using Dalamud.Game.Text;
 using Dalamud.Interface;
+using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using ECommons.GameHelpers;
@@ -40,13 +41,23 @@ namespace ICE.Ui
         public override void Draw()
         {
             ImGui.Text("Current state: ".Loc() + SchedulerMain.State.ToString());
-            if (CosmicHelper.SheetMissionDict.TryGetValue(CosmicHelper.CurrentLunarMission, out var missionName) && SchedulerMain.State != IceState.AbandonMission)
+            var currentMissionId = CosmicHelper.CurrentLunarMission;
+            if (CosmicHelper.SheetMissionDict.TryGetValue(currentMissionId, out var missionName) && SchedulerMain.State != IceState.AbandonMission)
             {
-                ImGui.Text("Current Mission: [??] ??".Loc(CosmicHelper.CurrentLunarMission, missionName.Name));
+                ImGui.Text("Current Mission: [??] ??".Loc(currentMissionId, missionName.Name));
+                DrawObjectives(currentMissionId);
             }
             else
             {
                 ImGui.Text("Current Mission: None".Loc());
+
+                // 還沒接到任務時，如果排程器已經選定了要去領哪一個，就把那個目標顯示出來。
+                // 標籤刻意跟「目前任務」不同，避免被誤讀成已經接了。
+                var target = Task_FindMission.TargetMissionId;
+                if (target != 0 && CosmicHelper.SheetMissionDict.TryGetValue(target, out var targetInfo))
+                {
+                    ImGui.TextColored(ImGuiColors.DalamudYellow, "Heading to pick up: [??] ??".Loc(target, targetInfo.Name));
+                }
             }
 #if DEBUG
             if (C.ShowDebugGatherInfo)
@@ -237,6 +248,34 @@ namespace ICE.Ui
                     {
                         Relic_XP.DrawRelicXP((uint)currentJobId);
                     }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 畫出目前任務各目標的完成進度。資料完全來自遊戲的 <c>WKSMissionInfomation</c> 面板文字
+        /// （見 <see cref="MissionObjectiveReader"/>），面板沒開或抓不到符合形狀的資料時就什麼都不畫，
+        /// 不會退回去猜。
+        /// </summary>
+        private static void DrawObjectives(uint missionId)
+        {
+            var objectives = MissionObjectiveReader.Get(missionId);
+            if (objectives.Count == 0)
+                return;
+
+            foreach (var objective in objectives)
+            {
+                ImGui.Text("    ");
+                ImGui.SameLine(0, 0);
+                if (objective.Done)
+                {
+                    ImGui.TextColored(ImGuiColors.HealerGreen, $"{objective.Text}  {objective.Progress}");
+                    ImGui.SameLine(0, 4);
+                    ImGuiEx.Icon(ImGuiColors.HealerGreen, FontAwesomeIcon.Check);
+                }
+                else
+                {
+                    ImGui.TextUnformatted($"{objective.Text}  {objective.Progress}");
                 }
             }
         }

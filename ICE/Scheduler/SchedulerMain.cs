@@ -19,6 +19,8 @@ namespace ICE.Scheduler
             IceLogging.Debug("Stopping the plugin state", "[Schedular - Disable Plugin]");
             P.TaskManager.Abort();
             State = IceState.Idle;
+            // 佇列已經被中止了，「正要去領的任務」不再成立，別讓疊加層繼續顯示。
+            Task_FindMission.ClearTargetMission();
             if (P.Navmesh.Installed)
             {
                 if (P.Navmesh.IsRunning())

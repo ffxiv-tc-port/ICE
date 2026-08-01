@@ -233,8 +233,9 @@ namespace ICE.Ui.MainUi.ModeSelect
                         ImGui.TextDisabled("?");
                         if (ImGui.IsItemHovered())
                         {
-                            ImGui.SetTooltip(("Please note. This will ONLY grind for relic Exp under the basic mission tab. \n" +
-                                               "This will NOT work (even with missions selected) on the Sequence/Timed/Weather/Critical Missions").Loc());
+                            ImGui.SetTooltip(("By default this only grinds relic Exp under the basic mission tab.\n" +
+                                               "Use the two options below to also consider the Critical and Provisional " +
+                                               "[Sequence/Timed/Weather] tabs.").Loc());
                         }
                         if (EnableRelicXp)
                         {
@@ -244,6 +245,30 @@ namespace ICE.Ui.MainUi.ModeSelect
                                 C.XPRelicOnlyEnabled = OnlySelected;
                                 C.Save();
                             }
+
+                            bool includeCritical = C.XPRelicIncludeCritical;
+                            if (ImGui.Checkbox("Also check Critical missions".Loc() + "###ICEXPRelicIncludeCritical", ref includeCritical))
+                            {
+                                C.XPRelicIncludeCritical = includeCritical;
+                                C.Save();
+                            }
+                            ImGuiEx.HelpMarker(("Also look for relic XP missions on the Critical tab.\n" +
+                                                "Checked before the basic tab, same order as Standard mode.\n" +
+                                                "Only missions for your CURRENT job are considered - relic XP goes to the " +
+                                                "tool of the mission's job, so taking another job's mission levels the wrong tool.").Loc());
+
+                            bool includeProvisional = C.XPRelicIncludeProvisional;
+                            if (ImGui.Checkbox("Also check Provisional missions".Loc() + "###ICEXPRelicIncludeProvisional", ref includeProvisional))
+                            {
+                                C.XPRelicIncludeProvisional = includeProvisional;
+                                C.Save();
+                            }
+                            ImGuiEx.HelpMarker(("Also look for relic XP missions on the Provisional tab " +
+                                                "[Sequence/Timed/Weather].\n" +
+                                                "These are only available under their own conditions (weather, time window, " +
+                                                "or a finished prerequisite mission), so most cycles will still fall through " +
+                                                "to the basic tab.\n" +
+                                                "Only missions for your CURRENT job are considered.").Loc());
                             if (C.ShowManualMode)
                             {
                                 bool IgnoreManual = C.XPRelicIgnoreManual;
