@@ -326,7 +326,8 @@ namespace ICE.Ui
                 ImGui.SameLine(0, 0);
                 ImGui.TextUnformatted("Current Score: ??".Loc(current.ToString("N0", CultureInfo.InvariantCulture)));
 
-                ImGui.SameLine(0, 8);
+                ImGui.Text("    ");
+                ImGui.SameLine(0, 0);
                 var silverText = "Silver Threshold: ??".Loc(silver.ToString("N0", CultureInfo.InvariantCulture));
                 if (current >= silver)
                     ImGui.TextColored(ImGuiColors.HealerGreen, silverText);
