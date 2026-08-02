@@ -107,9 +107,12 @@ internal static unsafe class MechaOpsMonitor
         // 快照發布：換參考，不就地修改。
         activeCandidates = candidates;
 
-        // ---- P0 偵察診斷 ----
+        // ---- 偵察診斷 ----
         // 只在「機甲技能可用期間」輸出；狀態變化時輸出一次，不每幀。
-        // 一定要 Information 級：使用者的記錄等級會濾掉 Debug/Verbose。
+        // P2 實機校準已完成（形狀貼合、42258 扇形 90° 正確、PetHotbar 確認就是載體），
+        // 所以 16 格原始傾印從 Information 降到 Debug；Information 只留一行摘要。
+        // ⚠️ 之後若又要請使用者回傳原始格位，記得他的記錄等級會濾掉 Debug/Verbose，
+        //    屆時要臨時把該行改回 Information，不要叫他去調記錄等級。
         if (candidates.Count == 0)
         {
             if (wasActive)
@@ -138,8 +141,14 @@ internal static unsafe class MechaOpsMonitor
 
         var candidateText = string.Join("; ", candidates.Select(c => $"{c.ActionId} {c.Name} [{c.Shape.Kind} {c.Shape.Primary:F0}/{c.Shape.HalfWidth * 2:F0}]"));
 
+        // Information：一行摘要（幾個候選、哪些 id）。
         IceLogging.Info(
-            $"PetHotbar 偵察快照（供實機校準）：{dump}\n" +
+            $"機甲技能可用：{candidates.Count} 個 — {string.Join(", ", candidates.Select(c => $"{c.ActionId} {c.Name}"))}",
+            "[MechaOps]");
+
+        // Debug：完整 16 格傾印，只在需要重新校準時才需要。
+        IceLogging.Debug(
+            $"PetHotbar 偵察快照：{dump}\n" +
             $"  PetHotbarMode={module->PetHotbarMode}\n" +
             $"  玩家 pos=({pos.X:F1}, {pos.Y:F1}, {pos.Z:F1}) rot={rot:F3}rad\n" +
             $"  目標：{targetText}\n" +
