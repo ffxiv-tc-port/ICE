@@ -503,7 +503,14 @@ namespace ICE.Ui.DebugWindowTabs
 
         private static unsafe void MoveItem()
         {
-            InventoryManager.Instance()->MoveItemSlot(InventoryType.Inventory4, 0, InventoryType.Inventory4, 1, false);
+            // The 5th argument (a6) is the "send this move to the server" master switch, not a
+            // don't-care unknown. With a6: false the game only updates the local container and
+            // refreshes the UI -- no packet is sent, for any container, bag-to-bag included. The
+            // item appears to move and then snaps back on the next inventory sync, which makes the
+            // button actively misleading as a test: you would be looking at client-side state that
+            // the server never agreed to. The game's own drag-and-drop handler passes true, so this
+            // debug button does too and now performs a real move.
+            InventoryManager.Instance()->MoveItemSlot(InventoryType.Inventory4, 0, InventoryType.Inventory4, 1, a6: true);
         }
     }
 }
