@@ -1,4 +1,5 @@
 using Dalamud.Interface.Colors;
+using FFXIVClientStructs.FFXIV.Client.Game.WKS;
 using ICE.Utilities.Cosmic_Helper;
 using ICE.Utilities.MechaOps;
 
@@ -34,21 +35,34 @@ namespace ICE.Ui
         {
             if (!C.ShowMechaAoeOverlay)
                 return false;
-            if (!C.ShowMechaCooldowns && !C.ShowMechaProcAlert)
+            if (!C.ShowMechaCooldowns && !C.ShowMechaProcAlert && !C.ShowMechaEventStatus)
                 return false;
             if (!PlayerHelper.IsInCosmicZone())
                 return false;
 
-            // 沒在機甲階段就整個收起來，不要在宇宙探索全程掛一個空視窗。
-            return MechaOpsMonitor.ActiveCandidates.Count > 0;
+            // 沒在機甲階段、也沒有任何事件旗標時就整個收起來，
+            // 不要在宇宙探索全程掛一個空視窗。
+            if (MechaOpsMonitor.ActiveCandidates.Count > 0)
+                return true;
+
+            return C.ShowMechaEventStatus
+                && MechaOpsMonitor.EventFlagsValid
+                && MechaOpsMonitor.EventFlags != 0;
         }
 
         public override void Draw()
         {
             var drewSomething = false;
 
+            if (C.ShowMechaEventStatus)
+                drewSomething = DrawEventStatus();
+
             if (C.ShowMechaProcAlert)
-                drewSomething = DrawProcAlert();
+            {
+                if (drewSomething)
+                    ImGui.Separator();
+                drewSomething |= DrawProcAlert();
+            }
 
             if (C.ShowMechaCooldowns)
             {
@@ -56,6 +70,68 @@ namespace ICE.Ui
                     ImGui.Separator();
                 DrawCooldowns();
             }
+        }
+
+        /// <summary>
+        /// 事件狀態。資料來源只有 <c>WKSMechaEventModule.Flags</c> 這一個純量位元欄位
+        /// （取樣在 <see cref="MechaOpsMonitor.ReadEventFlags"/>，那裡有完整的紅線說明）。
+        ///
+        /// ⚠️ 本輪刻意不做「事件進度」（第幾階段、剩餘時間、目標還剩幾個）。
+        /// 那些欄位全都在 <c>WKSMechaEvent</c> 裡——0x5130 的大結構，台服完全沒有
+        /// 驗證過它的內部佈局，讀錯偏移會拿到垃圾指標，而 AccessViolationException
+        /// 在 .NET Core 是 corrupted-state exception，try/catch 攔不到，會直接把
+        /// 使用者的遊戲帶走。
+        ///
+        /// 未來要做進度顯示，先決條件是這三件事都成立（缺一不可）：
+        ///  (1) 對台服 7.20 的 ffxiv_dx11.exe 反編譯出 WKSMechaEvent 的實際佈局，
+        ///      逐欄位確認與上游 CS 的 struct 定義一致——不能只因為 CS 有定義就上，
+        ///      台服的結構位移在 7.20 已經咬過我們好幾次；
+        ///  (2) 實機以唯讀方式驗證那些進度欄位在機甲行動期間真的會變動且數值合理
+        ///      （全 0 或亂跳都代表偏移錯）；
+        ///  (3) 確認 CurrentEvent 指標的生命週期（什麼時候被釋放、換位），
+        ///      並且設計上絕不跨幀保存該指標。
+        /// 在這三點齊備之前，這裡永遠只讀 Flags。
+        /// </summary>
+        private static bool DrawEventStatus()
+        {
+            if (!MechaOpsMonitor.EventFlagsValid)
+                return false;
+
+            var flags = MechaOpsMonitor.EventFlags;
+            if (flags == 0)
+                return false;
+
+            ImGui.TextUnformatted("Mecha Event".Loc());
+            ImGui.SameLine();
+
+            // 報名 → 中籤 → 過場 → 加入。已達成的亮色，未達成的灰色，
+            // 這樣一眼看得出目前走到哪一步。
+            DrawFlagChip(flags, WKSEventModuleFlag.PilotApplicationSubmitted, "Applied".Loc());
+            DrawFlagChip(flags, WKSEventModuleFlag.PilotApplicationAccepted, "Selected".Loc());
+            DrawFlagChip(flags, WKSEventModuleFlag.PilotCutscenePlaying, "Cutscene".Loc());
+            DrawFlagChip(flags, WKSEventModuleFlag.IsJoined, "Joined".Loc());
+
+            // 已知位元以外的東西照原樣印出來，方便日後鑑識；正常情況不會出現。
+            const WKSEventModuleFlag known =
+                WKSEventModuleFlag.HasCurrentEvent
+                | WKSEventModuleFlag.PilotApplicationSubmitted
+                | WKSEventModuleFlag.PilotApplicationAccepted
+                | WKSEventModuleFlag.PilotCutscenePlaying
+                | WKSEventModuleFlag.IsJoined;
+            // （每個 chip 結尾都已經 SameLine 過了，這裡不用再呼叫一次。）
+            var unknown = flags & ~known;
+            if (unknown != 0)
+                ImGui.TextDisabled($"+0x{(uint)unknown:X}");
+
+            ImGui.NewLine();
+            return true;
+        }
+
+        private static void DrawFlagChip(WKSEventModuleFlag flags, WKSEventModuleFlag bit, string label)
+        {
+            var active = (flags & bit) != 0;
+            ImGui.TextColored(active ? ImGuiColors.HealerGreen : ImGuiColors.DalamudGrey3, label);
+            ImGui.SameLine();
         }
 
         /// <summary>

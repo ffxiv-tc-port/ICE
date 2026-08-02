@@ -145,6 +145,21 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                                       "(on TC that is Carrot Clearance, which enables Carrot Cannon Overload).").Loc());
                 }
 
+                bool showEventStatus = C.ShowMechaEventStatus;
+                if (ImGui.Checkbox("Show Mecha Event Status".Loc() + "###ICEShowMechaEventStatus", ref showEventStatus))
+                {
+                    C.ShowMechaEventStatus = showEventStatus;
+                    C.Save();
+                }
+                ImGui.SameLine();
+                ImGui.TextDisabled("?");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("Shows how far along the pilot sign-up flow you are: applied, selected, cutscene, joined.\n" +
+                                      "Event progress (stage, time left, remaining objectives) is deliberately not shown - " +
+                                      "reading it would require a game structure whose layout has never been verified on TC.").Loc());
+                }
+
                 if (ImGui.TreeNode("Per-skill Toggles".Loc() + "###ICEMechaSkillToggles"))
                 {
                     // 保底清單（離線驗證過的六技）＋執行期在 PetHotbar 上發現的新技能。

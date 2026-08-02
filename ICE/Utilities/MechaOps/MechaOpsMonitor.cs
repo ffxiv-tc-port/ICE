@@ -1,5 +1,6 @@
 using ECommons.GameHelpers;
 using FFXIVClientStructs.FFXIV.Client.Game;
+using FFXIVClientStructs.FFXIV.Client.Game.WKS;
 using FFXIVClientStructs.FFXIV.Client.UI.Misc;
 using ICE.Utilities.Cosmic_Helper;
 using System.Collections.Generic;
@@ -72,6 +73,15 @@ internal static unsafe class MechaOpsMonitor
     public static IReadOnlyList<MechaProcState> ActiveProcs => activeProcs;
     private static List<MechaProcState> activeProcs = [];
 
+    /// <summary>
+    /// <c>WKSMechaEventModule.Flags</c> 的最新取樣值。只有 <see cref="EventFlagsValid"/>
+    /// 為 true 時才有意義。
+    /// </summary>
+    public static WKSEventModuleFlag EventFlags { get; private set; }
+
+    /// <summary>上一次取樣時 WKSManager 與 MechaEventModule 都拿得到。</summary>
+    public static bool EventFlagsValid { get; private set; }
+
     private static string lastSignature = "";
     private static bool wasActive;
 
@@ -99,10 +109,14 @@ internal static unsafe class MechaOpsMonitor
             return;
         }
 
+        // 事件狀態要在機甲階段之外也能顯示（報名 → 中籤 → 加入），所以在
+        // PetHotbar 的檢查之前就取樣。
+        ReadEventFlags();
+
         var module = RaptureHotbarModule.Instance();
         if (module == null)
         {
-            Deactivate();
+            DeactivateSkills();
             return;
         }
 
@@ -262,7 +276,43 @@ internal static unsafe class MechaOpsMonitor
         return (ready, remaining);
     }
 
-    private static void Deactivate()
+    /// <summary>
+    /// 取樣 <c>WKSMechaEventModule.Flags</c>。
+    ///
+    /// 存取路徑一共兩層，且刻意到此為止：
+    ///   WKSManager.Instance()            → 靜態單例（同檔案的 MissionModule／ResearchModule
+    ///                                      已經這樣用了，屬既有風險等級），null 檢查。
+    ///   ->MechaEventModule               → WKSManager +0xE20 的指標欄位，null 檢查。
+    ///   ->Flags                          → WKSMechaEventModule +0xA2A4 的 uint 位元欄位（純量）。
+    ///
+    /// 🔴 這裡永遠不會去碰以下東西，就算之後有人覺得「順手多讀一點」也不行：
+    ///   - <c>CurrentEvent</c>（+0xA290 的 WKSMechaEvent*）
+    ///   - <c>_events</c>（+0x30 的 FixedSizeArray2&lt;WKSMechaEvent&gt;）的內容
+    ///   - WKSMechaEventMapMarker／MapMarkerPtrs 這類指標鏈
+    /// WKSMechaEvent 是 0x5130 的大結構，台服完全沒有驗證過它的內部佈局。
+    /// 讀錯偏移拿到的是垃圾指標，而 AccessViolationException 在 .NET Core 是
+    /// corrupted-state exception：try/catch 與 HookSafety.ExecuteSafe 都攔不到，
+    /// 會直接把使用者的遊戲帶走。
+    ///
+    /// 這也是本輪「只做事件狀態、不做事件進度」的原因——階段、剩餘時間、目標剩幾個
+    /// 那些欄位全都在 WKSMechaEvent 裡面。要做的先決條件見 Ui/MechaOpsWindow 的註解。
+    /// </summary>
+    private static void ReadEventFlags()
+    {
+        var wks = WKSManager.Instance();
+        if (wks != null && wks->MechaEventModule != null)
+        {
+            EventFlags = wks->MechaEventModule->Flags;
+            EventFlagsValid = true;
+            return;
+        }
+
+        EventFlags = 0;
+        EventFlagsValid = false;
+    }
+
+    /// <summary>只清掉技能相關的快照，事件狀態維持上一次的取樣值。</summary>
+    private static void DeactivateSkills()
     {
         if (activeCandidates.Count > 0)
             activeCandidates = [];
@@ -273,5 +323,13 @@ internal static unsafe class MechaOpsMonitor
             wasActive = false;
             lastSignature = "";
         }
+    }
+
+    /// <summary>離開宇宙區域：技能與事件狀態全部清空。</summary>
+    private static void Deactivate()
+    {
+        DeactivateSkills();
+        EventFlags = 0;
+        EventFlagsValid = false;
     }
 }
