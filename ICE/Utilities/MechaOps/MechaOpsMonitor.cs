@@ -38,6 +38,40 @@ internal sealed record MechaProcState(
     float RemainingSeconds);
 
 /// <summary>
+/// 目前這場機甲事件的進度快照。
+///
+/// 🔑 這裡的每一個欄位都是 <c>WKSMechaEvent</c> 裡的**純量**（int／uint／旗標位元），
+/// 取樣端絕不把讀到的值當指標用，也絕不去碰同一個結構裡的三個指標欄位
+/// （<c>MapMarkerPtrs</c> 0x3910、<c>CurrentStateHandler</c> 0x50C8、
+/// <c>WKSMechaEventDataRowPtr</c> 0x50D0）。
+/// 因此就算台服的欄位語意跟國際服不同，最壞情況只是「數字不對」，不會是越界或崩潰。
+///
+/// <para>
+/// ⚠️ <paramref name="EventStart"/> 等五個時間戳的**時間基準沒有離線證明**。
+/// CS 只把型別標成 <c>int</c>、沒有註明 epoch；台服 7.20 的執行檔也沒有反編譯驗證過。
+/// 所以顯示端不會無條件套用換算式——它會拿當下的 UTC Unix 秒做合理性檢查，
+/// 通過才顯示倒數（並標示為推定值），不通過就只顯示原始整數。
+/// </para>
+///
+/// <paramref name="SampledUnixSeconds"/> 只用於診斷（顯示快照有多舊），
+/// 倒數一律用繪製當下的時間去算，這樣才不會被 250ms 的取樣節流卡住。
+/// </summary>
+internal sealed record MechaEventDetail(
+    WKSMechaEventFlag Flags,
+    uint DataRowId,
+    int Progress,
+    int ProgressMax,
+    int Contribution,
+    int PersonalProgress,
+    int PersonalProgressMax,
+    int EventStart,
+    int EventEnd,
+    int RegistrationStart,
+    int RegistrationEnd,
+    int TeleportStart,
+    long SampledUnixSeconds);
+
+/// <summary>
 /// 機甲行動偵察（P0）＋繪製快照的生產者。
 /// 掛在 Framework.Update（ICE.Tick）；遊戲結構一律在這裡讀，
 /// 繪製執行緒（<see cref="MechaAoeOverlay"/>）只讀本類別發布的不可變快照。
@@ -54,6 +88,11 @@ internal sealed record MechaProcState(
 ///     不成立時只會少掉剩餘秒數，提示本身仍然正確——見 <see cref="ResolveProc"/> 的備援設計。
 ///  5. （P3）六技共用重置群組（75／42261 是 76）的情況下，GetRecastTime/Elapsed 回的是
 ///     「使用者在熱鍵上看到的那個」冷卻。不成立時是讀數不準（顯示問題），不會崩。
+///  6. （P4）<c>WKSMechaEvent</c> 各欄位的**語意**（哪個 int 是進度、哪個是貢獻）沿用上游 CS，
+///     台服沒有反編譯驗證過。不成立時是「數字對應錯了」——因為只讀純量、
+///     而且讀取範圍已被 <see cref="IsInsideEventArray"/> 鎖在模組自有配置內，所以不會越界。
+///  7. （P4）五個時間戳的 epoch 沒有離線證明。顯示端不無條件換算：先跟當下的 UTC Unix 秒
+///     做合理性檢查，不通過就只顯示原始整數並標明。不成立時是「只看得到原始值」，不會崩。
 ///
 /// 📌 特徵碼失準時不會產生 AccessViolation（已讀 CS 的 InteropGenerator 原始碼證實）：
 /// 產生器會在每個 MemberFunction 呼叫前插入 null 檢查，解析失敗時走
@@ -94,6 +133,16 @@ internal static unsafe class MechaOpsMonitor
 
     /// <summary>上一次取樣時 WKSManager 與 MechaEventModule 都拿得到。</summary>
     public static bool EventFlagsValid { get; private set; }
+
+    /// <summary>
+    /// 目前這場機甲事件的進度快照，<c>null</c> 代表「這一輪讀不到」——
+    /// 沒有 <see cref="WKSEventModuleFlag.HasCurrentEvent"/>、指標是 null，
+    /// 或指標沒有通過 <see cref="IsInsideEventArray"/> 的範圍驗證。
+    /// 三種情況顯示端一律不畫（不做任何降級顯示）。
+    /// 發布方式同 <see cref="ActiveCandidates"/>：整個換參考，發布後不再修改。
+    /// </summary>
+    public static MechaEventDetail? EventDetail => eventDetail;
+    private static MechaEventDetail? eventDetail;
 
     private static string lastSignature = "";
     private static bool wasActive;
@@ -290,38 +339,153 @@ internal static unsafe class MechaOpsMonitor
     }
 
     /// <summary>
-    /// 取樣 <c>WKSMechaEventModule.Flags</c>。
+    /// 取樣 <c>WKSMechaEventModule.Flags</c>，以及（通過範圍驗證時）目前這場事件的進度純量。
     ///
-    /// 存取路徑一共兩層，且刻意到此為止：
+    /// 存取路徑：
     ///   WKSManager.Instance()            → 靜態單例（同檔案的 MissionModule／ResearchModule
     ///                                      已經這樣用了，屬既有風險等級），null 檢查。
     ///   ->MechaEventModule               → WKSManager +0xE20 的指標欄位，null 檢查。
     ///   ->Flags                          → WKSMechaEventModule +0xA2A4 的 uint 位元欄位（純量）。
+    ///   ->CurrentEvent                   → +0xA290 的 WKSMechaEvent*，見 <see cref="TryReadEventDetail"/>：
+    ///                                      旗標把關 → null 檢查 → **範圍驗證** 三關都過才解參考。
     ///
-    /// 🔴 這裡永遠不會去碰以下東西，就算之後有人覺得「順手多讀一點」也不行：
-    ///   - <c>CurrentEvent</c>（+0xA290 的 WKSMechaEvent*）
-    ///   - <c>_events</c>（+0x30 的 FixedSizeArray2&lt;WKSMechaEvent&gt;）的內容
-    ///   - WKSMechaEventMapMarker／MapMarkerPtrs 這類指標鏈
-    /// WKSMechaEvent 是 0x5130 的大結構，台服完全沒有驗證過它的內部佈局。
-    /// 讀錯偏移拿到的是垃圾指標，而 AccessViolationException 在 .NET Core 是
-    /// corrupted-state exception：try/catch 與 HookSafety.ExecuteSafe 都攔不到，
-    /// 會直接把使用者的遊戲帶走。
+    /// 🔴 永遠不碰的東西（就算之後有人覺得「順手多讀一點」也不行）：
+    ///   - <c>WKSMechaEvent.MapMarkerPtrs</c>（+0x3910 的 StdVector&lt;Pointer&lt;…&gt;&gt;）
+    ///   - <c>WKSMechaEvent.CurrentStateHandler</c>（+0x50C8）
+    ///   - <c>WKSMechaEvent.WKSMechaEventDataRowPtr</c>（+0x50D0）
+    ///   - <c>_mapMarkers</c> 與任何 WKSMechaEventStageHandlerBase
+    /// 這些都是指標；台服沒有驗證過 WKSMechaEvent 的內部佈局，偏移一錯就是垃圾指標，
+    /// 而 AccessViolationException 在 .NET Core 是 corrupted-state exception：
+    /// try/catch 與 HookSafety.ExecuteSafe 都攔不到，會直接把使用者的遊戲帶走。
     ///
-    /// 這也是本輪「只做事件狀態、不做事件進度」的原因——階段、剩餘時間、目標剩幾個
-    /// 那些欄位全都在 WKSMechaEvent 裡面。要做的先決條件見 Ui/MechaOpsWindow 的註解。
+    /// 反過來說，<b>只讀純量</b>時偏移讀錯的後果只是「拿到錯的數字」——
+    /// 前提是讀取位置一定落在已配置的記憶體內，這正是範圍驗證要保證的事。
     /// </summary>
     private static void ReadEventFlags()
     {
         var wks = WKSManager.Instance();
-        if (wks != null && wks->MechaEventModule != null)
+        if (wks == null || wks->MechaEventModule == null)
         {
-            EventFlags = wks->MechaEventModule->Flags;
-            EventFlagsValid = true;
+            EventFlags = 0;
+            EventFlagsValid = false;
+            eventDetail = null;
             return;
         }
 
-        EventFlags = 0;
-        EventFlagsValid = false;
+        var mod = wks->MechaEventModule;
+        EventFlags = mod->Flags;
+        EventFlagsValid = true;
+        eventDetail = TryReadEventDetail(mod);
+    }
+
+    /// <summary>
+    /// 取出目前這場事件的進度純量；任何一關沒過就回 <c>null</c>（顯示端什麼都不畫）。
+    ///
+    /// 四關依序是：
+    ///  1. <see cref="WKSEventModuleFlag.HasCurrentEvent"/> 位元——沒設就連讀指標欄位都不讀。
+    ///  2. 指標 null 檢查。
+    ///  3. <see cref="IsInsideEventArray"/> 範圍驗證（本設計的核心，說明見該方法）。
+    ///  4. 只讀純量欄位，且一個指標欄位都不碰。
+    /// </summary>
+    private static MechaEventDetail? TryReadEventDetail(WKSMechaEventModule* mod)
+    {
+        if ((mod->Flags & WKSEventModuleFlag.HasCurrentEvent) == 0)
+            return null;
+
+        var ev = mod->CurrentEvent;
+        if (ev == null)
+            return null;
+
+        if (!IsInsideEventArray(mod, ev))
+        {
+            // ⚠️ 這是「合格的失敗」：驗證不過就當作讀不到，絕不放寬條件。
+            //    節流到 60 秒一次，不要每幀洗版。
+            if (EzThrottler.Throttle("MechaEventPointerRejected", 60_000))
+            {
+                IceLogging.Info(
+                    "CurrentEvent 未通過範圍驗證，本輪不顯示事件進度（這是設計上的安全退化，不是錯誤）："
+                    + $" module=0x{(nint)mod:X} events=0x{GetEventArrayBase(mod):X}"
+                    + $" moduleSize=0x{sizeof(WKSMechaEventModule):X} slotSize=0x{sizeof(WKSMechaEvent):X}"
+                    + $" current=0x{(nint)ev:X}",
+                    "[MechaOps]");
+            }
+            return null;
+        }
+
+        // ---- 以下全部是純量讀取，位置一律落在 _events 這塊模組自有配置裡 ----
+        return new MechaEventDetail(
+            ev->Flags,                              // +0x50DC uint 旗標
+            ev->WKSMechaEventDataRowId,             // +0x50D8 uint（不是那個 RowPtr）
+            ev->EventProgress,                      // +0x5104 int
+            ev->EventProgressMax,                   // +0x5108 int
+            ev->Contribution,                       // +0x510C int
+            ev->PersonalProgress,                   // +0x5114 int
+            ev->PersonalProgressMax,                // +0x5118 int
+            ev->EventStartTimestamp,                // +0x50E0 int
+            ev->EventEndTimestamp,                  // +0x50E4 int
+            ev->PilotRegistrationStartTimestamp,    // +0x50E8 int
+            ev->PilotRegistrationEndTimestamp,      // +0x50EC int
+            ev->TeleportStartTimestamp,             // +0x50F0 int
+            DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+    }
+
+    /// <summary>
+    /// <c>_events</c>（<c>FixedSizeArray2&lt;WKSMechaEvent&gt;</c> @ +0x30）的起始位址。
+    /// 位址是從 CS 產生的 <c>Events</c> span 取得的，<b>不是</b> 我們自己寫死 0x30——
+    /// 這樣 CS 之後改佈局時這裡會自動跟著走，不會變成過期的常數。
+    /// </summary>
+    private static nint GetEventArrayBase(WKSMechaEventModule* mod)
+    {
+        fixed (WKSMechaEvent* p = mod->Events)
+            return (nint)p;
+    }
+
+    /// <summary>
+    /// 🔑 <b>本功能的放行條件</b>：確認 <c>CurrentEvent</c> 真的指向模組自己的
+    /// <c>_events</c> 陣列裡的某一格開頭。
+    ///
+    /// 三項檢查，全部要過：
+    ///  (i)   <c>_events</c> 整塊必須落在模組宣告的配置（0xA2B0）之內。
+    ///        算術上這是 CS 的編譯期不變量（0x30 + 2 * 0x5130 = 0xA290 &lt;= 0xA2B0，
+    ///        而 0xA290 剛好就是 <c>CurrentEvent</c> 的偏移，內部一致），
+    ///        但這裡仍然實測一次：日後 CS 若改了佈局讓算術不再成立，
+    ///        結果是「本功能自動停用」而不是「開始越界讀取」。
+    ///  (ii)  指標必須落在 <c>[base, base + Length * slotSize)</c> 之內。
+    ///  (iii) 且必須對齊到某一格的開頭（位移是 slotSize 的整數倍）。
+    ///
+    /// 三關都過就證明：後面所有的純量讀取（最遠到 +0x511C）都落在
+    /// <c>_events</c> 這塊、也就是模組自己的配置裡面。
+    /// 即使台服的欄位語意跟國際服不同，最壞也只是數字不對，<b>不可能越界</b>。
+    ///
+    /// ⚠️ 若實機發現 <c>CurrentEvent</c> 指向別處（例如另外的堆積配置），
+    ///    正確做法是「維持驗證失敗、不顯示」並回報，<b>不是</b>放寬這裡的條件。
+    /// </summary>
+    private static bool IsInsideEventArray(WKSMechaEventModule* mod, WKSMechaEvent* candidate)
+    {
+        var slots = mod->Events;
+        if (slots.Length <= 0)
+            return false;
+
+        var slotSize = (nint)sizeof(WKSMechaEvent);
+        if (slotSize <= 0)
+            return false;
+
+        var arrayBase = GetEventArrayBase(mod);
+        var arrayBytes = slots.Length * slotSize;
+
+        // (i) 陣列整塊在模組配置內。
+        var modBase = (nint)mod;
+        var modBytes = (nint)sizeof(WKSMechaEventModule);
+        if (arrayBase < modBase || arrayBase + arrayBytes > modBase + modBytes)
+            return false;
+
+        // (ii) 指標在陣列範圍內。
+        var delta = (nint)candidate - arrayBase;
+        if (delta < 0 || delta >= arrayBytes)
+            return false;
+
+        // (iii) 對齊到格子開頭。
+        return delta % slotSize == 0;
     }
 
     /// <summary>只清掉技能相關的快照，事件狀態維持上一次的取樣值。</summary>
@@ -344,5 +508,6 @@ internal static unsafe class MechaOpsMonitor
         DeactivateSkills();
         EventFlags = 0;
         EventFlagsValid = false;
+        eventDetail = null;
     }
 }

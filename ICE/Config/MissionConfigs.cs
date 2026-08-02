@@ -92,6 +92,10 @@ namespace ICE.Config
         public bool ShowMechaProcAlert { get; set; } = true;
         public bool ShowMechaEventStatus { get; set; } = true;
 
+        // 事件進度（進度條／個人進度／貢獻／時間）。資料來自 WKSMechaEvent 的純量欄位，
+        // 取樣端會先做指標範圍驗證，驗證不過就什麼都不顯示。
+        public bool ShowMechaEventProgress { get; set; } = true;
+
         #endregion
 
         #region MissionSettings

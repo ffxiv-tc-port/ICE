@@ -155,9 +155,23 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 ImGui.TextDisabled("?");
                 if (ImGui.IsItemHovered())
                 {
-                    ImGui.SetTooltip(("Shows how far along the pilot sign-up flow you are: applied, selected, cutscene, joined.\n" +
-                                      "Event progress (stage, time left, remaining objectives) is deliberately not shown - " +
-                                      "reading it would require a game structure whose layout has never been verified on TC.").Loc());
+                    ImGui.SetTooltip(("Shows how far along the pilot sign-up flow you are: applied, selected, cutscene, joined.").Loc());
+                }
+
+                bool showEventProgress = C.ShowMechaEventProgress;
+                if (ImGui.Checkbox("Show Mecha Event Progress".Loc() + "###ICEShowMechaEventProgress", ref showEventProgress))
+                {
+                    C.ShowMechaEventProgress = showEventProgress;
+                    C.Save();
+                }
+                ImGui.SameLine();
+                ImGui.TextDisabled("?");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("Shows the event and personal progress bars, your contribution, and the remaining time.\n" +
+                                      "Display only - it never signs you up and never acts for you.\n" +
+                                      "The values are read only after the game's event pointer passes a range check; " +
+                                      "if it does not, nothing is shown at all.").Loc());
                 }
 
                 if (ImGui.TreeNode("Per-skill Toggles".Loc() + "###ICEMechaSkillToggles"))
