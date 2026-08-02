@@ -387,8 +387,10 @@ namespace ICE.Scheduler.Tasks
                         {
                             if (PlayerHelper.GetItemCount(baitId, out var count) && count > 0)
                             {
-                                P.AutoHook.SwapBaitById(baitId);
-                                IceLogging.Debug($"Telling it to equip bait ID: {baitId}", handle);
+                                // 見 AutoHookIPC.TrySwapBait 的註解：直接叫 SwapBaitById 在台服會靜默失敗。
+                                P.AutoHook.TrySwapBait(baitId);
+                                if (EzThrottler.Throttle("ICE: dualclass bait equip log", 5000))
+                                    IceLogging.Info($"目前沒有掛餌，要求裝上餌 ID {baitId}（{bait.Key}）。", handle);
                                 return false;
                             }
                         }

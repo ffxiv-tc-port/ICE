@@ -28,8 +28,36 @@ namespace ICE.Scheduler.Tasks
             // if craft not required, fish
             // wait for fishing to be done
 
-            P.TaskManager.Enqueue(() => Task_CheckScore.Fish());
-            P.TaskManager.Enqueue(() => FishingCheck());
+            LogFishingEntryState();
+
+            // 這兩個都必須帶 Utils.TaskConfig。NeoTaskManager 的預設是 TimeLimitMS = 30000
+            // 且 AbortOnTimeout = true，而 FishingCheck 在「走去釣點 / 等餌裝上 / 等咬鉤」時
+            // 本來就會連續回傳 false 好幾分鐘 —— 用預設值會每 30 秒把整個佇列 Abort 一次，
+            // 表現出來就是「動一下又重來」而完全沒有錯誤訊息。
+            // （同樣的坑在 Task_Craft.Enqueue 已經修過一次，見該處註解。）
+            P.TaskManager.Enqueue(() => Task_CheckScore.Fish(), "Checking fishing score", Utils.TaskConfig);
+            P.TaskManager.Enqueue(() => FishingCheck(), "Standard fishing check", Utils.TaskConfig);
+        }
+
+        /// <summary>
+        /// 進入釣魚流程時印一次現況。釣魚卡住的回報幾乎都缺這幾個欄位，
+        /// 沒有它們就只能靠猜「停在哪一步」，所以刻意寫 Information 等級
+        /// （使用者的記錄等級會濾掉 Debug/Verbose）。
+        /// </summary>
+        private static void LogFishingEntryState()
+        {
+            if (!EzThrottler.Throttle("ICE: fishing entry state log", 10000))
+                return;
+
+            var missionId = CosmicHelper.CurrentLunarMission;
+            var missionName = CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var sheetInfo) ? sheetInfo.Name : "(不在任務表裡)";
+            var presetCount = GatheringUtil.FishingPreset.TryGetValue(missionId, out var preset) ? preset.FishingPreset.Count : -1;
+            var baitCount = GatheringUtil.MoonBaits.Sum(x => x.Value.Count);
+
+            IceLogging.Info($"進入釣魚流程。任務 {missionId}「{missionName}」｜AutoHook 已安裝: {P.AutoHook.Installed}" +
+                            $"｜內建 preset 筆數: {(presetCount < 0 ? "任務不在 preset 表裡" : presetCount.ToString())}" +
+                            $"｜已知月面餌種類: {baitCount}｜目前掛的餌: {CosmicHelper.CurrentBait?.ToString() ?? "null(不在任務中)"}" +
+                            $"｜目前職業: {Player.JobId}", "[Task_Fishing]");
         }
 
         private static int BaitCounter = 0;
@@ -64,8 +92,11 @@ namespace ICE.Scheduler.Tasks
                         {
                             if (PlayerHelper.GetItemCount(baitId, out var count) && count > 0)
                             {
-                                P.AutoHook.SwapBaitById(baitId);
-                                IceLogging.Debug($"Telling it to equip bait ID: {baitId}", handle);
+                                // TrySwapBait 會在 IPC 不可用時退回 /ahbait 指令，並且把結果寫進 log。
+                                // 直接呼叫 P.AutoHook.SwapBaitById 會在台服的 AutoHook 上靜默失敗。
+                                P.AutoHook.TrySwapBait(baitId);
+                                if (EzThrottler.Throttle("ICE: fishing bait equip log", 5000))
+                                    IceLogging.Info($"目前沒有掛餌，要求裝上餌 ID {baitId}（{bait.Key}）。", handle);
                                 return false;
                             }
                         }
@@ -139,11 +170,22 @@ namespace ICE.Scheduler.Tasks
                             P.TaskManager.Enqueue(() => InitiateMoving(nextFishingSpot.FishingSpot), "Vnav moving to fishing");
                             return true;
                         }
+
+                        // 這裡是原本會「靜默永遠不動」的死路：站的位置不能釣、又查不到任何備用釣點，
+                        // 就一路 return false 下去，而唯一的線索是上面那行 Debug（使用者的記錄等級看不到）。
+                        if (EzThrottler.Throttle("ICE: no fishing spot data log", 10000))
+                        {
+                            var hasZone = MoonFishingLocations.ContainsKey(territoryId);
+                            var spotCount = hasZone && MoonFishingLocations[territoryId].TryGetValue(flag, out var zoneSpots) ? zoneSpots.Count : 0;
+                            IceLogging.Info($"目前位置不能釣魚，而且找不到可以移動過去的釣點：" +
+                                            $"地區 {territoryId} 是否有釣點資料 = {hasZone}，任務標記 {flag} 下的釣點筆數 = {spotCount}。" +
+                                            $"（釣點資料是寫死在 GatheringUtil.MoonFishingLocations 裡的，這筆缺了就只能手動釣。）", handle);
+                        }
                     }
                 }
                 else if (EzThrottler.Throttle("Starting to fish", 1000))
                 {
-                    IceLogging.Debug("Telling it to start fishing", handle);
+                    IceLogging.Info("已站在可釣位置，送出 /ahstart 開始釣魚。", handle);
                     // ActionManager.Instance()->UseAction(ActionType.Action, 289);
                     Svc.Commands.ProcessCommand("/ahstart");
                 }
@@ -159,8 +201,9 @@ namespace ICE.Scheduler.Tasks
                             {
                                 if (PlayerHelper.GetItemCount(baitId, out var count) && count > 0)
                                 {
-                                    P.AutoHook.SwapBaitById(baitId);
-                                    IceLogging.Debug($"Telling it to equip bait ID: {baitId}", handle);
+                                    P.AutoHook.TrySwapBait(baitId);
+                                    if (EzThrottler.Throttle("ICE: fishing bait recheck log", 5000))
+                                        IceLogging.Info($"已重試 {BaitCounter} 次仍未開始釣魚，重新要求裝上餌 ID {baitId}（{bait.Key}）。", handle);
                                     return false;
                                 }
                             }
