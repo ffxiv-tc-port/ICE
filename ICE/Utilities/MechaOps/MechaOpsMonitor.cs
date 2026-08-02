@@ -50,6 +50,19 @@ internal sealed record MechaProcState(
 ///     垃圾 id → 查不到表 → 不繪製；不會解參考野指標。
 ///  3. 「離開機甲後 PetHotbar 會清空或換內容」——若殘留，繪製會多畫（僅顯示問題），
 ///     診斷快照同樣看得出來。
+///  4. （P3）「胡蘿蔔授權」這個 status 掛在本機玩家身上、而不是掛在機甲那具 BattleChara 上。
+///     不成立時只會少掉剩餘秒數，提示本身仍然正確——見 <see cref="ResolveProc"/> 的備援設計。
+///  5. （P3）六技共用重置群組（75／42261 是 76）的情況下，GetRecastTime/Elapsed 回的是
+///     「使用者在熱鍵上看到的那個」冷卻。不成立時是讀數不準（顯示問題），不會崩。
+///
+/// 📌 特徵碼失準時不會產生 AccessViolation（已讀 CS 的 InteropGenerator 原始碼證實）：
+/// 產生器會在每個 MemberFunction 呼叫前插入 null 檢查，解析失敗時走
+/// <c>InteropGenerator.Runtime.ThrowHelper.ThrowNullAddress</c> 丟出一般的
+/// <c>InvalidOperationException</c>，而不是拿 0 當函式指標去呼叫。
+/// 這個受管理例外會被 <see cref="Tick"/> 的 try/catch 接住（每 60 秒記錄一次），
+/// 退化行為是「疊加層與狀態視窗停止更新」，不是把遊戲帶走。
+/// 本輪新增的三個 MemberFunction（GetRecastTime／GetRecastTimeElapsed／
+/// IsActionHighlighted）也都已離線比對台服 7.20 的 ffxiv_dx11.exe，各自唯一命中。
 /// </summary>
 internal static unsafe class MechaOpsMonitor
 {
