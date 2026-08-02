@@ -117,6 +117,20 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                                       "Default is 90 degrees - awaiting in-game calibration.").Loc());
                 }
 
+                bool showCooldowns = C.ShowMechaCooldowns;
+                if (ImGui.Checkbox("Show Mecha Skill Cooldowns".Loc() + "###ICEShowMechaCooldowns", ref showCooldowns))
+                {
+                    C.ShowMechaCooldowns = showCooldowns;
+                    C.Save();
+                }
+                ImGui.SameLine();
+                ImGui.TextDisabled("?");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("Shows a small window with the remaining cooldown of each mecha skill.\n" +
+                                      "Only appears while mecha skills are actually available.").Loc());
+                }
+
                 if (ImGui.TreeNode("Per-skill Toggles".Loc() + "###ICEMechaSkillToggles"))
                 {
                     // 保底清單（離線驗證過的六技）＋執行期在 PetHotbar 上發現的新技能。

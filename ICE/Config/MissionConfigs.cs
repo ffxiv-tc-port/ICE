@@ -85,6 +85,13 @@ namespace ICE.Config
         // 個別技能顯示開關；沒有紀錄的 ActionId ＝ 開。
         public Dictionary<uint, bool> MechaAoeSkillToggles { get; set; } = new();
 
+        // 機甲行動狀態視窗（Ui/MechaOpsWindow）的三個子區塊。
+        // 全部掛在 ShowMechaAoeOverlay 底下，總開關關著時整個視窗都不出現；
+        // 子開關預設開啟，比照 MechaAoeSkillToggles「沒紀錄＝開」的風格。
+        public bool ShowMechaCooldowns { get; set; } = true;
+        public bool ShowMechaProcAlert { get; set; } = true;
+        public bool ShowMechaEventStatus { get; set; } = true;
+
         #endregion
 
         #region MissionSettings

@@ -7,8 +7,20 @@ using System.Text;
 
 namespace ICE.Utilities.MechaOps;
 
-/// <summary>目前出現在 PetHotbar 上、且形狀可解析的機甲技能。</summary>
-internal sealed record MechaCandidate(uint ActionId, string Name, MechaAoeShape Shape);
+/// <summary>
+/// 目前出現在 PetHotbar 上、且形狀可解析的機甲技能。
+/// <para>
+/// <paramref name="RecastTotal"/> / <paramref name="RecastRemaining"/> 是快照當下的重置時間（秒），
+/// 由 <see cref="MechaOpsMonitor.SnapshotTick"/> 標記取樣時刻；顯示端要自己扣掉經過的牆鐘時間，
+/// 才不會因為 250ms 的掃描節流而讀數跳動。<c>RecastTotal &lt;= 0</c> 代表這技能沒有重置時間或取不到。
+/// </para>
+/// </summary>
+internal sealed record MechaCandidate(
+    uint ActionId,
+    string Name,
+    MechaAoeShape Shape,
+    float RecastTotal,
+    float RecastRemaining);
 
 /// <summary>
 /// 機甲行動偵察（P0）＋繪製快照的生產者。
@@ -32,6 +44,13 @@ internal static unsafe class MechaOpsMonitor
     /// </summary>
     public static IReadOnlyList<MechaCandidate> ActiveCandidates => activeCandidates;
     private static List<MechaCandidate> activeCandidates = [];
+
+    /// <summary>
+    /// 上一次發布快照的時刻（<see cref="Environment.TickCount64"/>）。
+    /// 顯示端用它把 <see cref="MechaCandidate.RecastRemaining"/> 外推到當下，
+    /// 讓倒數在 250ms 的掃描節流之間仍然是平滑的。
+    /// </summary>
+    public static long SnapshotTick { get; private set; }
 
     private static string lastSignature = "";
     private static bool wasActive;
@@ -96,7 +115,23 @@ internal static unsafe class MechaOpsMonitor
                 if (MechaActionShapes.TryResolve(id, out var shape, out name)
                     && MechaActionShapes.IsMechaCandidate(id))
                 {
-                    candidates.Add(new MechaCandidate(id, name, shape));
+                    // 冷卻：一律走 ActionManager 的標準 API（傳 ActionType + ActionId 兩個純量，
+                    // 由遊戲自己解算重置群組），完全不碰 WKS 結構、也不自己讀 RecastDetail 陣列。
+                    // ⚠️ 台服 Action 表裡這六技共用重置群組 75（42261 是 76），而群組 75/76 是
+                    //    「特殊內容動作」的公用池（104 個動作共用）。這裡不去猜群組語意——
+                    //    GetRecastTime/Elapsed 回什麼就顯示什麼，與遊戲熱鍵上的轉圈一致。
+                    float recastTotal = 0f, recastRemaining = 0f;
+                    if (am != null)
+                    {
+                        recastTotal = am->GetRecastTime(ActionType.Action, id);
+                        if (recastTotal > 0f)
+                        {
+                            var elapsed = am->GetRecastTimeElapsed(ActionType.Action, id);
+                            recastRemaining = Math.Clamp(recastTotal - elapsed, 0f, recastTotal);
+                        }
+                    }
+
+                    candidates.Add(new MechaCandidate(id, name, shape, recastTotal, recastRemaining));
                 }
             }
 
@@ -105,6 +140,9 @@ internal static unsafe class MechaOpsMonitor
         }
 
         // 快照發布：換參考，不就地修改。
+        // 先寫時刻再換清單——顯示端最壞情況是用「稍早的時刻」去外推新清單，
+        // 誤差方向是「倒數顯示得比實際少一點」，不會出現負數（顯示端有 clamp）。
+        SnapshotTick = Environment.TickCount64;
         activeCandidates = candidates;
 
         // ---- 偵察診斷 ----

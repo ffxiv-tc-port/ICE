@@ -49,6 +49,7 @@ public sealed partial class ICE : IDalamudPlugin
     internal OverlayWindow overlayWindow;
     internal DebugWindow debugWindow;
     internal InfoWindow infoWindow;
+    internal MechaOpsWindow mechaOpsWindow;
 
     // Taskmanager from Ecommons
     internal TaskManager TaskManager;
@@ -87,6 +88,7 @@ public sealed partial class ICE : IDalamudPlugin
         overlayWindow = new();
         debugWindow = new();
         infoWindow = new();
+        mechaOpsWindow = new();
 
         // timer stuff
         MissionTimer = new MissionTimer();
