@@ -5,6 +5,7 @@ using FFXIVClientStructs.FFXIV.Client.UI.Misc;
 using ICE.Utilities.Cosmic_Helper;
 using System.Collections.Generic;
 using System.Text;
+using CSFramework = FFXIVClientStructs.FFXIV.Client.System.Framework.Framework;
 
 namespace ICE.Utilities.MechaOps;
 
@@ -47,14 +48,20 @@ internal sealed record MechaProcState(
 /// 因此就算台服的欄位語意跟國際服不同，最壞情況只是「數字不對」，不會是越界或崩潰。
 ///
 /// <para>
-/// ⚠️ <paramref name="EventStart"/> 等五個時間戳的**時間基準沒有離線證明**。
-/// CS 只把型別標成 <c>int</c>、沒有註明 epoch；台服 7.20 的執行檔也沒有反編譯驗證過。
-/// 所以顯示端不會無條件套用換算式——它會拿當下的 UTC Unix 秒做合理性檢查，
-/// 通過才顯示倒數（並標示為推定值），不通過就只顯示原始整數。
+/// ✅ 五個時間戳的時間基準**已經離線證明**（台服 7.20 ffxiv_dx11.exe，2026-08-03）：
+/// 遊戲自己的 <c>WKSMechaEvent::IsPilotRegistrationTimeframeOpen</c>（0x1419AB2A0）與
+/// <c>IsTeleportTimeframeOpen</c>（0x1419AB2E0）就是拿 <c>call 0x1400D9D30</c> 的回傳值
+/// 去跟 <c>+0x50EC</c>／<c>+0x50E0</c>／<c>+0x50F0</c> 直接 <c>cmp</c>。
+/// 而 CS 的 <c>Framework.GetServerTime()</c>（特徵碼 <c>E8 ?? ?? ?? ?? 03 07</c>）在同一個
+/// 執行檔裡**唯一命中並解析到同一個 0x1400D9D30**。
+/// 所以正確的比較基準是伺服器時間，不是本機的 <c>DateTimeOffset.UtcNow</c>——
+/// 後者在使用者系統時鐘有偏差時會給出錯的倒數。
 /// </para>
 ///
-/// <paramref name="SampledUnixSeconds"/> 只用於診斷（顯示快照有多舊），
-/// 倒數一律用繪製當下的時間去算，這樣才不會被 250ms 的取樣節流卡住。
+/// <paramref name="ServerTimeAtSample"/> 是取樣當下的伺服器秒數（取不到時為 0），
+/// <paramref name="SampledTick"/> 是同一刻的 <see cref="Environment.TickCount64"/>。
+/// 顯示端用 <see cref="ServerTimeNow"/> 把它外推到繪製當下，這樣倒數不會被
+/// 250ms 的取樣節流卡成一格一格跳，也不需要在繪製執行緒上呼叫任何遊戲函式。
 /// </summary>
 internal sealed record MechaEventDetail(
     WKSMechaEventFlag Flags,
@@ -69,7 +76,68 @@ internal sealed record MechaEventDetail(
     int RegistrationStart,
     int RegistrationEnd,
     int TeleportStart,
-    long SampledUnixSeconds);
+    long ServerTimeAtSample,
+    long SampledTick)
+{
+    /// <summary>
+    /// 取樣時的伺服器秒數＋從那時起經過的牆鐘秒數。
+    /// <c>0</c> 代表「這一輪拿不到伺服器時間」，顯示端要退回顯示原始整數。
+    /// </summary>
+    public long ServerTimeNow => ServerTimeAtSample <= 0
+        ? 0
+        : ServerTimeAtSample + (Environment.TickCount64 - SampledTick) / 1000L;
+
+    /// <summary>
+    /// 駕駛報名是否還開放。**照抄遊戲自己的判定**
+    /// （<c>IsPilotRegistrationTimeframeOpen</c> @ 台服 0x1419AB2A0）：
+    /// <code>
+    ///   mov eax, [rcx+50DCh]   ; Flags
+    ///   shr eax, 8             ; bit 8 = PilotRegistrationOpen
+    ///   test al, 1
+    ///   je  false
+    ///   call 1400D9D30         ; = Framework.GetServerTime()
+    ///   cmp eax, [rbx+50ECh]   ; PilotRegistrationEndTimestamp
+    ///   jae false              ; now >= end -> 關閉
+    /// </code>
+    /// ⚠️ 遊戲**沒有**檢查開始時間戳（+0x50E8），這裡也不檢查。
+    /// <paramref name="nowServer"/> 為 0（拿不到伺服器時間）時回 <c>null</c>＝無法判定。
+    /// </summary>
+    public bool? IsRegistrationOpen(long nowServer)
+    {
+        if ((Flags & WKSMechaEventFlag.PilotRegistrationOpen) == 0)
+            return false;
+        if (nowServer <= 0 || RegistrationEnd <= 0)
+            return null;
+        return nowServer < RegistrationEnd;
+    }
+
+    /// <summary>
+    /// 協助員傳送是否還開放。同樣照抄遊戲自己的判定
+    /// （<c>IsTeleportTimeframeOpen</c> @ 台服 0x1419AB2E0）：
+    /// <code>
+    ///   mov eax, [rcx+50DCh]   ; Flags
+    ///   shr eax, 9             ; bit 9 = GroundSupportTeleportOpen
+    ///   test al, 1
+    ///   je  false
+    ///   call 1400D9D30
+    ///   cmp eax, [rbx+50E0h]   ; EventStartTimestamp
+    ///   jae false              ; now >= 事件開始 -> 關閉
+    ///   call 1400D9D30
+    ///   cmp eax, [rbx+50F0h]   ; TeleportStartTimestamp
+    ///   jbe false              ; now <= 傳送開始 -> 還沒開
+    /// </code>
+    /// 🔑 所以傳送視窗是 <c>(TeleportStart, EventStart)</c> —— **結束時間就是事件開始時間**。
+    /// 舊版註解寫的「傳送只有開始時間戳、沒有結束，所以一律無法判定」是錯的。
+    /// </summary>
+    public bool? IsTeleportOpen(long nowServer)
+    {
+        if ((Flags & WKSMechaEventFlag.GroundSupportTeleportOpen) == 0)
+            return false;
+        if (nowServer <= 0 || EventStart <= 0 || TeleportStart <= 0)
+            return null;
+        return nowServer > TeleportStart && nowServer < EventStart;
+    }
+}
 
 /// <summary>
 /// 機甲行動偵察（P0）＋繪製快照的生產者。
@@ -88,11 +156,26 @@ internal sealed record MechaEventDetail(
 ///     不成立時只會少掉剩餘秒數，提示本身仍然正確——見 <see cref="ResolveProc"/> 的備援設計。
 ///  5. （P3）六技共用重置群組（75／42261 是 76）的情況下，GetRecastTime/Elapsed 回的是
 ///     「使用者在熱鍵上看到的那個」冷卻。不成立時是讀數不準（顯示問題），不會崩。
-///  6. （P4）<c>WKSMechaEvent</c> 各欄位的**語意**（哪個 int 是進度、哪個是貢獻）沿用上游 CS，
-///     台服沒有反編譯驗證過。不成立時是「數字對應錯了」——因為只讀純量、
-///     而且讀取範圍已被 <see cref="IsInsideEventArray"/> 鎖在模組自有配置內，所以不會越界。
-///  7. （P4）五個時間戳的 epoch 沒有離線證明。顯示端不無條件換算：先跟當下的 UTC Unix 秒
-///     做合理性檢查，不通過就只顯示原始整數並標明。不成立時是「只看得到原始值」，不會崩。
+///  6. ~~（P4）<c>WKSMechaEvent</c> 各欄位的語意沿用上游 CS，台服沒有反編譯驗證過。~~
+///     ✅ 2026-08-03 已在台服 7.20 的 ffxiv_dx11.exe 上驗證（見下方「離線已證實」）。
+///     即使如此，讀取範圍仍被 <see cref="IsInsideEventArray"/> 鎖在模組自有配置內。
+///  7. ~~（P4）五個時間戳的 epoch 沒有離線證明。~~
+///     ✅ 同上，已證實與 <c>Framework.GetServerTime()</c> 同基準，見 <see cref="MechaEventDetail"/>。
+///
+/// 📌 離線已證實（台服 7.20 <c>ffxiv_dx11.exe</c>，2026-08-03，capstone 反組譯）：
+///  - <c>WKSManager+0xE20 = MechaEventModule</c>：全 .text 裡從該偏移做的 88 個 qword 載入，
+///    有 42 個緊接著呼叫進 MechaEventModule 的程式碼區間 [0x141909000,0x14190F000)；
+///    對照組 <c>+0xE50</c>(MissionModule)／<c>+0xE38</c> 各 0 個。
+///  - <c>WKSMechaEventModule</c>：遊戲自己在 0x14190BC06 的存取順序就是
+///    <c>test byte [rcx+0A2A4h],1</c>（Flags 的 HasCurrentEvent 位元）→
+///    <c>mov rbx,[rcx+0A290h]</c>（CurrentEvent，qword 指標）→ <c>test rbx,rbx</c>，
+///    跟 <see cref="TryReadEventDetail"/> 的前三關完全一致。
+///  - <c>WKSMechaEvent</c>：<c>GetEventProgressPercentage</c>（0x1419AB330）讀 <c>+0x5104</c>／
+///    <c>+0x5108</c>＝EventProgress／EventProgressMax；旗標位元 8／9 與時間戳
+///    <c>+0x50E0</c>／<c>+0x50EC</c>／<c>+0x50F0</c> 見 <see cref="MechaEventDetail"/> 的兩個判定。
+///  - 本輪用到的三個 ActionManager MemberFunction 特徵碼在台服**各自唯一命中**：
+///    GetRecastTime→0x1408A6120、GetRecastTimeElapsed→0x1408A6070、
+///    IsActionHighlighted→0x1408A2960（對照組 GetActionStatus→0x1408A08A0）。
 ///
 /// 📌 特徵碼失準時不會產生 AccessViolation（已讀 CS 的 InteropGenerator 原始碼證實）：
 /// 產生器會在每個 MemberFunction 呼叫前插入 null 檢查，解析失敗時走
@@ -426,7 +509,37 @@ internal static unsafe class MechaOpsMonitor
             ev->PilotRegistrationStartTimestamp,    // +0x50E8 int
             ev->PilotRegistrationEndTimestamp,      // +0x50EC int
             ev->TeleportStartTimestamp,             // +0x50F0 int
-            DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            TryGetServerTime(),
+            Environment.TickCount64);
+    }
+
+    /// <summary>
+    /// 取樣伺服器時間（秒）。取不到就回 0，顯示端會退回顯示原始整數。
+    ///
+    /// 為什麼是伺服器時間而不是 <c>DateTimeOffset.UtcNow</c>：遊戲自己判斷報名／傳送視窗
+    /// 開不開時，比較的就是這個值（見 <see cref="MechaEventDetail"/> 的兩段反組譯）。
+    /// 用本機時鐘的話，使用者系統時間偏個幾分鐘倒數就是錯的，而且完全沒有徵兆。
+    ///
+    /// ⚠️ <c>GetServerTime</c> 是 MemberFunction：特徵碼失準時 CS 產生的程式碼會丟
+    /// <c>InvalidOperationException</c>（**受管理例外，不是 AVE**，見類別註解）。
+    /// 這裡就地接住而不讓它往上冒，是因為它若冒到 <see cref="Tick"/> 的 try/catch，
+    /// <c>eventDetail</c> 會停在上一次的值＝畫面凍住還一直顯示舊倒數；
+    /// 就地接住則退化成「只顯示原始整數」，使用者看得出來。
+    /// （台服 7.20 實測唯一命中 0x1400D9D30，與遊戲自己呼叫的是同一個函式。）
+    /// </summary>
+    private static long TryGetServerTime()
+    {
+        try
+        {
+            var t = CSFramework.GetServerTime();
+            return t > 0 ? t : 0;
+        }
+        catch (Exception ex)
+        {
+            if (EzThrottler.Throttle("MechaServerTimeFailed", 60_000))
+                IceLogging.Info($"取不到伺服器時間，事件時間改顯示原始整數：{ex.Message}", "[MechaOps]");
+            return 0;
+        }
     }
 
     /// <summary>
@@ -443,6 +556,27 @@ internal static unsafe class MechaOpsMonitor
     /// <summary>
     /// 🔑 <b>本功能的放行條件</b>：確認 <c>CurrentEvent</c> 真的指向模組自己的
     /// <c>_events</c> 陣列裡的某一格開頭。
+    ///
+    /// ✅ <b>這個條件在台服 7.20 已經離線證明會成立</b>（2026-08-03，反組譯 ffxiv_dx11.exe）——
+    /// 也就是說這個檢查不會把功能整個擋掉。證據有兩段：
+    /// <code>
+    /// // 模組建構式 0x14190AAA0：兩格 WKSMechaEvent 就地建構在 module+0x30，步長 0x5130
+    ///   14190AADE  lea rbx, [rsi+30h]      ; &amp;_events[0]
+    ///   14190AAE2  lea edi, [rbp+2]        ; 2 格（＝FixedSizeArray2）
+    ///   14190AB00  mov rcx, rbx / call 1419A9FB0
+    ///   14190AB08  add rbx, 5130h          ; ＝sizeof(WKSMechaEvent)
+    ///   14190AB15  mov qword [rsi+0A290h], rbp   ; CurrentEvent = 0
+    ///   14190AB4C  mov dword [rsi+0A2A4h], eax   ; Flags = 0
+    ///
+    /// // 事件建立 0x14190B70C：塞進 map 的值就是 &amp;_events[i]，而 CurrentEvent 取自 map
+    ///   14190B757  imul rax, rcx, 5130h
+    ///   14190B75E  lea r12, [rbp+30h]
+    ///   14190B762  add r12, rax            ; r12 = &amp;_events[i]
+    ///   14190B7F8  mov qword [rax+28h], r12      ; map node 的 value
+    ///   14190DC8E  mov qword [rdi+0A290h], rcx   ; CurrentEvent ← 該 value
+    /// </code>
+    /// 所以 <c>CurrentEvent</c> 只可能是 0 或 <c>module + 0x30 + i * 0x5130</c>（i ∈ {0,1}），
+    /// 正好就是下面三項檢查放行的集合。
     ///
     /// 三項檢查，全部要過：
     ///  (i)   <c>_events</c> 整塊必須落在模組宣告的配置（0xA2B0）之內。
