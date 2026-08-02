@@ -62,11 +62,66 @@ namespace ICE.Scheduler.Tasks
 
         private static int BaitCounter = 0;
 
+        /// <summary>
+        /// 玩家現在是不是處於「讀得到自己的道具」的狀態。
+        /// 傳送／換區途中 <c>InventoryManager.GetInventoryItemCount</c> 會一律回 0，
+        /// 這時任何「數量 == 0 所以怎樣怎樣」的判斷都是假的。
+        /// </summary>
+        /// ⚠️ 這裡只放「真的會讓道具讀不到」的條件。多加其他 ConditionFlag（例如 OccupiedInQuestEvent）
+        /// 會在正常釣魚時把流程擋住，得不償失。
+        private static bool PlayerIsUsable()
+            => Player.Available
+               && !Svc.Condition[ConditionFlag.BetweenAreas]
+               && !Svc.Condition[ConditionFlag.BetweenAreas51];
+
+        /// <summary>
+        /// 「沒餌了」是會直接放棄任務的破壞性判斷，所以把判定當下每一種餌的實際數量都印出來。
+        /// 2026-08-03 實機出現過假陽性：使用者身上有 999 個宇宙蛾蛹，卻在被機甲行動傳送走的
+        /// 那一瞬間被判定成沒餌並放棄了任務 —— 沒有這份清單就只能用猜的。
+        /// </summary>
+        private static void LogOutOfBait(string reason, string handle)
+        {
+            var detail = string.Join("、", GatheringUtil.MoonBaits
+                .SelectMany(b => b.Value.Select(id => new { Name = b.Key, Id = id }))
+                .Select(x => $"{x.Name}({x.Id})={(PlayerHelper.GetItemCount(x.Id, out var c) ? c.ToString() : "讀取失敗")}"));
+
+            IceLogging.ChatError($"{reason}，準備回報／放棄任務。" +
+                                 $"（掛著的餌: {CosmicHelper.CurrentBait?.ToString() ?? "null"}，" +
+                                 $"玩家可用: {PlayerIsUsable()}）", "[ICE]");
+            IceLogging.Info($"放棄任務前的餌存量明細：{detail}", handle);
+        }
+
         private static unsafe bool? FishingCheck()
         {
             if (_fishingDebug == null)
             {
                 _fishingDebug = new FishingDebug();
+            }
+
+            string handle = "[Standard Fishing: Fishing Check]";
+
+            // 遊戲端可能在我們釣魚的中途把任務取消掉（實例：被機甲行動抽中當駕駛員直接傳送走，
+            // 系統訊息「放棄了探索任務」）。這時 CurrentLunarMission 會變 0，而
+            // CosmicHelper.CurrentMissionInfo 是 SheetMissionDict[CurrentLunarMission] 的直接索引，
+            // SheetMissionDict 沒有 key 0（建表時 Name 為空的 row 被跳過）→ KeyNotFoundException。
+            // 例外發生在任務裡只會表現成「卡住不動」，所以在碰任何任務資料之前先退回重新判斷狀態。
+            if (!CosmicHelper.SheetMissionDict.ContainsKey(CosmicHelper.CurrentLunarMission))
+            {
+                IceLogging.Info($"目前的任務已經不存在了（任務 ID {CosmicHelper.CurrentLunarMission}），" +
+                                "離開釣魚流程重新判斷狀態。（常見原因：遊戲端自己取消了任務，例如被機甲行動傳送走。）", handle);
+                P.TaskManager.Tasks.Clear();
+                SchedulerMain.State = IceState.Start;
+                return true;
+            }
+
+            // 傳送 / 讀取地圖途中 InventoryManager 讀不到東西，所有 GetItemCount 都會回 0。
+            // 底下「沒餌了 → 放棄任務」是破壞性判斷，在這種瞬間做會直接誤殺一個好好的任務，
+            // 所以整個檢查在玩家不可用時一律先等。
+            if (!PlayerIsUsable())
+            {
+                if (EzThrottler.Throttle("ICE: fishing player unavailable log", 5000))
+                    IceLogging.Info("玩家目前處於傳送／讀取中，暫停釣魚判斷（此時道具數量讀出來會全是 0）。", handle);
+                return false;
             }
 
             if (Player.Mounted)
@@ -75,7 +130,6 @@ namespace ICE.Scheduler.Tasks
                 return false;
             }
 
-            string handle = "[Standard Fishing: Fishing Check]";
             if (EzThrottler.Throttle("Throttling intro message", 1000))
             {
                 IceLogging.Debug("Checking to see where we need to be here", handle);
@@ -102,7 +156,7 @@ namespace ICE.Scheduler.Tasks
                         }
                     }
 
-                    IceLogging.Info("If we've gotten here, that means we're out of bait. Proceeding to turnin/abandon the mission");
+                    LogOutOfBait("沒有掛餌，而且身上找不到任何可用的月面餌", handle);
                     SchedulerMain.State = IceState.AbandonMission;
                     P.TaskManager.Tasks.Clear();
                     return true;
@@ -127,7 +181,7 @@ namespace ICE.Scheduler.Tasks
 
             if (!hasBait)
             {
-                IceLogging.Info("If we've gotten here, that means we're out of bait. Proceeding to turnin/abandon the mission");
+                LogOutOfBait("身上找不到任何可用的月面餌", handle);
                 SchedulerMain.State = IceState.AbandonMission;
                 P.TaskManager.Tasks.Clear();
                 return true;
@@ -189,6 +243,9 @@ namespace ICE.Scheduler.Tasks
                     // ActionManager.Instance()->UseAction(ActionType.Action, 289);
                     Svc.Commands.ProcessCommand("/ahstart");
                 }
+                // ⚠️ BaitCounter 不是「重試次數」。它掛在「Starting to fish」那個 1 秒節流的 else 上，
+                // 所以在兩次 /ahstart 之間本來就會被加個 1~2 次，跟餌一點關係都沒有。
+                // 訊息照這個實際語意寫，不要再講成「重試 N 次」誤導判讀。
                 else if (EzThrottler.Throttle("Adding counter for bait not equipped"))
                 {
                     BaitCounter++;
@@ -201,9 +258,14 @@ namespace ICE.Scheduler.Tasks
                             {
                                 if (PlayerHelper.GetItemCount(baitId, out var count) && count > 0)
                                 {
+                                    // 已經掛著同一種餌就不必再送指令，否則會在等待甩竿的空檔一直重送。
+                                    if (CosmicHelper.CurrentBait == baitId)
+                                        return false;
+
                                     P.AutoHook.TrySwapBait(baitId);
                                     if (EzThrottler.Throttle("ICE: fishing bait recheck log", 5000))
-                                        IceLogging.Info($"已重試 {BaitCounter} 次仍未開始釣魚，重新要求裝上餌 ID {baitId}（{bait.Key}）。", handle);
+                                        IceLogging.Info($"還沒開始釣魚，且掛著的餌（{CosmicHelper.CurrentBait?.ToString() ?? "無"}）" +
+                                                        $"不是預期的餌，要求改掛 {baitId}（{bait.Key}）。", handle);
                                     return false;
                                 }
                             }
@@ -223,10 +285,19 @@ namespace ICE.Scheduler.Tasks
             }
         }
 
+        /// <summary>
+        /// ConditionFlag.Fishing 轉為 true 的時刻，用來量「這次到底有沒有真的甩竿」。
+        /// AutoHook 在甩竿前會先放大物狙擊之類的動作，那會讓這個旗標短暫翻起再落下（實測約 130ms），
+        /// 而 ICE 目前只要看到旗標落下就當成「釣完了」→ 回去查分 → 重新送一次 /ahstart。
+        /// 先量測、不改行為：把每一次的持續時間寫進 log，才有依據決定要不要加最小持續時間門檻。
+        /// </summary>
+        private static DateTime _fishingStartedAt = DateTime.MinValue;
+
         private static unsafe bool? WaitToStartFishing()
         {
             if (Svc.Condition[ConditionFlag.Fishing])
             {
+                _fishingStartedAt = DateTime.Now;
                 IceLogging.Info("We've started fishing, just going to wait for it to finish", "[Fishing: Waiting]");
                 P.TaskManager.Insert(() => FinishFishing(), "Waiting for fishing to finish", Utils.TaskConfig);
                 return true;
@@ -246,7 +317,21 @@ namespace ICE.Scheduler.Tasks
         {
             if (!Svc.Condition[ConditionFlag.Fishing])
             {
-                IceLogging.Info("We're done fishing, time to go back to the score check", "[Fishing: Finished]");
+                var held = _fishingStartedAt == DateTime.MinValue ? TimeSpan.Zero : DateTime.Now - _fishingStartedAt;
+                _fishingStartedAt = DateTime.MinValue;
+
+                if (held > TimeSpan.Zero && held < TimeSpan.FromSeconds(1))
+                {
+                    // 這種「不到一秒就結束」的幾乎都不是真的釣完，而是 AutoHook 放輔助技能造成的旗標閃爍。
+                    // 目前刻意不擋（擋錯會讓真的釣完被漏掉），只標記出來讓 log 看得出比例。
+                    IceLogging.Info($"釣魚狀態只維持了 {held.TotalMilliseconds:F0} ms 就結束，" +
+                                    "這通常不是真的釣完（多半是 AutoHook 施放輔助技能造成的狀態閃爍）。" +
+                                    "接下來會回去查分並重新送一次 /ahstart。", "[Fishing: Finished]");
+                }
+                else
+                {
+                    IceLogging.Info($"We're done fishing, time to go back to the score check（本次持續 {held.TotalSeconds:F1} 秒）", "[Fishing: Finished]");
+                }
                 return true;
             }
             else

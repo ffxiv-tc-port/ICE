@@ -20,10 +20,12 @@ namespace ICE.Scheduler.Tasks
 
         public static void Enqueue()
         {
+            // 這三個跟 Task_AbandonMission 是同一組收尾任務，同樣可能卡在區域切換／視窗等待上，
+            // 用 NeoTaskManager 的 30 秒預設逾時 + AbortOnTimeout 會把整個佇列清掉。
             P.TaskManager.Enqueue(() => TurninMission(), "Turning in the mission to the moon gods", Utils.TaskConfig);
-            P.TaskManager.Enqueue(() => JobSwapCheck(), "Checking to see if you need to swap jobs");
-            P.TaskManager.Enqueue(() => GoldCheck(), "Checking if Gold Check Task needs to be completed");
-            P.TaskManager.Enqueue(() => CommandCheck(), "Checking for post mission commands");
+            P.TaskManager.Enqueue(() => JobSwapCheck(), "Checking to see if you need to swap jobs", Utils.TaskConfig);
+            P.TaskManager.Enqueue(() => GoldCheck(), "Checking if Gold Check Task needs to be completed", Utils.TaskConfig);
+            P.TaskManager.Enqueue(() => CommandCheck(), "Checking for post mission commands", Utils.TaskConfig);
         }
 
         public static unsafe bool? TurninMission()
@@ -40,10 +42,15 @@ namespace ICE.Scheduler.Tasks
                 var duration = P.MissionTimer.CompleteMission();
 
                 // Log the results
-                if (C.MissionConfig.TryGetValue(PreviousMissionId, out var config))
+                // 跟 Task_AbandonMission 完全同形狀的雷：守了 MissionConfig，沒守 SheetMissionDict。
+                // 兩個字典的鍵集合不同（MissionConfig 含 0，SheetMissionDict 沒有），
+                // PreviousMissionId 為 0 時 TryGetValue 會過而 SheetMissionDict[0] 直接丟
+                // KeyNotFoundException，例外在任務裡只會表現成「卡住不動」。
+                if (C.MissionConfig.TryGetValue(PreviousMissionId, out var config) &&
+                    CosmicHelper.SheetMissionDict.TryGetValue(PreviousMissionId, out var prevMission))
                 {
                     if (config.BestTime != double.MaxValue)
-                        IceLogging.Info($"Mission [{PreviousMissionId}] [{CosmicHelper.SheetMissionDict[PreviousMissionId].Name}] completed in {duration:mm\\:ss\\.ff} | Best: {TimeSpan.FromSeconds(config.BestTime):mm\\:ss\\.ff} | Avg: {TimeSpan.FromSeconds(config.AverageTime):mm\\:ss\\.ff}", $"{tag} [Mission Timer]");
+                        IceLogging.Info($"Mission [{PreviousMissionId}] [{prevMission.Name}] completed in {duration:mm\\:ss\\.ff} | Best: {TimeSpan.FromSeconds(config.BestTime):mm\\:ss\\.ff} | Avg: {TimeSpan.FromSeconds(config.AverageTime):mm\\:ss\\.ff}", $"{tag} [Mission Timer]");
                 }
 
                 if (P.AutoHook.Installed)

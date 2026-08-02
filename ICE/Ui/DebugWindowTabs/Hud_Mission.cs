@@ -258,7 +258,10 @@ namespace ICE.Ui.DebugWindowTabs
                     var id = availMission.MissionId;
                     if (CosmicHelper.SheetMissionDict.TryGetValue(id, out var mission))
                     {
-                        var missionConfig = C.MissionConfig[id];
+                        // 守了 SheetMissionDict 卻直接索引 MissionConfig（同 Task_FindMission 的形狀）。
+                        // 這是每幀跑的 UI，丟例外會直接讓整個視窗畫不出來。
+                        if (!C.MissionConfig.TryGetValue(id, out var missionConfig))
+                            continue;
 
                         int minLevel = 10;
                         var rank = mission.Rank;

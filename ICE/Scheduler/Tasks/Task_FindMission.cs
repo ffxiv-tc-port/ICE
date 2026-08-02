@@ -726,7 +726,15 @@ namespace ICE.Scheduler.Tasks
                             continue;
                         }
 
-                        var missionConfig = C.MissionConfig[id];
+                        // 同一個 key 守了 SheetMissionDict 卻直接索引 MissionConfig。
+                        // 現在不會炸只是因為 ConfigMigrator.UpdateConfigMissionList() 啟動時把
+                        // SheetMissionDict 的每個 key 都補進了 MissionConfig —— 那是別處建立的隱性前提，
+                        // 順序一改或漏補一筆就是 KeyNotFoundException，所以這裡自己守好。
+                        if (!C.MissionConfig.TryGetValue(id, out var missionConfig))
+                        {
+                            IceLogging.Debug($"[Mission: {id}] 沒有對應的 MissionConfig，跳過。", tip);
+                            continue;
+                        }
 
                         int minLevel = 10;
                         var rank = mission.Rank;
