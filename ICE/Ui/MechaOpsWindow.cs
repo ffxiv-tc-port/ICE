@@ -34,7 +34,7 @@ namespace ICE.Ui
         {
             if (!C.ShowMechaAoeOverlay)
                 return false;
-            if (!C.ShowMechaCooldowns)
+            if (!C.ShowMechaCooldowns && !C.ShowMechaProcAlert)
                 return false;
             if (!PlayerHelper.IsInCosmicZone())
                 return false;
@@ -45,8 +45,48 @@ namespace ICE.Ui
 
         public override void Draw()
         {
+            var drewSomething = false;
+
+            if (C.ShowMechaProcAlert)
+                drewSomething = DrawProcAlert();
+
             if (C.ShowMechaCooldowns)
+            {
+                if (drewSomething)
+                    ImGui.Separator();
                 DrawCooldowns();
+            }
+        }
+
+        /// <summary>
+        /// proc 提示（台服目前就是「胡蘿蔔授權」→「強力胡蘿蔔加農砲」）。
+        /// 只在 proc 亮著時才佔一行，平時不佔空間。
+        /// </summary>
+        private static bool DrawProcAlert()
+        {
+            var drew = false;
+            foreach (var proc in MechaOpsMonitor.ActiveProcs)
+            {
+                if (!proc.Ready)
+                    continue;
+                if (C.MechaAoeSkillToggles.TryGetValue(proc.ActionId, out var enabled) && !enabled)
+                    continue;
+
+                drew = true;
+                ImGui.TextColored(ImGuiColors.DalamudYellow, $"● {proc.StatusName}");
+                ImGui.SameLine();
+
+                // 剩餘秒數只有在該 status 真的掛在本機玩家身上時才拿得到；
+                // 若判定是走 IsActionHighlighted，就只顯示「就緒」。
+                if (proc.RemainingSeconds > 0f)
+                    ImGui.TextColored(ImGuiColors.DalamudYellow, $"{proc.RemainingSeconds:F0}s");
+                else
+                    ImGui.TextColored(ImGuiColors.DalamudYellow, "Ready".Loc());
+
+                ImGui.SameLine();
+                ImGui.TextDisabled($"→ {proc.ActionName}");
+            }
+            return drew;
         }
 
         /// <summary>機甲技能冷卻。</summary>

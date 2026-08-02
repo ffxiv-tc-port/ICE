@@ -131,6 +131,20 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                                       "Only appears while mecha skills are actually available.").Loc());
                 }
 
+                bool showProcAlert = C.ShowMechaProcAlert;
+                if (ImGui.Checkbox("Show Mecha Proc Alerts".Loc() + "###ICEShowMechaProcAlert", ref showProcAlert))
+                {
+                    C.ShowMechaProcAlert = showProcAlert;
+                    C.Save();
+                }
+                ImGui.SameLine();
+                ImGui.TextDisabled("?");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("Highlights when a mecha skill becomes usable through a proc\n" +
+                                      "(on TC that is Carrot Clearance, which enables Carrot Cannon Overload).").Loc());
+                }
+
                 if (ImGui.TreeNode("Per-skill Toggles".Loc() + "###ICEMechaSkillToggles"))
                 {
                     // 保底清單（離線驗證過的六技）＋執行期在 PetHotbar 上發現的新技能。

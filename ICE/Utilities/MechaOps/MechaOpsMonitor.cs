@@ -23,6 +23,20 @@ internal sealed record MechaCandidate(
     float RecastRemaining);
 
 /// <summary>
+/// 一個「被 status 把關」的機甲技能的 proc 狀態（台服目前只有
+/// 42037 強力胡蘿蔔加農砲 ← Status 4405 胡蘿蔔授權）。
+/// <paramref name="RemainingSeconds"/> 只有在該 status 真的掛在本機玩家身上時才有值；
+/// 若判定是靠 <c>IsActionHighlighted</c> 得到的，這裡會是 0。
+/// </summary>
+internal sealed record MechaProcState(
+    uint ActionId,
+    string ActionName,
+    uint StatusId,
+    string StatusName,
+    bool Ready,
+    float RemainingSeconds);
+
+/// <summary>
 /// 機甲行動偵察（P0）＋繪製快照的生產者。
 /// 掛在 Framework.Update（ICE.Tick）；遊戲結構一律在這裡讀，
 /// 繪製執行緒（<see cref="MechaAoeOverlay"/>）只讀本類別發布的不可變快照。
@@ -51,6 +65,12 @@ internal static unsafe class MechaOpsMonitor
     /// 讓倒數在 250ms 的掃描節流之間仍然是平滑的。
     /// </summary>
     public static long SnapshotTick { get; private set; }
+
+    /// <summary>
+    /// 目前「被 status 把關」的機甲技能的 proc 狀態快照。發布方式同 <see cref="ActiveCandidates"/>。
+    /// </summary>
+    public static IReadOnlyList<MechaProcState> ActiveProcs => activeProcs;
+    private static List<MechaProcState> activeProcs = [];
 
     private static string lastSignature = "";
     private static bool wasActive;
@@ -88,6 +108,7 @@ internal static unsafe class MechaOpsMonitor
 
         var am = ActionManager.Instance();
         var candidates = new List<MechaCandidate>();
+        var procs = new List<MechaProcState>();
         var signature = new StringBuilder(128);
         var dump = new StringBuilder(512);
 
@@ -132,6 +153,13 @@ internal static unsafe class MechaOpsMonitor
                     }
 
                     candidates.Add(new MechaCandidate(id, name, shape, recastTotal, recastRemaining));
+
+                    // proc 提示（例如「胡蘿蔔授權」把關「強力胡蘿蔔加農砲」）。
+                    if (MechaActionShapes.TryGetProcStatus(id, out var procStatusId, out var procStatusName))
+                    {
+                        var (ready, remaining) = ResolveProc(am, id, procStatusId);
+                        procs.Add(new MechaProcState(id, name, procStatusId, procStatusName, ready, remaining));
+                    }
                 }
             }
 
@@ -144,6 +172,7 @@ internal static unsafe class MechaOpsMonitor
         // 誤差方向是「倒數顯示得比實際少一點」，不會出現負數（顯示端有 clamp）。
         SnapshotTick = Environment.TickCount64;
         activeCandidates = candidates;
+        activeProcs = procs;
 
         // ---- 偵察診斷 ----
         // 只在「機甲技能可用期間」輸出；狀態變化時輸出一次，不每幀。
@@ -194,10 +223,51 @@ internal static unsafe class MechaOpsMonitor
             "[MechaOps]");
     }
 
+    /// <summary>
+    /// 判定一個 proc 現在亮著沒有，並盡量取得剩餘秒數。
+    ///
+    /// 兩條路互為備援，都是標準／既有路徑：
+    ///  (a) 本機玩家的 StatusList（純 Dalamud 受管理 API，不碰原生指標）——能拿到剩餘秒數；
+    ///  (b) <c>ActionManager.IsActionHighlighted</c>——遊戲自己用來決定要不要在熱鍵上畫
+    ///      「螞蟻框」的判定，只傳 ActionType + ActionId 兩個純量。
+    ///
+    /// 為什麼兩條都留：離線無法證明機甲階段的 status 一定掛在本機玩家身上
+    /// （也可能掛在機甲那具 BattleChara 上）。(b) 不管載體掛在哪都會給出正確答案，
+    /// 所以即使 (a) 的假設不成立，提示本身仍然正確，只是少了剩餘秒數而已。
+    /// 反過來若 (b) 的特徵碼日後失準，(a) 仍能撐住基本功能。
+    /// </summary>
+    private static (bool Ready, float RemainingSeconds) ResolveProc(ActionManager* am, uint actionId, uint statusId)
+    {
+        var ready = false;
+        var remaining = 0f;
+
+        // (a) 受管理 API。⚠️ 只在這一幀內用，絕不把 status／IGameObject 存進欄位。
+        var statusList = Player.Status;
+        if (statusList != null)
+        {
+            foreach (var status in statusList)
+            {
+                if (status.StatusId != statusId)
+                    continue;
+                ready = true;
+                remaining = Math.Max(0f, status.RemainingTime);
+                break;
+            }
+        }
+
+        // (b) 遊戲自己的判定。
+        if (!ready && am != null)
+            ready = am->IsActionHighlighted(ActionType.Action, actionId);
+
+        return (ready, remaining);
+    }
+
     private static void Deactivate()
     {
         if (activeCandidates.Count > 0)
             activeCandidates = [];
+        if (activeProcs.Count > 0)
+            activeProcs = [];
         if (wasActive)
         {
             wasActive = false;

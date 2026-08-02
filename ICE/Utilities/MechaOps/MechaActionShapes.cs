@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using LuminaAction = Lumina.Excel.Sheets.Action;
+using LuminaStatus = Lumina.Excel.Sheets.Status;
 
 namespace ICE.Utilities.MechaOps;
 
@@ -56,7 +57,14 @@ internal static class MechaActionShapes
     /// </summary>
     private const uint MechaClassJobCategory = 35;
 
-    private static readonly Dictionary<uint, (MechaAoeShape? Shape, string Name, bool MechaCategory)> Cache = new();
+    private static readonly Dictionary<uint, ActionEntry> Cache = new();
+
+    private readonly record struct ActionEntry(
+        MechaAoeShape? Shape,
+        string Name,
+        bool MechaCategory,
+        uint ProcStatusId,
+        string ProcStatusName);
 
     /// <summary>解析一個 ActionId 的範圍形狀。查不到表或形狀不支援時回傳 false（name 仍會給）。</summary>
     public static bool TryResolve(uint actionId, out MechaAoeShape shape, out string name)
@@ -76,7 +84,25 @@ internal static class MechaActionShapes
     public static bool IsMechaCandidate(uint actionId)
         => GetEntry(actionId).MechaCategory || Array.IndexOf(BaselineActionIds, actionId) >= 0;
 
-    private static (MechaAoeShape? Shape, string Name, bool MechaCategory) GetEntry(uint actionId)
+    /// <summary>
+    /// 這個技能是否被某個 status（proc）把關，以及那個 status 的 id 與名稱。
+    /// 資料一律從 <c>Action.ActionProcStatus → ActionProcStatus.Status</c> 讀，不寫死 id——
+    /// 未來若有別的機甲技能加上 proc 條件，不用改碼就會自動出現。
+    ///
+    /// 台服 7.20 實測（exd-tc/7.20，2026-08-02）：整張 Action 表裡只有
+    /// <c>42037 強力胡蘿蔔加農砲</c> 的 ActionProcStatus 是 256，而 ActionProcStatus 第 256 列
+    /// 指向 <c>Status 4405 胡蘿蔔授權</c>（說明文字「可以發動強力胡蘿蔔加農砲」）。
+    /// 也就是說「胡蘿蔔授權」的載體就是一個一般的玩家 status，不是什麼特殊結構。
+    /// </summary>
+    public static bool TryGetProcStatus(uint actionId, out uint statusId, out string statusName)
+    {
+        var entry = GetEntry(actionId);
+        statusId = entry.ProcStatusId;
+        statusName = entry.ProcStatusName;
+        return statusId != 0;
+    }
+
+    private static ActionEntry GetEntry(uint actionId)
     {
         if (!Cache.TryGetValue(actionId, out var entry))
         {
@@ -86,11 +112,11 @@ internal static class MechaActionShapes
         return entry;
     }
 
-    private static (MechaAoeShape?, string, bool) ResolveFromSheet(uint actionId)
+    private static ActionEntry ResolveFromSheet(uint actionId)
     {
         var sheet = Svc.Data.GetExcelSheet<LuminaAction>();
         if (sheet == null || !sheet.TryGetRow(actionId, out var row))
-            return (null, $"#{actionId}", false);
+            return new ActionEntry(null, $"#{actionId}", false, 0, "");
 
         var name = row.Name.ToString();
         if (string.IsNullOrWhiteSpace(name))
@@ -115,6 +141,39 @@ internal static class MechaActionShapes
             _ => null,
         };
 
-        return (shape, name, row.ClassJobCategory.RowId == MechaClassJobCategory);
+        // proc 條件：Action.ActionProcStatus → ActionProcStatus.Status。
+        // 兩層都用 ValueNullable，任何一層查不到就當作「沒有 proc」，不會丟例外。
+        uint procStatusId = 0;
+        var procStatusName = "";
+        if (row.ActionProcStatus.ValueNullable is { } procRow)
+        {
+            procStatusId = procRow.Status.RowId;
+            if (procStatusId != 0)
+            {
+                procStatusName = procRow.Status.ValueNullable?.Name.ToString() ?? "";
+                if (string.IsNullOrWhiteSpace(procStatusName))
+                    procStatusName = $"#{procStatusId}";
+            }
+        }
+
+        return new ActionEntry(
+            shape,
+            name,
+            row.ClassJobCategory.RowId == MechaClassJobCategory,
+            procStatusId,
+            procStatusName);
+    }
+
+    /// <summary>把一個 status id 轉成名稱（給不是從 Action 表推出來的情境用）。</summary>
+    public static string GetStatusName(uint statusId)
+    {
+        var sheet = Svc.Data.GetExcelSheet<LuminaStatus>();
+        if (sheet != null && sheet.TryGetRow(statusId, out var row))
+        {
+            var name = row.Name.ToString();
+            if (!string.IsNullOrWhiteSpace(name))
+                return name;
+        }
+        return $"#{statusId}";
     }
 }
