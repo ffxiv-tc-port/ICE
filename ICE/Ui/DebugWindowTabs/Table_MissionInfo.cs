@@ -2,6 +2,7 @@
 using Dalamud.Interface.Textures;
 using FFXIVClientStructs.FFXIV.Client.Game.WKS;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
+using ICE.Utilities.Cosmic_Helper;
 using Lumina.Excel.Sheets;
 using System.Collections.Generic;
 using System.IO;
@@ -224,7 +225,7 @@ namespace ICE.Ui.DebugWindowTabs
 
                     // Mission Name
                     ImGui.TableNextColumn();
-                    ImGui.Text(entry.Value.Name);
+                    ImGui.Text(MissionSupport.NameWithMarker(entry.Key, entry.Value.Name));
                     if (ImGui.IsItemClicked())
                     {
                         ImGui.SetClipboardText(RemovePrivateUseChars(entry.Value.Name));

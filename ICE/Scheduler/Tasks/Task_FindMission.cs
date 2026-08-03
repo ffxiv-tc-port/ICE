@@ -150,6 +150,10 @@ namespace ICE.Scheduler.Tasks
 
             uint currentJobId = Player.JobId;
 
+            // 這一輪因為「ICE 跑不動」而被排除的任務。⚠️ 不能靜默跳過 —— 使用者啟用了它卻
+            // 永遠不會被接，沒有訊息的話看起來就像外掛壞了。
+            var skippedUnsupported = new List<(uint Id, MissionSupport.UnsupportedReason Reason)>();
+
             foreach (var mission in C.MissionConfig)
             {
                 var enabled = mission.Value.Enabled;
@@ -173,6 +177,18 @@ namespace ICE.Scheduler.Tasks
                     // Territory Check, cause people seem to also be forgetting this
                     if (missionInfo.TerritoryId != Player.Territory)
                         continue;
+
+                    // ICE 跑不動的任務在這裡就排除掉，不要挑進候選池。
+                    // 🔑 這是「自動選任務要跳過」的**唯一**攔截點：緊急／臨時／一般三個分頁
+                    //    （CheckCritical / CheckProvisional / CheckStandard）挑的都是下面這幾個
+                    //    HashSet，所以擋在建池階段就等於三條路一起擋住，不必各改一次。
+                    // ⚠️ 刻意放在「已啟用 + 職業對 + 區域對」之後：只有使用者真的想跑的任務
+                    //    才值得回報，否則每輪都會列出一整排跟他無關的任務。
+                    if (MissionSupport.IsUnsupported(missionId, out var unsupportedReason))
+                    {
+                        skippedUnsupported.Add((missionId, unsupportedReason));
+                        continue;
+                    }
 
                     // Alright, mission was double checked to make sure it was enabled
                     // And also checked to make sure that the current job is on the mission, time to actually add it to the mission info
@@ -241,7 +257,53 @@ namespace ICE.Scheduler.Tasks
                 $"Total Special Missions: {SpecialMissionCount} \n" +
                 $"Total Basic Missions: {BasicMissionCount} \n");
 
+            ReportSkippedUnsupported(skippedUnsupported);
+
             return true;
+        }
+
+        /// <summary>
+        /// 把這一輪被「不支援」擋掉的任務講出來。
+        /// </summary>
+        /// <remarks>
+        /// ⚠️ 一律寫 <c>Information</c>：使用者的記錄等級會濾掉 Debug/Verbose，寫 Debug 等於沒寫。<br/>
+        /// ⚠️ 節流：<c>RefreshSelectedMissions</c> 每一輪找任務都會跑，不節流會把記錄檔洗掉。
+        /// log 60 秒一次，聊天視窗 5 分鐘一次，而且<b>名單內容有變就立刻重印</b>
+        /// （換職業／換區域會換一整批任務，那時候的舊訊息會誤導人）。<br/>
+        /// 🔑 節流器的鍵在 ECommons 裡是<b>全域且跨流程持久</b>的，所以名字取得夠獨特，
+        /// 不要跟別的功能共用而互相拖累。
+        /// </remarks>
+        private static string lastSkippedSignature = string.Empty;
+
+        private static void ReportSkippedUnsupported(List<(uint Id, MissionSupport.UnsupportedReason Reason)> skipped)
+        {
+            if (skipped.Count == 0)
+            {
+                lastSkippedSignature = string.Empty;
+                return;
+            }
+
+            var signature = string.Join(",", skipped.Select(x => $"{x.Id}:{x.Reason}"));
+            var changed = signature != lastSkippedSignature;
+            lastSkippedSignature = signature;
+
+            var detail = string.Join("、", skipped.Select(x =>
+                $"[{x.Id}]{(CosmicHelper.SheetMissionDict.TryGetValue(x.Id, out var e) ? e.Name : "?")}({x.Reason})"));
+
+            // ⚠️ 兩個 Throttle 都要無條件呼叫（不要短路），否則名單一變就跳過計時器，
+            //    下一輪沒變的時候會立刻又放行一次。
+            var logDue = EzThrottler.Throttle("ICE: unsupported mission skip log", 60000);
+            var chatDue = EzThrottler.Throttle("ICE: unsupported mission skip chat", 300000);
+
+            if (changed || logDue)
+                IceLogging.Info($"自動選任務跳過了 {skipped.Count} 個 ICE 跑不動的任務：{detail}。" +
+                                "它們仍然可以手動接、手動完成。", "[FindMission: 未支援]");
+
+            if (changed || chatDue)
+                IceLogging.ChatInfo(
+                    "Auto mission select skipped ?? enabled mission(s) ICE cannot run: ??"
+                        .Loc(skipped.Count, string.Join("、", skipped.Select(x => $"[{x.Id}]"))),
+                    "[ICE]");
         }
         public static bool? TabTasksCheck()
         {
@@ -251,7 +313,15 @@ namespace ICE.Scheduler.Tasks
 
             if (!(hasCritical || hasSpecial || hasBasic))
             {
-                IceLogging.Debug("You have... no active missions and you're not on relic grinding mode. Disabling this for now");
+                // ⚠️ 這裡會直接把外掛停掉。原本只寫 Debug —— 使用者的記錄等級濾掉 Debug 之後，
+                //    症狀就是「ICE 自己關了、沒有任何訊息」。排除不支援任務之後這條路徑更容易走到
+                //    （整批啟用的任務可能全被跳過），所以改成 Information + 聊天視窗。
+                IceLogging.ChatInfo(
+                    "No runnable mission is enabled for the current job in this zone, so ICE is stopping. (Relic XP mode is off.)".Loc()
+                    + (lastSkippedSignature.Length > 0
+                        ? " " + "Some enabled missions were skipped because ICE cannot run them - see the message above.".Loc()
+                        : string.Empty),
+                    "[ICE]");
                 SchedulerMain.State = IceState.Idle;
                 SchedulerMain.DisablePlugin();
             }
@@ -768,7 +838,9 @@ namespace ICE.Scheduler.Tasks
                         bool properLevel = Player.Level >= minLevel;
                         bool IgnoreManual = C.XPRelicIgnoreManual && missionConfig.ManualMode;
                         bool IgnoreNotEnabled = C.XPRelicOnlyEnabled && !missionConfig.Enabled;
-                        bool unSupported = UnsupportedMissions.Ids.Contains(id);
+                        // 宇宙工具經驗模式自己有一套候選池（不走 RefreshSelectedMissions），
+                        // 所以這裡也要問同一個判定函式，不要再直接讀黑名單。
+                        bool unSupported = MissionSupport.IsUnsupported(id, out var unsupportedReason);
 
                         PlayerHelper.UpdateHasManip();
                         var jobId = mission.Jobs.Where(x => CosmicHelper.CrafterJobList.Contains(x)).FirstOrDefault();
@@ -780,14 +852,22 @@ namespace ICE.Scheduler.Tasks
                                          $"Is proper Level: {properLevel} | Mission Level: {minLevel} | Player Level: {Player.Level} \n" +
                                          $"Ignoring cause of manual? {IgnoreManual}\n" +
                                          $"Ignoring cuase of not enabled: {IgnoreNotEnabled}\n" +
-                                         $"Ignoring because of not supported: {unSupported}" +
+                                         $"Ignoring because of not supported: {unSupported} ({unsupportedReason})" +
                                          $"Is Manipulation required: {isManipReq}" +
                                          $"Is Manipluation even unlocked: {manipUnlocked}", tip);
 
                         if (!properLevel) continue;
                         if (IgnoreManual) continue;
                         if (IgnoreNotEnabled) continue;
-                        if (unSupported) continue;
+                        if (unSupported)
+                        {
+                            // ⚠️ 不要靜默跳過。這裡跟 RefreshSelectedMissions 是兩條不同的候選池，
+                            //    宇宙工具經驗模式的使用者只會走到這一條。
+                            if (EzThrottler.Throttle($"ICE: relic xp skip unsupported {id}", 300000))
+                                IceLogging.Info($"宇宙工具經驗挑選跳過任務 [{id}]：{unsupportedReason}"
+                                                + $"（{MissionSupport.ReasonText(unsupportedReason)}）", tip);
+                            continue;
+                        }
                         if (isManipReq && !manipUnlocked) continue;
 
                         Dictionary<int, float> rewardDict = new();
@@ -876,6 +956,17 @@ namespace ICE.Scheduler.Tasks
                         {
                             IceLogging.Debug($"Skipping: [{m.Key}] due to being in a different zone");
                             IceLogging.Debug($"Current Zone: {Player.Territory} | Mission Zone: {m.Value.TerritoryId}");
+                            continue;
+                        }
+
+                        // 「臨時任務連刷」是第三條獨立的候選池（不走 RefreshSelectedMissions
+                        // 也不走 FindBestRelicMission），所以同樣要問一次判定函式。
+                        if (MissionSupport.IsUnsupported(m.Key, out var provisionalReason))
+                        {
+                            if (EzThrottler.Throttle($"ICE: provisional grind skip unsupported {m.Key}", 300000))
+                                IceLogging.Info($"臨時任務連刷跳過任務 [{m.Key}]「{m.Value.Name}」：{provisionalReason}"
+                                                + $"（{MissionSupport.ReasonText(provisionalReason)}）",
+                                                "[FindMission: 未支援]");
                             continue;
                         }
 
@@ -1296,7 +1387,7 @@ namespace ICE.Scheduler.Tasks
                 return true;
             }
 
-            if (missionConfig.ManualMode || UnsupportedMissions.Ids.Contains(missionId))
+            if (missionConfig.ManualMode || MissionSupport.IsUnsupported(missionId))
             {
                 // TODO: Remove the extra 2 here until I can fix pathfinding thing
                 // This is here to make sure that you don't need to be in the area for moving. Mainly cause nodes aren't mapped out yet and it's expecting to map to that area...

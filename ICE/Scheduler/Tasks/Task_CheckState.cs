@@ -176,24 +176,32 @@ namespace ICE.Scheduler.Tasks
                             bool dualMission = (s.HasFlag(MissionAttributes.Craft) && (s.HasFlag(MissionAttributes.Gather) || s.HasFlag(MissionAttributes.Fish)));
                             // In the middle of a dual mission. 
                             // First, checking to see if you're in the middle of a gathering or crafting action
-                            if (C.OnlyGrabMission || config.ManualMode || UnsupportedMissions.Ids.Contains(currentMissionId))
+                            var unsupported = MissionSupport.IsUnsupported(currentMissionId, out var unsupportedReason);
+                            if (C.OnlyGrabMission || config.ManualMode || unsupported)
                             {
                                 // TODO: Remove this once properly coded
                                 // 這條分支就是「接了任務之後外掛完全不動」的最常見原因。原本只寫進 log，
                                 // 遊戲裡沒有任何提示，使用者只會看到外掛啟用了卻不做事 —— 所以改成也印到聊天視窗。
-                                var reason = UnsupportedMissions.Ids.Contains(currentMissionId)
-                                    ? "這個任務在目前版本的 ICE 尚未支援（在 UnsupportedMissions 黑名單裡）"
-                                    : C.OnlyGrabMission
-                                        ? "你開了「只接任務」(Only Grab Mission)"
-                                        : "這個任務的設定是手動模式 (Manual Mode)";
-
-                                if (s.HasFlag(MissionAttributes.Fish))
+                                if (unsupported)
                                 {
-                                    IceLogging.ChatInfo($"任務 {currentMissionId}：{reason}，所以切到手動模式，釣魚不會自動進行。", "[ICE]");
+                                    // 「不支援」走統一告知點：文字跟 PlayerHandlers 的接任務偵測完全相同，
+                                    // 靠 ChatInfo 以訊息全文為鍵的節流自動去重，使用者只會看到一次。
+                                    MissionSupport.Notify(currentMissionId, unsupportedReason);
                                 }
                                 else
                                 {
-                                    IceLogging.ChatInfo($"任務 {currentMissionId}：{reason}，所以切到手動模式。", "[ICE]");
+                                    var reason = C.OnlyGrabMission
+                                        ? "你開了「只接任務」(Only Grab Mission)"
+                                        : "這個任務的設定是手動模式 (Manual Mode)";
+
+                                    if (s.HasFlag(MissionAttributes.Fish))
+                                    {
+                                        IceLogging.ChatInfo($"任務 {currentMissionId}：{reason}，所以切到手動模式，釣魚不會自動進行。", "[ICE]");
+                                    }
+                                    else
+                                    {
+                                        IceLogging.ChatInfo($"任務 {currentMissionId}：{reason}，所以切到手動模式。", "[ICE]");
+                                    }
                                 }
                                 SchedulerMain.State = IceState.ManualMode;
                             }

@@ -50,6 +50,7 @@ namespace ICE.Ui
                 ImGui.Text("Current Mission: [??]".Loc(currentMissionId));
                 ImGui.SameLine(0, 4);
                 DrawMissionTypeTag(missionName);
+                DrawUnsupportedTag(currentMissionId);
                 ImGui.Text(missionName.Name);
                 ImGui.SameLine();
                 DrawMissionStatusIcons(currentMissionId);
@@ -67,11 +68,14 @@ namespace ICE.Ui
                     ImGui.TextColored(ImGuiColors.DalamudYellow, "Heading to pick up: [??]".Loc(target));
                     ImGui.SameLine(0, 4);
                     DrawMissionTypeTag(targetInfo);
+                    DrawUnsupportedTag(target);
                     ImGui.TextColored(ImGuiColors.DalamudYellow, targetInfo.Name);
                     ImGui.SameLine();
                     DrawMissionStatusIcons(target);
                 }
             }
+
+            DrawUnsupportedOnBoard();
 #if DEBUG
             if (C.ShowDebugGatherInfo)
             {
@@ -392,6 +396,77 @@ namespace ICE.Ui
             var color = key == "Critical" ? ImGuiColors.DalamudOrange : ImGuiColors.DalamudGrey3;
             ImGui.TextColored(color, $"【{key.Loc()}】");
             ImGui.SameLine(0, 4);
+        }
+
+        /// <summary>
+        /// 「ICE 跑不動這個任務」的標記，畫在任務名稱前面（造型與 <see cref="DrawMissionTypeTag"/>
+        /// 的類型標籤一致，但用紅色以示區別）。滑過去有一行說明為什麼跑不動。
+        /// </summary>
+        /// <remarks>
+        /// 🔑 這是<b>遊戲裡</b>唯一看得到的標記位置——主視窗任務表上的紅色三角形使用者在接任務
+        /// 的當下根本沒開。判定來源與挑選流程共用 <see cref="MissionSupport"/>，
+        /// 不可能出現「表上說不支援、實際卻去跑」的分岔。
+        /// </remarks>
+        private static void DrawUnsupportedTag(uint missionId)
+        {
+            if (!MissionSupport.IsUnsupported(missionId, out var reason))
+                return;
+
+            ImGui.TextColored(ImGuiColors.DalamudRed, MissionSupport.Marker);
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.BeginTooltip();
+                ImGui.TextUnformatted(MissionSupport.ReasonText(reason));
+                ImGui.EndTooltip();
+            }
+            ImGui.SameLine(0, 4);
+        }
+
+        /// <summary>
+        /// 遊戲的任務板（<c>WKSMission</c>）開著的時候，把板子上「ICE 跑不動」的任務列出來。
+        /// </summary>
+        /// <remarks>
+        /// 🔑 使用者是<b>在遊戲裡接任務的當下</b>需要知道哪些不能自動跑，而遊戲的原生清單我們
+        /// 不去改（改原生 UI 文字是另一個等級的風險）。這一段的作用是：任務板一打開，
+        /// 疊加層就同步列出「這幾個接了 ICE 也不會跑」。板子關掉就什麼都不畫。<br/><br/>
+        /// ⚠️ <c>StellerMissions</c> 每次讀都是從 addon 的 AtkValues 現場解析，
+        /// <b>不跨幀保存任何東西</b>（同款用法見 <see cref="DrawScoreProgress"/>）。<br/>
+        /// ⚠️ 板子上的任務 ID 不保證在 <c>SheetMissionDict</c> 裡，名字一律走 TryGetValue。
+        /// </remarks>
+        private static void DrawUnsupportedOnBoard()
+        {
+            if (!GenericHelpers.TryGetAddonMaster<WKSMission>("WKSMission", out var board) || !board.IsAddonReady)
+                return;
+
+            List<(uint Id, string Name, MissionSupport.UnsupportedReason Reason)> unsupported = [];
+            foreach (var entry in board.StellerMissions)
+            {
+                var id = entry.MissionId;
+                if (id == 0 || !MissionSupport.IsUnsupported(id, out var reason))
+                    continue;
+
+                var name = CosmicHelper.SheetMissionDict.TryGetValue(id, out var info) ? info.Name : "???";
+                unsupported.Add((id, name, reason));
+            }
+
+            if (unsupported.Count == 0)
+                return;
+
+            ImGuiHelpers.ScaledDummy(2);
+            ImGui.TextColored(ImGuiColors.DalamudRed,
+                "?? mission(s) on the board cannot be automated by ICE:".Loc(unsupported.Count));
+            foreach (var (id, name, reason) in unsupported)
+            {
+                ImGui.Text("    ");
+                ImGui.SameLine(0, 0);
+                ImGui.TextColored(ImGuiColors.DalamudRed, $"{MissionSupport.Marker}[{id}] {name}");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.BeginTooltip();
+                    ImGui.TextUnformatted(MissionSupport.ReasonText(reason));
+                    ImGui.EndTooltip();
+                }
+            }
         }
 
         /// <summary>

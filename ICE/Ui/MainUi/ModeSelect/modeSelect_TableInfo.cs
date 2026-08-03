@@ -6,6 +6,7 @@ using ECommons;
 using ECommons.GameHelpers;
 using FFXIVClientStructs.FFXIV.Client.Game.WKS;
 using ICE.Utilities.Cosmic;
+using ICE.Utilities.Cosmic_Helper;
 using ICE.Utilities.GatheringHelper;
 using System.Collections.Generic;
 using static MissionTimer;
@@ -530,7 +531,8 @@ namespace ICE.Ui.MainUi.ModeSelect
                     var missionConfig = C.MissionConfig[Id];
                     var missionInfo = CosmicHelper.SheetMissionDict[Id];
 
-                    bool unsupported = UnsupportedMissions.Ids.Contains(Id);
+                    // 判定與自動選任務共用同一個函式，表上顯示的與流程實際會跳過的一定一致。
+                    bool unsupported = MissionSupport.IsUnsupported(Id, out var unsupportedReason);
                     bool hideUnsupported = C.HideUnsupportedMissions;
 
                     if (unsupported && hideUnsupported)
@@ -642,11 +644,24 @@ namespace ICE.Ui.MainUi.ModeSelect
                     ImGui.TableNextColumn();
                     if (unsupported)
                     {
+                        // 三角形圖示留著（既有使用者認得），但只有圖示的話滑過去才看得到原因；
+                        // 補一個文字標記，讓「掃一眼表格」就分得出來，並與疊加層／聊天訊息用同一個詞。
                         ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1.0f, 0.0f, 0.0f, 1.0f)); // Red color (RGBA)
-                        ImGuiEx.IconWithTooltip(FontAwesomeIcon.ExclamationTriangle, ("This is currently not supported yet. I'm working on bringing it over.\n" +
-                                                "It's just taking me time").Loc());
+                        ImGuiEx.IconWithTooltip(FontAwesomeIcon.ExclamationTriangle, MissionSupport.ReasonText(unsupportedReason));
+                        ImGui.SameLine(0, 4);
+                        ImGui.TextUnformatted(MissionSupport.Marker);
                         ImGui.PopStyleColor();
-                        ImGui.SameLine();
+                        if (ImGui.IsItemHovered())
+                        {
+                            ImGui.BeginTooltip();
+                            ImGui.TextUnformatted(MissionSupport.ReasonText(unsupportedReason));
+                            ImGui.EndTooltip();
+                        }
+                        if (ImGui.IsItemClicked())
+                        {
+                            selectedMission = Id;
+                        }
+                        ImGui.SameLine(0, 4);
                     }
                     if (missionInfo.Attributes.HasFlag(MissionAttributes.ExpertCraft))
                     {
@@ -895,8 +910,19 @@ namespace ICE.Ui.MainUi.ModeSelect
                         }
                         if (ImGui.BeginPopup("Select Fishing Profile"))
                         {
-                            ImGui.Text("Fishing profile: ??".Loc(missionInfo.Name));
+                            ImGui.Text("Fishing profile: ??".Loc(MissionSupport.NameWithMarker(Id, missionInfo.Name)));
                             ImGui.Separator();
+
+                            // 這個彈出視窗正好是使用者唯一能「救回」缺內建設定的釣魚任務的地方
+                            // （自己填一個 AutoHook preset 名稱），所以把缺什麼直接寫在這裡。
+                            if (unsupportedReason == MissionSupport.UnsupportedReason.MissingFishingPreset)
+                            {
+                                ImGui.TextColored(ImGuiColors.DalamudRed,
+                                    ("ICE ships no built-in preset for this mission. Uncheck the box below and type the name of "
+                                     + "your own AutoHook preset to make ICE run it.").Loc());
+                                ImGui.Separator();
+                            }
+
                             bool builtInPreset = missionConfig.Use_BuildinPreset;
                             if (ImGui.Checkbox("Use Built In Preset".Loc() + "###ICEUseBuiltInPreset", ref builtInPreset))
                             {
@@ -957,7 +983,7 @@ namespace ICE.Ui.MainUi.ModeSelect
                                 // 這是每幀跑的 ImGui 迴圈，丟例外會讓整個視窗畫不出來。
                                 var prevName = CosmicHelper.SheetMissionDict.TryGetValue(prevMission, out var prevEntry)
                                     ? prevEntry.Name : "???";
-                                ImGui.Text($"{i + 1}: [{prevMission}] - {prevName}");
+                                ImGui.Text($"{i + 1}: [{prevMission}] - {MissionSupport.NameWithMarker(prevMission, prevName)}");
                             }
                             ImGui.EndTooltip();
                         }
@@ -1013,7 +1039,8 @@ namespace ICE.Ui.MainUi.ModeSelect
                                 CompletionStatus_Normal(mission);
                                 ImGui.SameLine();
                                 // 零守衛的字典索引（MissionUnlock 是寫死的表，跟 SheetMissionDict 沒有共同保證）。
-                                ImGui.Text($"[{mission}] - {(CosmicHelper.SheetMissionDict.TryGetValue(mission, out var unlockEntry) ? unlockEntry.Name : "???")}");
+                                var unlockName = CosmicHelper.SheetMissionDict.TryGetValue(mission, out var unlockEntry) ? unlockEntry.Name : "???";
+                                ImGui.Text($"[{mission}] - {MissionSupport.NameWithMarker(mission, unlockName)}");
                             }
                             ImGui.EndTooltip();
                         }
@@ -1087,6 +1114,17 @@ namespace ICE.Ui.MainUi.ModeSelect
                 ImGui.SameLine(0, 5);
                 ImGui.TextDisabled($"[{id}]");
                 ImGui.SameLine(0, 5);
+                if (MissionSupport.IsUnsupported(id, out var detailReason))
+                {
+                    ImGui.TextColored(ImGuiColors.DalamudRed, MissionSupport.Marker);
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.BeginTooltip();
+                        ImGui.TextUnformatted(MissionSupport.ReasonText(detailReason));
+                        ImGui.EndTooltip();
+                    }
+                    ImGui.SameLine(0, 4);
+                }
                 ImGui.Text($"{mission.Name}");
 
                 #endregion
@@ -1317,7 +1355,8 @@ namespace ICE.Ui.MainUi.ModeSelect
                         CompletionStatus_Normal(lockedMission);
                         ImGui.SameLine();
                         // 零守衛的字典索引（同上，來源是寫死的 MissionUnlock 表）。
-                        ImGui.Text($"[{lockedMission}] - {(CosmicHelper.SheetMissionDict.TryGetValue(lockedMission, out var lockedEntry) ? lockedEntry.Name : "???")}");
+                        var lockedName = CosmicHelper.SheetMissionDict.TryGetValue(lockedMission, out var lockedEntry) ? lockedEntry.Name : "???";
+                        ImGui.Text($"[{lockedMission}] - {MissionSupport.NameWithMarker(lockedMission, lockedName)}");
                     }
 
                 }

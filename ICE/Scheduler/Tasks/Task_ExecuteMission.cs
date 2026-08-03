@@ -40,15 +40,23 @@ namespace ICE.Scheduler.Tasks
                 C.MissionConfig.TryGetValue(missionId, out var config);
                 bool dualClass = (gatherMission && craftMission) || (fishingMission && craftMission);
 
-                if (C.OnlyGrabMission || (config != null && config.ManualMode) || UnsupportedMissions.Ids.Contains(missionId))
+                var unsupported = MissionSupport.IsUnsupported(missionId, out var unsupportedReason);
+                if (C.OnlyGrabMission || (config != null && config.ManualMode) || unsupported)
                 {
                     // 原本這條分支完全沒有 log —— 外掛就這樣安靜地切到手動模式什麼都不做。
-                    var reason = UnsupportedMissions.Ids.Contains(missionId)
-                        ? "這個任務在目前版本的 ICE 尚未支援（在 UnsupportedMissions 黑名單裡）"
-                        : C.OnlyGrabMission
+                    if (unsupported)
+                    {
+                        // 「不支援」統一走 MissionSupport.Notify：訊息文字與 PlayerHandlers 的
+                        // 接任務偵測、Task_CheckState 完全一致，靠 ChatInfo 以全文為鍵的節流去重。
+                        MissionSupport.Notify(missionId, unsupportedReason);
+                    }
+                    else
+                    {
+                        var reason = C.OnlyGrabMission
                             ? "你開了「只接任務」(Only Grab Mission)"
                             : "這個任務的設定是手動模式 (Manual Mode)";
-                    IceLogging.ChatInfo($"任務 {missionId}：{reason}，所以切到手動模式，接下來要自己操作。", "[ICE]");
+                        IceLogging.ChatInfo($"任務 {missionId}：{reason}，所以切到手動模式，接下來要自己操作。", "[ICE]");
+                    }
                     SchedulerMain.State = IceState.ManualMode;
                 }
                 else if (dualClass)

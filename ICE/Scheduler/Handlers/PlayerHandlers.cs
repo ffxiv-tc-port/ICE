@@ -208,6 +208,43 @@ internal static unsafe class PlayerHandlers
             }
         }
 
+        WatchForUnsupportedMission();
+    }
+
+    /// <summary>上一次看到的進行中任務 ID，用來偵測「任務換了」這個邊緣事件。0 = 沒有任務。</summary>
+    private static uint lastSeenMissionId;
+
+    /// <summary>
+    /// 使用者<b>自己手動接了</b>一個 ICE 跑不動的任務時，馬上在聊天視窗說明原因。
+    /// </summary>
+    /// <remarks>
+    /// 🔑 為什麼放在 <see cref="Tick"/> 而不是排程器裡：<c>SchedulerMain.Tick()</c> 只有在
+    /// ICE 執行中才會跑，但「除非手動接任務」正是<b>ICE 沒在跑</b>的情境 —— 排程器那兩個
+    /// 分支（<c>Task_CheckState</c>／<c>Task_ExecuteMission</c>）在那時候一行都不會執行。
+    /// 這個函式掛在 <c>Svc.Framework.Update</c> 上，不管 ICE 有沒有啟動都會執行。<br/><br/>
+    /// ⚠️ 用<b>邊緣觸發</b>（任務 ID 變了才判斷）而不是每幀判斷，所以不會洗版；
+    /// 就算同一個任務反覆接放，<c>IceLogging.ChatInfo</c> 還有一層以訊息全文為鍵的 60 秒節流。<br/>
+    /// ⚠️ 只在宇宙探索區域內判斷：離開區域時 <c>CurrentLunarMission</c> 讀到的東西沒有意義。
+    /// </remarks>
+    private static void WatchForUnsupportedMission()
+    {
+        if (!PlayerHelper.IsInCosmicZone())
+        {
+            lastSeenMissionId = 0;
+            return;
+        }
+
+        var currentMissionId = CosmicHelper.CurrentLunarMission;
+        if (currentMissionId == lastSeenMissionId)
+            return;
+
+        lastSeenMissionId = currentMissionId;
+
+        if (currentMissionId == 0)
+            return;
+
+        if (MissionSupport.IsUnsupported(currentMissionId, out var reason))
+            MissionSupport.Notify(currentMissionId, reason);
     }
 
     internal static void DisablePlugin()
