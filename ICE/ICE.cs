@@ -127,6 +127,10 @@ public sealed partial class ICE : IDalamudPlugin
         ConfigMigrator.CheckMissions();
         GatheringUtil.UpdateCriticalWeather();
         TestLoadRoutes();
+
+        // ⚠️ 一定要放在最後：CriticalLocations 由上一行的 UpdateCriticalWeather() 填，
+        //    採集路線由 TestLoadRoutes() 觸發載入，提早呼叫會量到「全部都對得上」的假陰性。
+        ReportHardcodedTableCoverage();
     }
 
     private static void Init()

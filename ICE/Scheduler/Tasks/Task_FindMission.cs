@@ -1406,12 +1406,38 @@ namespace ICE.Scheduler.Tasks
                 // Then need to add the last path to it once the base has been generated, to make sure that you're facing to the fishing hole properly.
                 var location = missionEntry.MapPosition;
                 var territory = missionEntry.TerritoryId;
-                var fishingHole = GatheringUtil.MoonFishingLocations[territory][location];
 
-                if (fishingHole == null || fishingHole.Count == 0)
+                // 🔴 原本這裡是 `GatheringUtil.MoonFishingLocations[territory][location]` —— 兩層裸索引。
+                //    MoonFishingLocations 是**寫死在原始碼裡的釣點座標表**（上游照國際服建的），
+                //    外層鍵是區域 ID、內層鍵是任務的地圖旗標座標，而且內層是 Vector2 的
+                //    **浮點數相等比對** —— 跟遊戲資料之間沒有任何共同保證。
+                //
+                //    台服 7.20 目前對得起來：離線重跑建表邏輯比對 exd-tc/7.20 的
+                //    WKSMissionUnit／WKSMissionToDo／WKSMissionMapMarker，[1237] 有 9 個旗標，
+                //    而台服 52 個釣魚任務算出來的旗標**正好就是那 9 個**，一個不多一個不少。
+                //    ⚠️ 但 [1291] Phaenna 的 11 個旗標無法離線驗證（台服那些任務列目前整列是空的）。
+                //    第二顆星開放當天只要有任何一個任務的旗標對不上，這行就是 KeyNotFoundException，
+                //    而它跑在任務佇列裡：丟例外 → 這個任務永遠不回傳 true → 逾時 → 佇列被中止
+                //    → 外掛自己停用，也就是使用者看到的「一進去就卡死」。
+                //
+                //    ⚠️ 下面原本那個 `fishingHole == null` 檢查是**死碼**：字典 indexer 找不到鍵是
+                //    丟例外、不是回 null，所以它從來沒有機會執行。
+                //    改成查得到才往下走；查不到就照本函式「採集路線缺資料」那條既有分支的作法
+                //    （上方 gatherInfo.Count == 0）記一筆並 return true 放行，降級成手動處理。
+                if (!GatheringUtil.MoonFishingLocations.TryGetValue(territory, out var territorySpots)
+                    || !territorySpots.TryGetValue(location, out var fishingHole)
+                    || fishingHole.Count == 0)
                 {
-                    IceLogging.Info("We've seemed to have ran into a problem with the fishing hole... either it's missing spots, or it doesn't exist. Please report back to me on this with logs leading up to this");
-                    IceLogging.Info($"Mission ID: {missionId} | Map Position: {missionEntry.MapPosition} | Moon Territory: {missionEntry.TerritoryId}");
+                    if (EzThrottler.Throttle("ICE: fishing hole data missing", 5000))
+                    {
+                        IceLogging.Info(
+                            $"找不到這個釣魚任務的釣點資料，略過自動前往（這個任務請改用手動模式）。" +
+                            $"任務 {missionId}／區域 {territory}／地圖旗標 ({location.X}, {location.Y})。" +
+                            "（釣點座標是寫死在 GatheringUtil.MoonFishingLocations 裡的，" +
+                            "這個客戶端新開放的區域還沒有對應資料時就會走到這裡。）",
+                            "[FindMission: 釣點]");
+                    }
+                    return true;
                 }
 
                 var navPos = Vector3.Zero;

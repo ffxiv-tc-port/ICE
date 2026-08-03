@@ -637,6 +637,118 @@ public sealed partial class ICE
 
         C.SaveDebounced();
     }
+
+    /// <summary>
+    /// 盤點「原始碼裡寫死的 ID 表」有多少筆在**這個客戶端**查不到對應資料，並記一次 Information。
+    /// </summary>
+    /// <remarks>
+    /// ICE 分岔自上游的國際服版本，裡面有好幾張表是把國際服的任務 ID 直接寫死在原始碼裡。
+    /// 台服的 <c>WKSMissionUnit</c> <b>已經帶著完整的列數</b>（0..1072），只是第二顆星 Phaenna
+    /// 的那些列（545 以後）<b>Name 是空字串、其餘欄位全 0</b> —— 也就是
+    /// <b>「表裡沒這列」在台服是 0 筆，全部都是「有列但整列是空的」</b>。
+    /// 這一點決定了處理方式：不能用「這個 row 存不存在」判斷，只能用「這個 row 有沒有內容」，
+    /// 而 <c>SheetMissionDict</c>（上面那個迴圈遇到空名字就 <c>continue</c>）正好就是那份名單。
+    /// <br/><br/>
+    /// 🔑 <b>不刪掉上游資料</b>：台服遲早會開放 Phaenna，屆時同一批 row 會原地變成有效，
+    /// 那些寫死的時段表／緊急任務座標／釣魚預設會直接派上用場。
+    /// 這裡只做「說清楚現在有多少對不上」，實際的安全性靠各消費端的守衛
+    /// （<c>PlayerHandlers.KnownMissionsOnly</c>、<c>Task_FindMission</c> 的釣點查表、
+    /// <c>NpcData.TryGetMoonNpc</c>、<c>SchedulerMain.CurrentMissionUnavailable</c> 等）。
+    /// <br/><br/>
+    /// 🔑 <b>這行 log 就是第二顆星開放當天的驗證點</b>：開放後如果數字沒有掉到 0，
+    /// 代表上游那些寫死的 ID 跟台服對不上，要逐表重建而不是沿用。
+    /// <br/><br/>
+    /// ⚠️ <b>呼叫時機很重要</b>：<c>CriticalLocations</c> 是由
+    /// <c>GatheringUtil.UpdateCriticalWeather()</c> 填的，而它在 <c>ICE.OnPluginLoad</c> 裡排在
+    /// <c>DictionaryCreation()</c> <b>之後</b>。所以這個函式必須從 ICE.cs 的初始化尾端呼叫，
+    /// 不能塞在 DictionaryCreation 裡 —— 否則那張表永遠被量成「0 筆對不上」，
+    /// 是一個看起來完全正常的假陰性。
+    /// </remarks>
+    internal static void ReportHardcodedTableCoverage()
+    {
+        // 這些是「鍵是任務 ID、而且內容是上游照國際服寫死」的表。
+        // ⚠️ 不含 UnsupportedMissions（那是釣魚任務黑名單，本來就允許指向不存在的任務）。
+        (string Name, IEnumerable<uint> Ids)[] tables =
+        [
+            ("時段任務表 SinusMapV2", PlayerHandlers.SinusMapV2.SelectMany(x => x.Value).Select(x => x.MissionId)),
+            ("時段任務表 PhaennaMapV2", PlayerHandlers.PhaennaMapV2.SelectMany(x => x.Value).Select(x => x.MissionId)),
+            ("任務解鎖表 MissionUnlock", MissionUnlock.Keys.Concat(MissionUnlock.Values.SelectMany(x => x))),
+            ("任務註記 CustomMissionNotes", CustomMissionNotes.Keys),
+            ("緊急任務座標 CriticalLocations", GatheringUtil.CriticalLocations.Keys),
+            ("釣魚預設 FishingPreset", GatheringUtil.FishingPreset.Keys),
+            ("內建分數表 MissionScores.csv", MissionScoreDict.Keys),
+        ];
+
+        var lines = new List<string>();
+        foreach (var (name, ids) in tables)
+        {
+            var distinct = ids.Distinct().ToList();
+            var unknown = distinct.Count(id => !SheetMissionDict.ContainsKey(id));
+            if (unknown > 0)
+                lines.Add($"{name} {unknown}/{distinct.Count}");
+        }
+
+        if (lines.Count > 0)
+        {
+            IceLogging.Info(
+                "以下寫死的任務表有部分 ID 在目前的客戶端查不到任務資料（通常是尚未開放的星球，屬預期行為）："
+                + string.Join("、", lines)
+                + "。相關功能會自動略過那些任務，不會中止流程。",
+                "[資料盤點]");
+        }
+
+        ReportRouteCoverage();
+    }
+
+    /// <summary>
+    /// 反向盤點：<b>這個客戶端真的有的任務</b>，有多少找不到對應的採集路線／釣點座標。
+    /// </summary>
+    /// <remarks>
+    /// 🔑 這是最直接預測「會不會卡住」的指標，因為採集路線與釣點都是**以座標為鍵**
+    /// （<c>Vector2</c> 浮點數相等比對）的寫死資料，跟任務 ID 對得上完全是兩回事。<br/>
+    /// 台服 7.20 離線量測基準：Sinus Ardorum <b>28/28 採集旗標、9/9 釣點旗標全中</b>
+    /// （逐筆重跑建表邏輯比對 exd-tc/7.20 的 WKSMissionUnit／WKSMissionToDo／WKSMissionMapMarker），
+    /// 所以現在這個函式在台服應該一行都不印。<br/>
+    /// ⚠️ Phaenna 的 28 個採集路線與 11 個釣點旗標<b>無法離線驗證</b>（那些任務列目前整列是空的），
+    /// 第二顆星開放當天請先看這一行 —— 有輸出就代表座標資料要重建。
+    /// </remarks>
+    private static void ReportRouteCoverage()
+    {
+        var missingGather = new Dictionary<uint, int>();
+        var missingFish = new Dictionary<uint, int>();
+
+        foreach (var info in SheetMissionDict.Values)
+        {
+            var territory = info.TerritoryId;
+
+            // ⚠️ 分支順序刻意跟消費端 Task_FindMission.Navmesh_MoveToMission 一致
+            //    （那邊也是先判 Gather 再 else if Fish）。順序寫反的話，
+            //    兩邊對「同一個任務算採集還是釣魚」的認定就會分岔，盤點結果會誤導人。
+            if (info.Attributes.HasFlag(Gather))
+            {
+                var route = GatheringRouteLoader.GetRoute(territory, info.MapPosition);
+                if (route == null || route.Count == 0)
+                    missingGather[territory] = missingGather.GetValueOrDefault(territory) + 1;
+            }
+            else if (info.Attributes.HasFlag(Fish))
+            {
+                var hasSpot = GatheringUtil.MoonFishingLocations.TryGetValue(territory, out var spots)
+                              && spots.TryGetValue(info.MapPosition, out var list)
+                              && list.Count > 0;
+                if (!hasSpot)
+                    missingFish[territory] = missingFish.GetValueOrDefault(territory) + 1;
+            }
+        }
+
+        foreach (var (territory, count) in missingGather)
+            IceLogging.Info($"區域 {territory} 有 {count} 個採集任務找不到對應的採集路線資料，" +
+                            "這些任務只能手動處理。", "[資料盤點]");
+
+        foreach (var (territory, count) in missingFish)
+            IceLogging.Info($"區域 {territory} 有 {count} 個釣魚任務找不到對應的釣點座標，" +
+                            "這些任務只能手動處理。", "[資料盤點]");
+    }
+
     private static string GetClassAcronym(uint jobId)
     {
         // Map your job IDs to the acronyms used in the CSV

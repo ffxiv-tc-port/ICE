@@ -110,6 +110,21 @@ internal static class NpcData // Renamed the class to avoid conflict
                 Corner4 = new Vector3(13.96f, 1.69f, -17.90f),
             }
         },
+        // ⚠️ 第二顆星 Phaenna。整組資料都是上游照國際服寫的，台服**目前一筆也驗不了**：
+        //    這四個 DataId 在台服 ENpcResident 裡有列，但 Singular/Name 全部是空字串
+        //    （＝尚未開放），而 WKSTerritoryInfo 對應那一列也整列是 0，拿不到台服自己的值。
+        //
+        //    🔴 已知會重演的雷：上面 [1237] 的每個 NPC 都帶 AlternateNpcIds，
+        //    因為**同一個 NPC 會依據據點的建設階段換成不同的 DataId**，而上游只寫死了
+        //    國際服當時那一階的值，台服對不上（commit 3cec4b0 就是在修這件事）。
+        //    這裡的 [1291] **沒有任何 AlternateNpcIds**，所以台服開放 Phaenna 時
+        //    幾乎一定會再中一次同一顆雷。
+        //
+        //    緩解已經在 Utils.TryGetNpcObject：ID 全部找不到時會退回「配置座標 5 公尺內的
+        //    可指定 NPC」並記一筆 Warning。⚠️ 但那個退路依賴下面的 NpcLocation 是對的，
+        //    而座標同樣是國際服資料、同樣無法離線驗證。
+        //    → 開放當天請先看 log 有沒有 "[NPC Resolver]" 的 Warning：
+        //      有 Warning 但功能正常＝只是 DataId 要補；連退路都失敗＝座標也要重測。
         [1291] = new List<NPCInfo>
         {
             new NPCInfo()

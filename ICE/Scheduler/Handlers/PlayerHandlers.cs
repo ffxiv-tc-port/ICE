@@ -5,6 +5,7 @@ using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.System.Framework;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Component.GUI;
+using ICE.Utilities.Cosmic_Helper;
 using System.Collections.Generic;
 using Callback = ECommons.Automation.Callback;
 using Time = (int start, int end);
@@ -269,6 +270,48 @@ internal static unsafe class PlayerHandlers
             ? selectedMap[nextBracket]
             : new List<TimedInfo>();
 
-        return (currentMissions, nextMissions);
+        return (KnownMissionsOnly(currentMissions), KnownMissionsOnly(nextMissions));
+    }
+
+    /// <summary>
+    /// 濾掉「這個客戶端根本沒有的任務」。
+    /// </summary>
+    /// <remarks>
+    /// ⚠️ <c>SinusMapV2</c>／<c>PhaennaMapV2</c> 是上游<b>照國際服寫死</b>的時段表，
+    /// 表裡的任務 ID 跟 <c>SheetMissionDict</c>（從遊戲資料建出來的）之間<b>沒有任何共同保證</b>。<br/>
+    /// 台服 7.20 逐筆比對 <c>exd-tc/7.20/WKSMissionUnit.csv</c> 的結果：<br/>
+    /// • <c>SinusMapV2</c> 那 22 筆 <b>全部存在</b>；<br/>
+    /// • <c>PhaennaMapV2</c> 那 33 筆（<b>574..1004</b>）在表裡<b>有列、但整列是空的</b>
+    ///   —— 那是第二顆星 Phaenna 的預留列，台服尚未開放。<br/>
+    /// 目前走不到 Phaenna 那條分支只是因為台服沒有 territory 1291；
+    /// <b>第二顆星一開放就會同時生效</b>，所以在這裡收斂成「查得到才回報」。<br/>
+    /// 🔑 這也是開放當天的驗證點：如果上游的 ID 對不上台服，log 會直接說出丟了幾筆，
+    /// 而不是讓疊加層排出一列 <c>???</c> 讓人以為是顯示壞了。
+    /// </remarks>
+    private static List<TimedInfo> KnownMissionsOnly(List<TimedInfo> missions)
+    {
+        if (missions.Count == 0)
+            return missions;
+
+        var known = missions.Where(x => CosmicHelper.SheetMissionDict.ContainsKey(x.MissionId)).ToList();
+        if (known.Count == missions.Count)
+            return missions; // 常見路徑：全部都在，直接回原本那份，不要多配置一個 List
+
+        // 節流：這個判斷每幀都會走到（疊加層一幀呼叫兩次），不節流會把 log 灌爆。
+        if (EzThrottler.Throttle("ICE: timed mission table mismatch", 60000))
+        {
+            var missing = missions.Where(x => !CosmicHelper.SheetMissionDict.ContainsKey(x.MissionId))
+                                  .Select(x => x.MissionId)
+                                  .Distinct()
+                                  .OrderBy(x => x);
+            IceLogging.Info(
+                $"時段任務表裡有 {missions.Count - known.Count} 筆任務在這個客戶端查不到資料，已從顯示中略過："
+                + string.Join(", ", missing)
+                + "。（時段表是寫死在 PlayerHandlers.SinusMapV2／PhaennaMapV2 裡的國際服資料，"
+                + "尚未開放的星球會整批對不上，屬於預期行為。）",
+                "[時段任務]");
+        }
+
+        return known;
     }
 }

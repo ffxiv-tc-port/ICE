@@ -118,8 +118,9 @@ namespace ICE.Ui
 
             ImGui.AlignTextToFramePadding();
             ImGui.Text("Timed Mission(s): ".Loc());
-            var currentList = PlayerHandlers.GetMissionsForHour().currentMissions;
-            var nextList = PlayerHandlers.GetMissionsForHour().nextMissions;
+            // GetMissionsForHour() 已經濾掉「這個客戶端查不到資料」的任務
+            //（見 PlayerHandlers.KnownMissionsOnly），所以下面的 TryGetValue 正常情況不會落空。
+            var (currentList, nextList) = PlayerHandlers.GetMissionsForHour();
             foreach (var mission in currentList)
             {
                 if (CosmicHelper.JobIconDict.TryGetValue(mission.ClassId, out var jobIcon))
@@ -132,9 +133,10 @@ namespace ICE.Ui
                         ImGui.BeginTooltip();
                         ImGui.Text($"[{mission.MissionId}]");
                         ImGui.SameLine(0, 2);
-                        // 🔴 零守衛的字典索引，而且來源是寫死的 PhaennaMapV2/SinusMapV2。
-                        //    PhaennaMapV2 裡的任務 ID 是 574..1001 —— **整個範圍在台服都不存在**
-                        //    （SheetMissionDict 只有 1..544）。目前不會走到只是因為台服沒有 1291 這張圖。
+                        // ⚠️ 來源是寫死的 PhaennaMapV2/SinusMapV2，跟 SheetMissionDict 沒有共同保證。
+                        //    PhaennaMapV2 的任務 ID 是 574..1004 —— 台服 WKSMissionUnit **有這些列，
+                        //    但整列是空的**（第二顆星 Phaenna 的預留列），所以建不進 SheetMissionDict。
+                        //    上游那條路徑目前走不到只是因為台服沒有 territory 1291。
                         ImGui.Text($"{(CosmicHelper.SheetMissionDict.TryGetValue(mission.MissionId, out var timedEntry) ? timedEntry.Name : "???")}");
                         ImGui.EndTooltip();
                     }
@@ -156,9 +158,10 @@ namespace ICE.Ui
                         ImGui.BeginTooltip();
                         ImGui.Text($"[{mission.MissionId}]");
                         ImGui.SameLine(0, 2);
-                        // 🔴 零守衛的字典索引，而且來源是寫死的 PhaennaMapV2/SinusMapV2。
-                        //    PhaennaMapV2 裡的任務 ID 是 574..1001 —— **整個範圍在台服都不存在**
-                        //    （SheetMissionDict 只有 1..544）。目前不會走到只是因為台服沒有 1291 這張圖。
+                        // ⚠️ 來源是寫死的 PhaennaMapV2/SinusMapV2，跟 SheetMissionDict 沒有共同保證。
+                        //    PhaennaMapV2 的任務 ID 是 574..1004 —— 台服 WKSMissionUnit **有這些列，
+                        //    但整列是空的**（第二顆星 Phaenna 的預留列），所以建不進 SheetMissionDict。
+                        //    上游那條路徑目前走不到只是因為台服沒有 territory 1291。
                         ImGui.Text($"{(CosmicHelper.SheetMissionDict.TryGetValue(mission.MissionId, out var timedEntry) ? timedEntry.Name : "???")}");
                         ImGui.EndTooltip();
                     }
