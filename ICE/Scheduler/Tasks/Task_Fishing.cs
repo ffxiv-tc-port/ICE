@@ -62,17 +62,9 @@ namespace ICE.Scheduler.Tasks
 
         private static int BaitCounter = 0;
 
-        /// <summary>
-        /// 玩家現在是不是處於「讀得到自己的道具」的狀態。
-        /// 傳送／換區途中 <c>InventoryManager.GetInventoryItemCount</c> 會一律回 0，
-        /// 這時任何「數量 == 0 所以怎樣怎樣」的判斷都是假的。
-        /// </summary>
-        /// ⚠️ 這裡只放「真的會讓道具讀不到」的條件。多加其他 ConditionFlag（例如 OccupiedInQuestEvent）
-        /// 會在正常釣魚時把流程擋住，得不償失。
-        private static bool PlayerIsUsable()
-            => Player.Available
-               && !Svc.Condition[ConditionFlag.BetweenAreas]
-               && !Svc.Condition[ConditionFlag.BetweenAreas51];
+        // ⚠️ 這裡原本有一份 private PlayerIsUsable()。同樣的守衛在 Task_Craft / Task_DualClass /
+        //    Task_CheckScore 也需要，所以提升成 PlayerHelper.InventoryReadable() 共用一份 ——
+        //    「換區期間讀到 0 就做破壞性決定」這個 bug class 只有集中在一個地方才守得住。
 
         /// <summary>
         /// 「沒餌了」是會直接放棄任務的破壞性判斷，所以把判定當下每一種餌的實際數量都印出來。
@@ -87,7 +79,7 @@ namespace ICE.Scheduler.Tasks
 
             IceLogging.ChatError($"{reason}，準備回報／放棄任務。" +
                                  $"（掛著的餌: {CosmicHelper.CurrentBait?.ToString() ?? "null"}，" +
-                                 $"玩家可用: {PlayerIsUsable()}）", "[ICE]");
+                                 $"玩家可用: {PlayerHelper.InventoryReadable()}）", "[ICE]");
             IceLogging.Info($"放棄任務前的餌存量明細：{detail}", handle);
         }
 
@@ -101,23 +93,17 @@ namespace ICE.Scheduler.Tasks
             string handle = "[Standard Fishing: Fishing Check]";
 
             // 遊戲端可能在我們釣魚的中途把任務取消掉（實例：被機甲行動抽中當駕駛員直接傳送走，
-            // 系統訊息「放棄了探索任務」）。這時 CurrentLunarMission 會變 0，而
-            // CosmicHelper.CurrentMissionInfo 是 SheetMissionDict[CurrentLunarMission] 的直接索引，
-            // SheetMissionDict 沒有 key 0（建表時 Name 為空的 row 被跳過）→ KeyNotFoundException。
+            // 系統訊息「放棄了探索任務」）。這時 CurrentLunarMission 會變 0，而 SheetMissionDict
+            // 沒有 key 0（建表時 Name 為空的 row 被跳過）→ 直接索引就是 KeyNotFoundException。
             // 例外發生在任務裡只會表現成「卡住不動」，所以在碰任何任務資料之前先退回重新判斷狀態。
-            if (!CosmicHelper.SheetMissionDict.ContainsKey(CosmicHelper.CurrentLunarMission))
-            {
-                IceLogging.Info($"目前的任務已經不存在了（任務 ID {CosmicHelper.CurrentLunarMission}），" +
-                                "離開釣魚流程重新判斷狀態。（常見原因：遊戲端自己取消了任務，例如被機甲行動傳送走。）", handle);
-                P.TaskManager.Tasks.Clear();
-                SchedulerMain.State = IceState.Start;
+            // （原本這裡是自己寫一次 ContainsKey + 清佇列 + 回 Start；現在收斂成全排程器共用的閘門。）
+            if (SchedulerMain.CurrentMissionUnavailable(handle, out var currentMission))
                 return true;
-            }
 
             // 傳送 / 讀取地圖途中 InventoryManager 讀不到東西，所有 GetItemCount 都會回 0。
             // 底下「沒餌了 → 放棄任務」是破壞性判斷，在這種瞬間做會直接誤殺一個好好的任務，
             // 所以整個檢查在玩家不可用時一律先等。
-            if (!PlayerIsUsable())
+            if (!PlayerHelper.InventoryReadable())
             {
                 if (EzThrottler.Throttle("ICE: fishing player unavailable log", 5000))
                     IceLogging.Info("玩家目前處於傳送／讀取中，暫停釣魚判斷（此時道具數量讀出來會全是 0）。", handle);
@@ -186,7 +172,9 @@ namespace ICE.Scheduler.Tasks
                 P.TaskManager.Tasks.Clear();
                 return true;
             }
-            else if (CosmicHelper.CurrentMissionInfo.Attributes.HasFlag(MissionAttributes.Collectables) && !PlayerHelper.HasStatusId(805))
+            // 用方法開頭那次守衛拿到的 currentMission，不要再讀一次 CurrentMissionInfo ——
+            // 少一次遊戲讀取，也保證整個方法看到的是同一筆任務資料。
+            else if (currentMission.Attributes.HasFlag(MissionAttributes.Collectables) && !PlayerHelper.HasStatusId(805))
             {
                 if (EzThrottler.Throttle("Log Throttle for fishing"))
                     IceLogging.Debug("We need to apply collector's glove", "Task_Start Fishing");
@@ -212,16 +200,17 @@ namespace ICE.Scheduler.Tasks
                     else
                     {
                         IceLogging.Debug("Our current fishing position isn't viable. So going to move to the next fishing spot");
-                        var mission = CosmicHelper.CurrentMissionInfo;
-                        var flag = mission.MapPosition;
-                        var territoryId = mission.TerritoryId;
+                        var flag = currentMission.MapPosition;
+                        var territoryId = currentMission.TerritoryId;
 
                         var nextFishingSpot = GetNextFishingSpot(territoryId, flag, Player.Position);
                         if (nextFishingSpot != null)
                         {
                             IceLogging.Info($"We found another fishing spot to move to! {nextFishingSpot.FishingSpot} | moving to it");
                             P.TaskManager.Tasks.Clear();
-                            P.TaskManager.Enqueue(() => InitiateMoving(nextFishingSpot.FishingSpot), "Vnav moving to fishing");
+                            // InitiateMoving 在 navmesh 還沒建好時會一直回 false（建圖是分鐘級），
+                            // 用預設 30 秒逾時 + AbortOnTimeout 會直接把佇列砍掉。
+                            P.TaskManager.Enqueue(() => InitiateMoving(nextFishingSpot.FishingSpot), "Vnav moving to fishing", Utils.TaskConfig);
                             return true;
                         }
 
@@ -448,7 +437,11 @@ namespace ICE.Scheduler.Tasks
             }
             else if (P.Navmesh.IsRunning())
             {
-                P.TaskManager.Enqueue(() => !P.Navmesh.IsRunning());
+                // 🔴 這就是「等 vnav 走完」那一步，而且是整個釣魚流程裡最長的一段。
+                //    NeoTaskManager 預設 TimeLimitMS = 30000 + AbortOnTimeout = true ——
+                //    在月面走遠一點就一定超過 30 秒，一超過就把整個佇列清掉，
+                //    表現出來是「走到一半突然重來」而且完全沒有訊息。
+                P.TaskManager.Enqueue(() => !P.Navmesh.IsRunning(), "Waiting for vnav movement to finish", Utils.TaskConfig);
                 return true;
             }
             else

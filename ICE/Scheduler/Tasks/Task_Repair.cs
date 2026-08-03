@@ -18,11 +18,17 @@ namespace ICE.Scheduler.Tasks
 
                 if ((C.SelfRepairGather && CosmicHelper.GatheringJobList.Contains(currentJob)) || (C.SelfRepairCrafter && CosmicHelper.CrafterJobList.Contains(currentJob)))
                 {
+                    // 🔴 修一整套裝備要一件一件跑動畫，超過 30 秒很正常。用 NeoTaskManager 的
+                    //    預設值（30 秒 + AbortOnTimeout）逾時就會把整個佇列清掉 ——
+                    //    連同下面那一行「把狀態切回 GrabMission」也一起被清掉。
+                    //    而狀態還停在 Repair，Tick 會再呼叫一次 Enqueue()，這時 NeedsRepair 已經
+                    //    是 false，if 整段不執行 → 什麼都沒排 → **永遠停在 Repair 狀態**。
+                    //    這正是「佇列尾端有收尾步驟、前面逾時會讓它靜默不執行」的教科書案例。
                     P.TaskManager.EnqueueMulti
                     (
-                        new(OpenSelfRepair, "Opening the self repair window"),
-                        new(SelfRepair, "Executing the self repair"),
-                        new(CloseRepair, "Closing Self Repair")
+                        new(OpenSelfRepair, "Opening the self repair window", Utils.TaskConfig),
+                        new(SelfRepair, "Executing the self repair", Utils.TaskConfig),
+                        new(CloseRepair, "Closing Self Repair", Utils.TaskConfig)
                     );
                 }
                 P.TaskManager.Enqueue(() =>  SchedulerMain.State = IceState.GrabMission);
@@ -58,7 +64,18 @@ namespace ICE.Scheduler.Tasks
         public static unsafe bool? PathToRepair()
         {
             var zoneId = Player.Territory;
-            var npcEntry = NpcData.MoonNpcs[zoneId].First(x => x.type == NpcData.NpcType.Repair);
+            // 🔴 零守衛的字典索引。MoonNpcs 只有月面兩個 key（1237／1291），而這裡的 key 是
+            // Player.Territory —— 佇列排好之後玩家還是可能被傳送走（機甲行動抽中駕駛員就會），
+            // 下一個 tick 讀到的區域就不是月面了。原本的 .First()/.FirstOrDefault() 兩種寫法
+            // 都沒處理「找不到」，一個丟 InvalidOperationException、一個回 null 再 NRE。
+            if (!NpcData.TryGetMoonNpc(zoneId, NpcData.NpcType.Repair, out var npcEntry))
+            {
+                if (EzThrottler.Throttle("ICE: moon npc missing Repair", 5000))
+                    IceLogging.Info($"目前區域 {zoneId} 沒有登記修理 NPC 的資料（可能已經被傳送離開月面），中止這一步。", "[ICE]");
+                P.TaskManager.Tasks.Clear();
+                SchedulerMain.State = IceState.Start;
+                return true;
+            }
 
             if (EzThrottler.Throttle("Log Throttle for repair", 2000))
             {
@@ -102,7 +119,18 @@ namespace ICE.Scheduler.Tasks
         public static unsafe bool? RepairAtNpc()
         {
             var zoneId = Player.Territory;
-            var npcEntry = NpcData.MoonNpcs[zoneId].First(x => x.type == NpcData.NpcType.Repair);
+            // 🔴 零守衛的字典索引。MoonNpcs 只有月面兩個 key（1237／1291），而這裡的 key 是
+            // Player.Territory —— 佇列排好之後玩家還是可能被傳送走（機甲行動抽中駕駛員就會），
+            // 下一個 tick 讀到的區域就不是月面了。原本的 .First()/.FirstOrDefault() 兩種寫法
+            // 都沒處理「找不到」，一個丟 InvalidOperationException、一個回 null 再 NRE。
+            if (!NpcData.TryGetMoonNpc(zoneId, NpcData.NpcType.Repair, out var npcEntry))
+            {
+                if (EzThrottler.Throttle("ICE: moon npc missing Repair", 5000))
+                    IceLogging.Info($"目前區域 {zoneId} 沒有登記修理 NPC 的資料（可能已經被傳送離開月面），中止這一步。", "[ICE]");
+                P.TaskManager.Tasks.Clear();
+                SchedulerMain.State = IceState.Start;
+                return true;
+            }
 
             Utils.TryGetNpcObject(npcEntry, out var gameObject);
             var currentTarget = Svc.Targets.Target;

@@ -76,7 +76,11 @@ namespace ICE.Scheduler.Tasks
             }
             else
             {
-                var critical = CosmicHelper.SheetMissionDict[id].Attributes.HasFlag(MissionAttributes.Critical);
+                // 零守衛的字典索引（跟同檔案下方那顆已經修過的雷是同一個字典）。
+                // 查不到就當成「不是限時任務」繼續走一般回報流程 —— 這比丟例外讓佇列卡死安全，
+                // critical 只影響「要不要先走去收集點」這一步。
+                var critical = CosmicHelper.SheetMissionDict.TryGetValue(id, out var turninMission)
+                               && turninMission.Attributes.HasFlag(MissionAttributes.Critical);
                 PreviousMissionId = id;
 
                 if (EzThrottler.Throttle("Checking for previous score"))
@@ -263,19 +267,28 @@ namespace ICE.Scheduler.Tasks
 
             var isGold = managerPtr->IsMissionGolded(PreviousMissionId);
 
+            // 零守衛的字典索引 ×2。PreviousMissionId 的初始值就是 0，而 MissionConfig 雖然
+            // 通常含 0（MissionTimer 會補），GetOnlyPreviousMissionsRecursive 回來的前置任務
+            // 卻不保證在 MissionConfig 裡。這一段跑在 GoldCheck 任務內，丟例外＝佇列卡住。
             if (C.RemoveAfterGold && isGold)
             {
-                C.MissionConfig[PreviousMissionId].Enabled = false;
+                if (C.MissionConfig.TryGetValue(PreviousMissionId, out var goldConfig))
+                    goldConfig.Enabled = false;
+                else
+                    IceLogging.Info($"任務 {PreviousMissionId} 在設定檔裡沒有對應的設定，跳過「達金後停用」。", "[Gold Check Task]");
             }
             if (C.RemoveAfterGold && !isGold)
             {
-                if (MainWindow.GetOnlyPreviousMissionsRecursive(PreviousMissionId).Count > 0)
+                foreach (var prevMission in MainWindow.GetOnlyPreviousMissionsRecursive(PreviousMissionId))
                 {
-                    foreach (var prevMission in MainWindow.GetOnlyPreviousMissionsRecursive(PreviousMissionId))
+                    if (!C.MissionConfig.TryGetValue(prevMission, out var prevConfig))
                     {
-                        C.MissionConfig[prevMission].Enabled = true;
-                        C.Save();
+                        IceLogging.Info($"前置任務 {prevMission} 在設定檔裡沒有對應的設定，跳過重新啟用。", "[Gold Check Task]");
+                        continue;
                     }
+
+                    prevConfig.Enabled = true;
+                    C.Save();
                 }
             }
 

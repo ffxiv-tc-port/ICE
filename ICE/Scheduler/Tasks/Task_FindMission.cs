@@ -598,7 +598,13 @@ namespace ICE.Scheduler.Tasks
                     {
                         IceLogging.Debug($"Only relic grind was enabled. Continuing to re-roll mission now");
                         HashSet<uint> EnabledMissions = new();
-                        foreach (var mission in C.MissionConfig.Where(x => x.Value.Enabled && SheetMissionDict[x.Key].Jobs.Contains(Player.JobId)))
+                        // 🔴 迭代 MissionConfig（鍵集合含 0，實測使用者設定檔就是 0..544）
+                        //    卻直接索引 SheetMissionDict（鍵集合是 1..544）。
+                        //    現在沒炸只是因為 key 0 的 Enabled 預設是 false，短路把它擋掉了 ——
+                        //    那是預設值湊巧，不是守衛。
+                        foreach (var mission in C.MissionConfig.Where(x => x.Value.Enabled
+                                                                          && SheetMissionDict.TryGetValue(x.Key, out var m)
+                                                                          && m.Jobs.Contains(Player.JobId)))
                         {
                             EnabledMissions.Add(mission.Key);
                         }
@@ -952,7 +958,19 @@ namespace ICE.Scheduler.Tasks
                         Mission_Settings.missionAppearanceCounts[missionId] = 0;
                     Mission_Settings.missionAppearanceCounts[missionId]++;
 
-                    var rank = CosmicHelper.SheetMissionDict[missionId].Rank;
+                    // 🔴 上面守的是 missionAppearanceCounts，下一行索引的卻是 SheetMissionDict ——
+                    //    「守了 A 字典、直接索引 B 字典」的典型形狀。
+                    //    而且這裡的 missionId 是從遊戲的 WKSMission addon 的 AtkValues 讀出來的
+                    //    （ECommons 只濾掉 0），不是我們驗證過的鍵集合：只要索引偏移對不上或
+                    //    未來開了第二顆星（row 545 以上在台服全是空 Name、不在 SheetMissionDict 裡），
+                    //    這一行就會丟 KeyNotFoundException，而它在任務裡＝佇列卡死。
+                    if (!CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var rerollMission))
+                    {
+                        IceLogging.Info($"任務板上出現了不在任務表裡的任務 ID {missionId}，重骰判斷時略過它。", "[Task_FindMission: FindReroll]");
+                        continue;
+                    }
+
+                    var rank = rerollMission.Rank;
                     switch (rank)
                     {
                         case 5: AExRank.Add(missionId); break;
@@ -1122,7 +1140,11 @@ namespace ICE.Scheduler.Tasks
                     var abandonMission = x.StellerMissions.First(m => m.MissionId == missionToAbandon);
                     abandonMission.Select();
                     P.TaskManager.Insert(() => GrabMission(missionToAbandon, true), "Going to abandon mission now");
-                    IceLogging.Debug($"Attempting to abandon mission ID: {missionToAbandon} (Rank: {CosmicHelper.SheetMissionDict[missionToAbandon].Rank})");
+                    // 零守衛的字典索引，而且只是為了印一行 log —— 沒有任何理由讓它有機會把佇列打斷。
+                    var abandonRank = CosmicHelper.SheetMissionDict.TryGetValue(missionToAbandon, out var abandonEntry)
+                        ? abandonEntry.Rank.ToString()
+                        : "不在任務表裡";
+                    IceLogging.Debug($"Attempting to abandon mission ID: {missionToAbandon} (Rank: {abandonRank})");
                     Mission_Settings.missionAppearanceCounts[missionToAbandon] = 0;
 
                     return true;
@@ -1247,8 +1269,22 @@ namespace ICE.Scheduler.Tasks
         {
             ThrottleMessage("Currently in a navmesh movement");
 
-            var missionEntry = CosmicHelper.SheetMissionDict[missionId];
-            var missionConfig = C.MissionConfig[missionId];
+            // 零守衛的字典索引 ×2，而且是兩個鍵集合不同的字典，要分開守。
+            if (!CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var missionEntry))
+            {
+                IceLogging.ChatError($"任務 {missionId} 不在任務表裡，無法前往任務地點。", "[ICE]");
+                SchedulerMain.State = IceState.GrabMission;
+                P.TaskManager.Tasks.Clear();
+                return true;
+            }
+
+            if (!C.MissionConfig.TryGetValue(missionId, out var missionConfig))
+            {
+                IceLogging.ChatError($"任務 {missionId} 在設定檔裡沒有對應的設定，無法前往任務地點。", "[ICE]");
+                SchedulerMain.State = IceState.GrabMission;
+                P.TaskManager.Tasks.Clear();
+                return true;
+            }
             var currentJob = Player.JobId;
 
             if (!missionEntry.Jobs.Contains(currentJob))
@@ -1543,7 +1579,15 @@ namespace ICE.Scheduler.Tasks
         }
         private static bool? ChangeJob(uint missionId)
         {
-            var jobId = CosmicHelper.SheetMissionDict[missionId].Jobs.First();
+            // 零守衛的字典索引。查不到就當成「不用換職業」直接放行，讓後面的步驟去處理，
+            // 總比在這裡丟例外把整個佇列卡住好。
+            if (!CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var jobMission))
+            {
+                IceLogging.Info($"任務 {missionId} 不在任務表裡，跳過換職業判斷。", "[Task_FindMission: ChangeJob]");
+                return true;
+            }
+
+            var jobId = jobMission.Jobs.First();
             if (Player.JobId == jobId)
                 return true;
             else

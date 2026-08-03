@@ -240,7 +240,16 @@ namespace ICE.Config
             }
             if (C.ConfigVersion == 2)
             {
-                foreach (var mission in C.MissionConfig.Where(x => x.Key > 544 && CosmicHelper.SheetMissionDict[x.Key].Jobs.Contains(18)))
+                // 🔴 這一行同時挑中了兩個相反的前提：篩選條件是 `x.Key > 544`，而
+                //    SheetMissionDict 在台服 7.20 的鍵集合**正好就是 1..544**
+                //    （row 545..1072 是第二顆星 Phaenna 的預留列，Name 全空，建表時被跳過）。
+                //    也就是說這個 Where 選出來的每一個 key，SheetMissionDict 都一定沒有。
+                //    目前沒炸只是因為 UpdateConfigMissionList() 先跑，MissionConfig 裡不會有 >544 的 key；
+                //    但這是外部順序保證，不是這一行自己有守。而且遷移是在外掛載入時跑的 ——
+                //    這裡丟例外＝外掛直接載不起來。
+                foreach (var mission in C.MissionConfig.Where(x => x.Key > 544
+                                                                   && CosmicHelper.SheetMissionDict.TryGetValue(x.Key, out var m)
+                                                                   && m.Jobs.Contains(18)))
                 {
                     var id = mission.Key;
                     if (GatheringUtil.FishingPreset.TryGetValue(id, out var fishPreset) && fishPreset.FishingPreset.Count > 0)

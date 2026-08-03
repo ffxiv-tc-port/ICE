@@ -159,7 +159,18 @@ namespace ICE.Scheduler.Tasks
                         {
                             IceLogging.Debug($"Mission isn't timed out... checking other states");
                             UpdateMissionState(currentMissionId);
-                            C.MissionConfig.TryGetValue(currentMissionId, out var config);
+
+                            // ⚠️ 同一個 bug class 的變形：原本呼叫了 TryGetValue **但丟掉回傳值**，
+                            //    然後在下面直接寫 config.ManualMode。MissionSettings 是 class，
+                            //    查不到時 config 是 null → NullReferenceException。看起來有守其實沒守。
+                            if (!C.MissionConfig.TryGetValue(currentMissionId, out var config))
+                            {
+                                IceLogging.ChatError($"任務 {currentMissionId} 在設定檔裡沒有對應的設定，" +
+                                                     "無法判斷要走哪一種流程，回到領任務狀態。", "[ICE]");
+                                SchedulerMain.State = IceState.GrabMission;
+                                P.TaskManager.Tasks.Clear();
+                                return true;
+                            }
 
                             var s = SchedulerMain.MissionState;
                             bool dualMission = (s.HasFlag(MissionAttributes.Craft) && (s.HasFlag(MissionAttributes.Gather) || s.HasFlag(MissionAttributes.Fish)));
@@ -299,7 +310,14 @@ namespace ICE.Scheduler.Tasks
             SchedulerMain.MissionState = MissionAttributes.None;
 
             // Grabbing the mission info from the dictionary entry
-            var missionDictInfo = CosmicHelper.SheetMissionDict[missionId];
+            // 零守衛的字典索引。SheetMissionDict 的鍵集合是「Name 不為空的 row」
+            //（台服 7.20 逐筆比對 WKSMissionUnit.csv 實測＝只有 1..544），沒有 0 也沒有 545 以上。
+            // 查不到就維持在上面剛清乾淨的 None —— 呼叫端本來就是依 MissionState 分支的。
+            if (!CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var missionDictInfo))
+            {
+                IceLogging.Info($"任務 {missionId} 不在任務表裡，MissionState 維持 None。", "[Task: Check State]");
+                return;
+            }
 
             // Updating the Mission state to be the same as the current mission that's fired.
             SchedulerMain.MissionState = missionDictInfo.Attributes;

@@ -132,7 +132,10 @@ namespace ICE.Ui
                         ImGui.BeginTooltip();
                         ImGui.Text($"[{mission.MissionId}]");
                         ImGui.SameLine(0, 2);
-                        ImGui.Text($"{CosmicHelper.SheetMissionDict[mission.MissionId].Name}");
+                        // 🔴 零守衛的字典索引，而且來源是寫死的 PhaennaMapV2/SinusMapV2。
+                        //    PhaennaMapV2 裡的任務 ID 是 574..1001 —— **整個範圍在台服都不存在**
+                        //    （SheetMissionDict 只有 1..544）。目前不會走到只是因為台服沒有 1291 這張圖。
+                        ImGui.Text($"{(CosmicHelper.SheetMissionDict.TryGetValue(mission.MissionId, out var timedEntry) ? timedEntry.Name : "???")}");
                         ImGui.EndTooltip();
                     }
                 }
@@ -153,7 +156,10 @@ namespace ICE.Ui
                         ImGui.BeginTooltip();
                         ImGui.Text($"[{mission.MissionId}]");
                         ImGui.SameLine(0, 2);
-                        ImGui.Text($"{CosmicHelper.SheetMissionDict[mission.MissionId].Name}");
+                        // 🔴 零守衛的字典索引，而且來源是寫死的 PhaennaMapV2/SinusMapV2。
+                        //    PhaennaMapV2 裡的任務 ID 是 574..1001 —— **整個範圍在台服都不存在**
+                        //    （SheetMissionDict 只有 1..544）。目前不會走到只是因為台服沒有 1291 這張圖。
+                        ImGui.Text($"{(CosmicHelper.SheetMissionDict.TryGetValue(mission.MissionId, out var timedEntry) ? timedEntry.Name : "???")}");
                         ImGui.EndTooltip();
                     }
                 }

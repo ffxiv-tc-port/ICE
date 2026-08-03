@@ -951,7 +951,13 @@ namespace ICE.Ui.MainUi.ModeSelect
                             for (int i = 0; i < prevMissions.Count; i++)
                             {
                                 var prevMission = prevMissions[i];
-                                ImGui.Text($"{i + 1}: [{prevMission}] - {CosmicHelper.SheetMissionDict[prevMission].Name}");
+                                // 零守衛的字典索引。GetOnlyPreviousMissionsRecursive 會把 LockedBehind 的
+                                // rowId 原封不動加進來，而它不保證在 SheetMissionDict 裡（台服 7.20 逐筆
+                                // 比對 WKSMissionUnit.csv 目前是乾淨的，但那是資料湊巧，不是程式有守）。
+                                // 這是每幀跑的 ImGui 迴圈，丟例外會讓整個視窗畫不出來。
+                                var prevName = CosmicHelper.SheetMissionDict.TryGetValue(prevMission, out var prevEntry)
+                                    ? prevEntry.Name : "???";
+                                ImGui.Text($"{i + 1}: [{prevMission}] - {prevName}");
                             }
                             ImGui.EndTooltip();
                         }
@@ -962,9 +968,14 @@ namespace ICE.Ui.MainUi.ModeSelect
                         if (notesCount > 0)
                             ImGui.SameLine(0, 2);
 
-                        if (CosmicHelper.WeatherIds.ContainsKey(missionInfo.Weather))
+                        // 🔴 原本守的是 WeatherIds、索引的卻是 WeatherIconDict —— 又一個「守 A 索引 B」。
+                        //    根因在 ICEDictornaryCreation：WeatherIconDict 只在 TryGetFromGameIcon
+                        //    **成功時**才寫入，所以它的鍵集合是 WeatherIds 的**子集**。
+                        //    任何一張天氣圖示載不到（例如建表當下貼圖子系統還沒就緒），
+                        //    這裡就會每幀丟 KeyNotFoundException 讓整個任務表畫不出來。
+                        //    直接守真正要索引的那個字典，載不到就落到下面的 Cloud 圖示 fallback。
+                        if (CosmicHelper.WeatherIconDict.TryGetValue(missionInfo.Weather, out var weatherIcon))
                         {
-                            ISharedImmediateTexture? weatherIcon = CosmicHelper.WeatherIconDict[missionInfo.Weather];
                             Vector2 ImageSize = new Vector2(23, 23);
                             ImGui.Image(weatherIcon.GetWrapOrEmpty().Handle, ImageSize);
                         }
@@ -1001,7 +1012,8 @@ namespace ICE.Ui.MainUi.ModeSelect
                             {
                                 CompletionStatus_Normal(mission);
                                 ImGui.SameLine();
-                                ImGui.Text($"[{mission}] - {CosmicHelper.SheetMissionDict[mission].Name}");
+                                // 零守衛的字典索引（MissionUnlock 是寫死的表，跟 SheetMissionDict 沒有共同保證）。
+                                ImGui.Text($"[{mission}] - {(CosmicHelper.SheetMissionDict.TryGetValue(mission, out var unlockEntry) ? unlockEntry.Name : "???")}");
                             }
                             ImGui.EndTooltip();
                         }
@@ -1304,7 +1316,8 @@ namespace ICE.Ui.MainUi.ModeSelect
                     {
                         CompletionStatus_Normal(lockedMission);
                         ImGui.SameLine();
-                        ImGui.Text($"[{lockedMission}] - {CosmicHelper.SheetMissionDict[lockedMission].Name}");
+                        // 零守衛的字典索引（同上，來源是寫死的 MissionUnlock 表）。
+                        ImGui.Text($"[{lockedMission}] - {(CosmicHelper.SheetMissionDict.TryGetValue(lockedMission, out var lockedEntry) ? lockedEntry.Name : "???")}");
                     }
 
                 }

@@ -60,6 +60,26 @@ public class PlayerHelper
 
     internal static unsafe float GetDistanceToPlayer(Vector3 v3) => Vector3.Distance(v3, Player.GameObject->Position);
     internal static unsafe float GetDistanceToPlayer(IGameObject gameObject) => GetDistanceToPlayer(gameObject.Position);
+
+    /// <summary>
+    /// 現在讀得到自己的道具數量嗎。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 傳送／換區途中 <c>InventoryManager.GetInventoryItemCount</c> 會
+    /// **一律回 0 而且不報錯**，所以任何「數量是 0 / 數量不夠 → 放棄任務、切換狀態、
+    /// 清空佇列」的破壞性判斷，都必須先過這個閘門。<br/>
+    /// 2026-08-03 實機事故：使用者身上有 999 個宇宙蛾蛹，卻在被機甲行動傳送走的
+    /// 同一毫秒（<c>BetweenAreas=True</c>）被判定成「沒餌」而放棄了任務。<br/>
+    /// ⚠️ 這裡只放「真的會讓道具讀不到」的條件。多加其他 ConditionFlag（例如
+    /// <c>OccupiedInQuestEvent</c>）會在正常流程中把整條路徑擋住，得不償失。<br/>
+    /// ⚠️ 這是 8daada5 在 Task_Fishing 裡建立的模式，提升到這裡共用 ——
+    /// 需要同樣的守衛時請呼叫它，<b>不要再各自寫一份</b>。
+    /// </remarks>
+    public static bool InventoryReadable()
+        => Player.Available
+           && !Svc.Condition[ConditionFlag.BetweenAreas]
+           && !Svc.Condition[ConditionFlag.BetweenAreas51];
+
     public static unsafe bool GetItemCount(uint itemID, out int count, bool includeHq = true, bool includeNq = true)
     {
         try

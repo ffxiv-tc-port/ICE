@@ -128,6 +128,10 @@ namespace ICE.Scheduler.Tasks
 
                 var needed = material.Value * craftAmount;
                 PlayerHelper.GetItemCount(material.Key, out var held);
+                // ⚠️ 這裡讀出來的 held 只有在 PlayerHelper.InventoryReadable() 為真時才有意義；
+                //    傳送／換區途中 InventoryManager 一律回 0。呼叫端 CheckMaterials() 已經在
+                //    最上面擋掉那個狀態，所以這裡不重複檢查（重複檢查會讓「材料真的不夠」
+                //    跟「現在讀不到」兩種情況混在同一個回傳值裡，更難查）。
                 if (held < needed)
                 {
                     shortage = $"item {material.Key} held {held}, need {needed} ({material.Value} per craft x{craftAmount})";
@@ -140,8 +144,28 @@ namespace ICE.Scheduler.Tasks
 
         private static bool? CheckMaterials()
         {
+            const string handle = "[Task Craft: Check Materials]";
+
+            // 🔴 這一整個方法有三條「材料不夠 → AbandonMission + Tasks.Clear()」的破壞性出口
+            //    （moonCrate 那條 else、foreach 裡的 HasMaterialsFor 失敗、以及最後的 moreCraft）。
+            //    傳送／換區途中 InventoryManager.GetInventoryItemCount 一律回 0，
+            //    也就是說「身上有材料」跟「現在讀不到材料」在這裡會得到一模一樣的結論：放棄任務。
+            //    2026-08-03 實機事故就是這個形狀（Task_Fishing 的「沒餌了」誤判，使用者身上有 999 個餌），
+            //    而這個檔案完全沒有被那次修復動到 —— 同一條 API、同一個破壞性結論。
+            if (!PlayerHelper.InventoryReadable())
+            {
+                if (EzThrottler.Throttle("ICE: craft inventory unreadable log", 5000))
+                    IceLogging.Info("玩家目前處於傳送／讀取中，暫停材料檢查（此時道具數量讀出來會全是 0，" +
+                                    "會被誤判成「材料不夠」而放棄任務）。", handle);
+                return false;
+            }
+
+            // 🔴 零守衛的字典索引。SheetMissionDict 沒有 key 0，而遊戲端取消任務時
+            //    CurrentLunarMission 就是 0 —— 例外在任務裡只會表現成「卡住不動」。
+            if (SchedulerMain.CurrentMissionUnavailable(handle, out var mission))
+                return true;
+
             var id = CosmicHelper.CurrentLunarMission;
-               var mission = CosmicHelper.SheetMissionDict[id];
 
             if (!P.Artisan.IsBusy())
             {

@@ -189,7 +189,9 @@ namespace ICE.Ui.DebugWindowTabs
                         MissionName = "None";
                     else
                     {
-                        MissionName = CosmicHelper.SheetMissionDict[(uint)BestMission].Name;
+                        // 零守衛的字典索引（RelicMissionFinder 只保證 >= 1，不保證在表裡）。
+                        MissionName = CosmicHelper.SheetMissionDict.TryGetValue((uint)BestMission, out var bestEntry)
+                            ? bestEntry.Name : "???";
                     }
                 }
 

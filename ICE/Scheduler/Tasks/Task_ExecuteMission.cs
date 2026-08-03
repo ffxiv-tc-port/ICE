@@ -24,9 +24,15 @@ namespace ICE.Scheduler.Tasks
             if (CosmicHelper.CurrentLunarMission != 0)
             {
                 var missionId = CosmicHelper.CurrentLunarMission;
-                P.MissionTimer.StartMission(missionId);
 
-                var mission = CosmicHelper.SheetMissionDict[missionId];
+                // 🔴「!= 0」不是字典守衛。SheetMissionDict 的鍵集合是「Name 不為空的 row」，
+                //    台服 7.20 實測＝只有 1..544（row 0 與 545..1072 都被建表時跳過了）。
+                //    也就是說「非 0」跟「在字典裡」是兩件不同的事，剛好目前台服的任務 ID 都落在
+                //    1..544 才沒出事 —— 這是資料湊巧，不是程式有守。
+                if (SchedulerMain.CurrentMissionUnavailable("[Task: Execute Mission]", out var mission))
+                    return true;
+
+                P.MissionTimer.StartMission(missionId);
                 bool fishingMission = mission.Jobs.Contains(18);
                 bool gatherMission = mission.Jobs.Contains(16) || mission.Jobs.Contains(17);
                 bool craftMission = mission.Jobs.Overlaps(CosmicHelper.CrafterJobList);

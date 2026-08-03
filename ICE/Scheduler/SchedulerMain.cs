@@ -1,4 +1,5 @@
-using ECommons.Automation.NeoTaskManager;
+﻿using ECommons.Automation.NeoTaskManager;
+using System.Diagnostics.CodeAnalysis;
 using ECommons.GameHelpers;
 using ICE.Utilities.Cosmic_Helper;
 using static ICE.Enums.IceState;
@@ -27,6 +28,68 @@ namespace ICE.Scheduler
                     P.Navmesh.Stop();
             }
 
+            return true;
+        }
+
+        /// <summary>
+        /// 排程器統一的「任務資料還在嗎」閘門。<b>回傳 true 代表任務已經不存在，呼叫端必須立刻收工</b>
+        /// （任務本體 <c>return true</c>；Enqueue 方法 <c>return</c>）。
+        /// </summary>
+        /// <remarks>
+        /// 這是 <c>CosmicHelper.CurrentMissionInfo</c>（已移除）那顆零守衛字典索引的系統性替代品。<br/>
+        /// 之所以要「清佇列 + 回到 <see cref="Enums.IceState.Start"/>」而不是只回一個空值：
+        /// 任務不存在時佇列裡剩下的步驟全部都是針對舊任務排的，繼續跑只會用錯的前提做決定。
+        /// <c>Start</c> 會走 <c>Task_CheckState</c> 從頭重新判斷，是這個狀態機唯一的通用復原點。<br/>
+        /// 2026-08-03 實機事故就是這條路徑沒有守衛：遊戲端把探索任務取消掉 →
+        /// <c>CurrentLunarMission</c> 變 0 → <c>SheetMissionDict[0]</c> 每個 tick 丟例外 37 次 →
+        /// 逾時 → 佇列中止 → 外掛自己停用。
+        /// </remarks>
+        internal static bool CurrentMissionUnavailable(string handle, [MaybeNullWhen(true)] out CosmicHelper.CosmicInfo info)
+        {
+            if (CosmicHelper.TryGetCurrentMissionInfo(out info))
+                return false;
+
+            // 節流：這個狀況在最壞情況下每個 tick 都成立，不節流會把 log 灌爆
+            // （正是上次事故裡「同一行噴 37 次」的形狀）。
+            if (EzThrottler.Throttle("ICE: current mission unavailable", 5000))
+            {
+                IceLogging.Info($"查不到進行中的任務資料（任務 ID {CosmicHelper.CurrentLunarMission}），" +
+                                "中止目前的流程並回到狀態判斷。" +
+                                "（常見原因：遊戲端自己取消了任務，例如被機甲行動抽中當駕駛員傳送走。）", handle);
+            }
+
+            P.TaskManager.Tasks.Clear();
+            State = Start;
+            return true;
+        }
+
+        /// <summary>
+        /// 同上，但取的是使用者對這個任務的設定（<c>C.MissionConfig</c>）。
+        /// <b>回傳 true 代表拿不到，呼叫端必須立刻收工。</b>
+        /// </summary>
+        /// <remarks>
+        /// 🔴 <c>C.MissionConfig</c> 與 <c>CosmicHelper.SheetMissionDict</c> 是<b>兩個鍵集合不同的字典</b>：
+        /// 前者由 <c>ConfigMigrator.UpdateConfigMissionList()</c> 從後者補齊，但也會被
+        /// <c>MissionTimer</c> 按需寫入（含 <c>0</c>），而且是<b>存進設定檔的</b>。
+        /// 實測使用者的 <c>Mission Config.yaml</c>：<c>missionConfig</c> 的鍵是 <b>0..544</b>，
+        /// 而 <c>SheetMissionDict</c> 是 <b>1..544</b> —— 所以「守了其中一個」永遠不等於
+        /// 「另一個也有」。這正是 8daada5 修掉的那顆雷的形狀。
+        /// </remarks>
+        internal static bool CurrentMissionConfigUnavailable(uint missionId, string handle, [MaybeNullWhen(true)] out Config.MissionSettings config)
+        {
+            if (C.MissionConfig.TryGetValue(missionId, out config))
+                return false;
+
+            if (EzThrottler.Throttle("ICE: mission config unavailable", 5000))
+            {
+                IceLogging.ChatError($"任務 {missionId} 在設定檔裡沒有對應的設定，無法判斷回報條件，" +
+                                     "中止目前的流程。", "[ICE]");
+                IceLogging.Info($"C.MissionConfig 沒有 key {missionId}。" +
+                                "（正常情況下 ConfigMigrator.UpdateConfigMissionList() 會在啟動時補齊。）", handle);
+            }
+
+            P.TaskManager.Tasks.Clear();
+            State = Start;
             return true;
         }
 
