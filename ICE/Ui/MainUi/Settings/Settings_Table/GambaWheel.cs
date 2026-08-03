@@ -1,4 +1,7 @@
-﻿using System;
+﻿using Dalamud.Interface.Colors;
+using Dalamud.Interface.Utility.Raii;
+using ECommons.GameHelpers;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -15,6 +18,9 @@ namespace ICE.Ui.SettingTabs
 
         public static void Draw()
         {
+            DrawManualRun();
+            ImGui.Separator();
+
             if (ImGui.Checkbox("Enable Auto Gamba".Loc() + "###ICEEnableAutoGamba", ref gambaEnabled))
             {
                 C.GambaEnabled = gambaEnabled;
@@ -83,6 +89,32 @@ namespace ICE.Ui.SettingTabs
             {
                 Task_Gamba.EnsureGambaWeightsInitialized(true);
             }
+        }
+
+        /// <summary>
+        /// 手動觸發一次轉盤。原本這顆按鈕只掛在 Debug 視窗（<c>Hud_WheelofFortune</c>），
+        /// 一般使用者根本按不到，於是「只想轉一次」的人只剩下打開 <c>GambaEnabled</c> 這條路——
+        /// 🔴 而那個開關會在 WKSLottery 出現時呼叫 <c>SchedulerMain.EnablePlugin()</c>
+        /// 把整套 ICE 任務排程叫起來（<c>GenericManager.DelayedTick</c>），完全不是同一件事。
+        /// 這裡直接走 <see cref="Task_Gamba.Enqueue"/>：排一串轉盤專用的任務，跑完就回 Idle。
+        /// </summary>
+        private static void DrawManualRun()
+        {
+            var busy = SchedulerMain.State != IceState.Idle || P.TaskManager.NumQueuedTasks > 0;
+            var ready = !busy && Player.Available && Task_Gamba.CanRunManually();
+
+            using (ImRaii.Disabled(!ready))
+            {
+                if (ImGui.Button("Run the Cosmowheel once now".Loc() + "###ICEGambaRunOnce"))
+                    Task_Gamba.Enqueue();
+            }
+
+            ImGuiEx.HelpMarker("Runs one Cosmowheel session using the weights below, then stops. This does NOT start ICE's mission automation.".Loc());
+
+            if (busy)
+                ImGuiEx.Text(ImGuiColors.DalamudYellow, "ICE is already running something; stop it first.".Loc());
+            else if (!ready)
+                ImGuiEx.Text(ImGuiColors.DalamudGrey, "Go to a cosmic exploration zone (or open the Cosmowheel) first.".Loc());
         }
 
         private static int[] allowedValues = { 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000 };
