@@ -136,10 +136,9 @@ namespace ICE.Ui.DebugWindowTabs
                 P.IceIpc.ChangeSetting(SettingChange, SettingState);
             }
 
-            if (ImGui.Button("Assign Artisan Food Test"))
-            {
-                P.Artisan.AssignArtisanRecipe(48797, 46253);
-            }
+            // ⚠️ 這裡原本有一顆「Assign Artisan Food Test」按鈕，呼叫 P.Artisan.AssignArtisanRecipe()。
+            //    已於 2026-08-03 連同底層的 Artisan.AssignRecipie 訂閱端一起移除：
+            //    Artisan 根本沒有註冊那個 IPC，按下去完全沒反應也不會有任何 log。
         }
 
         private static void SwapBait(uint baitId)
