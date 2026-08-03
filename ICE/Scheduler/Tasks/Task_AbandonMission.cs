@@ -92,8 +92,14 @@ namespace ICE.Scheduler.Tasks
                                 SchedulerMain.State = IceState.Idle;
                                 P.TaskManager.Tasks.Clear();
                             }
-                            else
+                            else if (SchedulerMain.State != IceState.Idle)
                             {
+                                // 🔴 這裡不能無條件寫 Start：偵錯視窗的「Abandon Mission」按鈕
+                                //    會在 State 還是 Idle 的時候直接 Enqueue 這串任務，放棄成功之後
+                                //    無條件回 Start 等於「按一下放棄任務就把整個 ICE 啟動起來」。
+                                //    排程本來就在跑時才需要回 Start 去接下一個任務。
+                                //    （不走 SchedulerMain.AbortToStateCheck()：這條是正常續行，
+                                //     後面排的任務還要繼續跑，不可以清佇列。）
                                 SchedulerMain.State = IceState.Start;
                             }
                         }

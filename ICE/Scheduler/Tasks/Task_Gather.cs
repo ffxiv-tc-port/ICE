@@ -155,8 +155,7 @@ namespace ICE.Scheduler.Tasks
                 if (EzThrottler.Throttle("ICE: gather route missing log", 5000))
                     IceLogging.ChatError($"任務 {CosmicHelper.CurrentLunarMission} 在區域 {zoneId} 座標 {missionFlag} " +
                                          "找不到採集路線，無法自動前往採集點。", "[ICE]");
-                P.TaskManager.Tasks.Clear();
-                SchedulerMain.State = IceState.Start;
+                SchedulerMain.AbortToStateCheck();
                 return true;
             }
 
@@ -234,8 +233,7 @@ namespace ICE.Scheduler.Tasks
             {
                 // 原本是 C.GatherProfiles[0] 直接索引 —— 設定檔裡沒有 0 號設定檔就是 KeyNotFoundException。
                 IceLogging.ChatError("找不到任何可用的採集設定檔（連預設的 0 號都沒有），無法自動採集。", "[ICE]");
-                P.TaskManager.Tasks.Clear();
-                SchedulerMain.State = IceState.Start;
+                SchedulerMain.AbortToStateCheck();
                 return true;
             }
             var gathActions = GatheringUtil.GathActionDict;

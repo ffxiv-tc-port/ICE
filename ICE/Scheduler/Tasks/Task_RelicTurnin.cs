@@ -36,8 +36,7 @@ namespace ICE.Scheduler.Tasks
             {
                 if (EzThrottler.Throttle("ICE: moon npc missing Relic", 5000))
                     IceLogging.Info($"目前區域 {zoneId} 沒有登記研究員 NPC 的資料（可能已經被傳送離開月面），中止這一步。", "[ICE]");
-                P.TaskManager.Tasks.Clear();
-                SchedulerMain.State = IceState.Start;
+                SchedulerMain.AbortToStateCheck();
                 return true;
             }
 
@@ -115,8 +114,7 @@ namespace ICE.Scheduler.Tasks
             {
                 if (EzThrottler.Throttle("ICE: moon npc missing Relic", 5000))
                     IceLogging.Info($"目前區域 {Player.Territory} 沒有登記研究員 NPC 的資料（可能已經被傳送離開月面），中止這一步。", "[ICE]");
-                P.TaskManager.Tasks.Clear();
-                SchedulerMain.State = IceState.Start;
+                SchedulerMain.AbortToStateCheck();
                 return true;
             }
             if (!Utils.TryGetNpcObject(npcEntry, out var researchNpc) || researchNpc == null)

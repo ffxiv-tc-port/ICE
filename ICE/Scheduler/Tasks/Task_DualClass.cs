@@ -62,8 +62,7 @@ namespace ICE.Scheduler.Tasks
             if (!C.MissionConfig.TryGetValue(id, out var missionConfig))
             {
                 IceLogging.ChatError($"任務 {id} 沒有對應的 MissionConfig，雙職業流程無法判斷回報條件。", "[ICE]");
-                P.TaskManager.Tasks.Clear();
-                SchedulerMain.State = IceState.Start;
+                SchedulerMain.AbortToStateCheck();
                 return true;
             }
 
@@ -313,8 +312,7 @@ namespace ICE.Scheduler.Tasks
                 !C.GatherProfiles.TryGetValue(0, out gatherConfig))
             {
                 IceLogging.ChatError("找不到任何可用的採集設定檔（連預設的 0 號都沒有），無法自動採集。", "[ICE]");
-                P.TaskManager.Tasks.Clear();
-                SchedulerMain.State = IceState.Start;
+                SchedulerMain.AbortToStateCheck();
                 return true;
             }
 
@@ -514,8 +512,7 @@ namespace ICE.Scheduler.Tasks
                 {
                     IceLogging.ChatError($"任務 {CosmicHelper.CurrentLunarMission} 沒有對應的 MissionConfig，" +
                                          "無法判斷要收集幾個道具。", "[ICE]");
-                    P.TaskManager.Tasks.Clear();
-                    SchedulerMain.State = IceState.Start;
+                    SchedulerMain.AbortToStateCheck();
                     return true;
                 }
 
