@@ -1,4 +1,5 @@
-﻿using Dalamud.Game.ClientState.Conditions;
+﻿using System.Collections.Generic;
+using Dalamud.Game.ClientState.Conditions;
 using ECommons.Automation.NeoTaskManager.Tasks;
 using ICE.Utilities.Cosmic_Helper;
 using static ECommons.UIHelpers.AddonMasterImplementations.AddonMaster;
@@ -29,6 +30,17 @@ namespace ICE.Scheduler.Tasks
             if (!P.Artisan.IsBusy())
             {
                 IceLogging.Info("Artisan is no longer running, continuing the process");
+
+                // 🔴 「Artisan 不忙了」不等於「做出東西來了」。原本這裡無條件回 true，
+                //    於是 Artisan 一停下來就立刻重下同一個指令 —— 2026-08-03 實機量到
+                //    每 1.35 秒一輪、近 30 次都沒有收斂。用背包實際數量判斷有沒有進展，
+                //    連續失敗就退避，達上限就停下來並說明原因。
+                CraftProgressGuard.OnArtisanStopped("[Task Craft: Waiting For Artisan]");
+                if (CraftProgressGuard.LimitReached)
+                {
+                    CraftProgressGuard.ReportAndStop("[Task Craft: Waiting For Artisan]");
+                    return true;
+                }
                 return true;
             }
             else
@@ -55,8 +67,12 @@ namespace ICE.Scheduler.Tasks
 
         private static uint throttleCounter = 0;
 
-        private static void InsertArtisanWait(ushort craftId, int amount)
+        private static void InsertArtisanWait(ushort craftId, int amount, uint resultItemId,
+                                              IReadOnlyDictionary<uint, int>? requiredItems = null)
         {
+            // 記下「要求製作前的成品持有數量」，WaitingForArtisan 才有辦法判斷有沒有進展。
+            CraftProgressGuard.Arm(craftId, resultItemId, requiredItems);
+
             // 這兩個任務原本沒帶設定,吃到 NeoTaskManager 的預設值:
             // TimeLimitMS = 30000、AbortOnTimeout = true。
             // 實機證據(2026-07-31 dalamud.log):每一次「Telling artisan to craft」之後
@@ -160,6 +176,17 @@ namespace ICE.Scheduler.Tasks
                 return false;
             }
 
+            // 前一次要求製作完全沒有進展時的退避期。不加這個的話，重試節奏是實機量到的
+            // 每 1.35 秒一輪 —— 對一個已經確定不會成功的動作猛敲，只會把 log 灌爆。
+            if (!CraftProgressGuard.MayAttemptNow(out var waitSeconds))
+            {
+                if (EzThrottler.Throttle("ICE: craft backoff log", 5000))
+                    IceLogging.Info(
+                        $"上一次要求 Artisan 製作沒有任何進展（連續第 {CraftProgressGuard.ConsecutiveFailures} 次），"
+                        + $"退避中，還要等 {waitSeconds:0.0} 秒。", handle);
+                return false;
+            }
+
             // 🔴 零守衛的字典索引。SheetMissionDict 沒有 key 0，而遊戲端取消任務時
             //    CurrentLunarMission 就是 0 —— 例外在任務裡只會表現成「卡住不動」。
             if (SchedulerMain.CurrentMissionUnavailable(handle, out var mission))
@@ -193,7 +220,7 @@ namespace ICE.Scheduler.Tasks
                             // you don't have enough of the pre-crafts to craft the main item. 
                             // going to tell artisan to just kick it into gear
                             var craftAmount = mainCraft.Value.RequiredAmount - mainItemCount;
-                            InsertArtisanWait(mainCraft.Key, craftAmount);
+                            InsertArtisanWait(mainCraft.Key, craftAmount, mainCraft.Value.ItemId, mainCraft.Value.RequiredItems);
                             IceLogging.Info($"Telling artisan to craft: {mainCraft.Value.ItemId} -> {craftAmount}", "[Task Craft: Check Materials]");
                             return true;
                         }
@@ -205,7 +232,7 @@ namespace ICE.Scheduler.Tasks
                             // CraftItem IPC(見 ThrottleArtisanTask)。等於同一個配方送了兩次製作指令。
                             // 沒有 pre-craft 的兩條路徑(下面 foreach 與 moreCraft)都只呼叫
                             // InsertArtisanWait —— 這個不對稱本身就是它是筆誤的證據。
-                            InsertArtisanWait(mainCraft.Key, 1);
+                            InsertArtisanWait(mainCraft.Key, 1, mainCraft.Value.ItemId, mainCraft.Value.RequiredItems);
                             IceLogging.Info($"Current item count of: {mainCraft.Value.ItemId} | {mainItemCount}");
                             IceLogging.Info($"Telling artisan to craft: {mainCraft.Value.ItemId} -> 1", "[Task Craft: Check Materials]");
                             return true;
@@ -225,7 +252,7 @@ namespace ICE.Scheduler.Tasks
                             craftAmount = 1;
 
                         // 同上:InsertArtisanWait 已經會送 CraftItem IPC,不要在這裡再送一次。
-                        InsertArtisanWait(preCraft.Key, craftAmount);
+                        InsertArtisanWait(preCraft.Key, craftAmount, preCraft.Value.ItemId, preCraft.Value.RequiredItems);
                         IceLogging.Info($"Found a material that still needed to be crafted", "[Task Craft: Check Materials]");
                         return true;
                     }
@@ -264,7 +291,7 @@ namespace ICE.Scheduler.Tasks
                             // Found an item that needs to be crafted. Time to check if you have enough of the material
                             if (HasMaterialsFor(craft.Value, reqAmount, out var shortage))
                             {
-                                InsertArtisanWait(craft.Key, reqAmount);
+                                InsertArtisanWait(craft.Key, reqAmount, craft.Value.ItemId, craft.Value.RequiredItems);
                                 IceLogging.Info($"Telling artisan to craft: recipe {craft.Key} (item {craft.Value.ItemId}) -> {reqAmount}", "[Craft: No Pre-Mats]");
                                 return true;
                             }
@@ -287,7 +314,7 @@ namespace ICE.Scheduler.Tasks
                     // Found an item that needs to be crafted. Time to check if you have enough of the material
                     if (HasMaterialsFor(moreCraft.Value, AdditionalItem, out var moreShortage))
                     {
-                        InsertArtisanWait(moreCraft.Key, AdditionalItem);
+                        InsertArtisanWait(moreCraft.Key, AdditionalItem, moreCraft.Value.ItemId, moreCraft.Value.RequiredItems);
                         IceLogging.Info($"Telling artisan to craft: recipe {moreCraft.Key} (item {moreCraft.Value.ItemId}) -> {AdditionalItem}", "[Craft: No Pre-Mats]");
                         return true;
                     }

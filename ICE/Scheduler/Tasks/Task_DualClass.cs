@@ -154,9 +154,20 @@ namespace ICE.Scheduler.Tasks
                 return false;
             }
 
+            // 前一次要求製作完全沒有進展時的退避期（同 Task_Craft.CheckMaterials）。
+            if (!CraftProgressGuard.MayAttemptNow(out var waitSeconds))
+            {
+                if (EzThrottler.Throttle("ICE: dualclass craft backoff log", 5000))
+                    IceLogging.Info(
+                        $"上一次要求 Artisan 製作沒有任何進展（連續第 {CraftProgressGuard.ConsecutiveFailures} 次），"
+                        + $"退避中，還要等 {waitSeconds:0.0} 秒。", "[Task_DualClass: Check Craft State]");
+                return false;
+            }
+
             if (PlayerHelper.GetItemCount(itemId, out var count) && count < dualCraftAmount)
             {
                 // We have enough to craft. Telling it to craft the item... x amount of times
+                CraftProgressGuard.Arm(recipeId, itemId, mainCraft.RequiredItems);
                 P.Artisan.CraftItem(recipeId, dualCraftAmount);
                 P.TaskManager.Tasks.Clear();
                 InsertArtisanWait();
@@ -166,6 +177,7 @@ namespace ICE.Scheduler.Tasks
             else
             {
                 // We have enough for atleast 1 more craft, telling artisan to craft. Uno mas.
+                CraftProgressGuard.Arm(recipeId, itemId, mainCraft.RequiredItems);
                 P.Artisan.CraftItem(recipeId, 1);
                 P.TaskManager.Tasks.Clear();
                 InsertArtisanWait();
@@ -263,6 +275,16 @@ namespace ICE.Scheduler.Tasks
             if (!P.Artisan.IsBusy())
             {
                 IceLogging.Info("Artisan is no longer running, continuing the process");
+
+                // 同 Task_Craft.WaitingForArtisan：「Artisan 不忙了」不等於「做出東西來了」。
+                // 這裡原本也是無條件重試，同一條無限迴圈在雙職業流程也成立。
+                CraftProgressGuard.OnArtisanStopped("[Task_DualClass: Waiting For Artisan]");
+                if (CraftProgressGuard.LimitReached)
+                {
+                    CraftProgressGuard.ReportAndStop("[Task_DualClass: Waiting For Artisan]");
+                    return true;
+                }
+
                 P.TaskManager.Tasks.Clear();
                 return true;
             }
