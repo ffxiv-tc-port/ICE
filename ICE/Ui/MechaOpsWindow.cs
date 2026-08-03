@@ -3,6 +3,7 @@ using Dalamud.Interface.Utility;
 using FFXIVClientStructs.FFXIV.Client.Game.WKS;
 using ICE.Utilities.Cosmic_Helper;
 using ICE.Utilities.MechaOps;
+using System.Collections.Generic;
 
 namespace ICE.Ui
 {
@@ -36,7 +37,8 @@ namespace ICE.Ui
         {
             if (!C.ShowMechaAoeOverlay)
                 return false;
-            if (!C.ShowMechaCooldowns && !C.ShowMechaProcAlert && !C.ShowMechaEventStatus && !C.ShowMechaEventProgress)
+            if (!C.ShowMechaCooldowns && !C.ShowMechaTargets && !C.ShowMechaProcAlert
+                && !C.ShowMechaEventStatus && !C.ShowMechaEventProgress)
                 return false;
             if (!PlayerHelper.IsInCosmicZone())
                 return false;
@@ -77,11 +79,11 @@ namespace ICE.Ui
                 drewSomething |= DrawProcAlert();
             }
 
-            if (C.ShowMechaCooldowns)
+            if (C.ShowMechaCooldowns || C.ShowMechaTargets)
             {
                 if (drewSomething)
                     ImGui.Separator();
-                DrawCooldowns();
+                DrawSkillRows();
             }
         }
 
@@ -388,8 +390,13 @@ namespace ICE.Ui
             return drew;
         }
 
-        /// <summary>機甲技能冷卻。</summary>
-        private static void DrawCooldowns()
+        /// <summary>
+        /// 每個機甲技能一行：名稱 ＋ 冷卻 ＋「打得到幾個／現在蓋到幾個」。
+        ///
+        /// 涵蓋數字是 <see cref="MechaAoeOverlay"/> 在同一個 ImGui frame 算出來的
+        /// （用的就是它真的拿去畫形狀的那個錨點），所以數字跟畫面上的圖形一致。
+        /// </summary>
+        private static void DrawSkillRows()
         {
             var candidates = MechaOpsMonitor.ActiveCandidates;
             if (candidates.Count == 0)
@@ -397,29 +404,60 @@ namespace ICE.Ui
 
             // 把快照的剩餘時間外推到當下，抵銷 250ms 的掃描節流，讓倒數是平滑的。
             var age = (Environment.TickCount64 - MechaOpsMonitor.SnapshotTick) / 1000f;
+            var coverage = MechaAoeOverlay.Coverage;
 
             foreach (var c in candidates)
             {
-                // 沿用技能範圍那組個別開關：關掉範圍的技能也不列冷卻。
+                // 沿用技能範圍那組個別開關：關掉範圍的技能這裡也不列。
                 if (C.MechaAoeSkillToggles.TryGetValue(c.ActionId, out var enabled) && !enabled)
                     continue;
 
                 var remaining = c.RecastTotal > 0f
                     ? Math.Clamp(c.RecastRemaining - age, 0f, c.RecastTotal)
                     : 0f;
+                var onCooldown = remaining > 0.05f;
 
-                if (remaining > 0.05f)
+                ImGui.TextColored(onCooldown ? ImGuiColors.DalamudGrey3 : ImGuiColors.DalamudWhite, c.Name);
+
+                if (C.ShowMechaCooldowns)
                 {
-                    ImGui.TextColored(ImGuiColors.DalamudGrey3, c.Name);
                     ImGui.SameLine();
-                    ImGui.TextColored(ImGuiColors.DalamudOrange, $"{remaining:F1}s");
+                    if (onCooldown)
+                        ImGui.TextColored(ImGuiColors.DalamudOrange, $"{remaining:F1}s");
+                    else
+                        ImGui.TextColored(ImGuiColors.HealerGreen, "Ready".Loc());
                 }
-                else
-                {
-                    ImGui.TextUnformatted(c.Name);
-                    ImGui.SameLine();
-                    ImGui.TextColored(ImGuiColors.HealerGreen, "Ready".Loc());
-                }
+
+                if (C.ShowMechaTargets)
+                    DrawCoverageChip(coverage, c.ActionId);
+            }
+        }
+
+        /// <summary>
+        /// 「已涵蓋 / 打得到」那一顆數字。
+        ///  - 分母＝這一招的最遠可及範圍（形狀外接圓）內有幾個目標；
+        ///  - 分子＝其中真的被形狀蓋到的有幾個。
+        /// 兩個相等就是綠色（全中），部分是黃色，一個都沒蓋到是紅色。
+        /// 分母是 0（附近沒東西打）時整顆不畫，免得一直掛一個沒意義的 0/0。
+        /// </summary>
+        private static void DrawCoverageChip(
+            IReadOnlyDictionary<uint, (int Covered, int InReach)> coverage,
+            uint actionId)
+        {
+            if (!coverage.TryGetValue(actionId, out var cov) || cov.InReach <= 0)
+                return;
+
+            var color = cov.Covered >= cov.InReach ? ImGuiColors.HealerGreen
+                : cov.Covered > 0 ? ImGuiColors.DalamudYellow
+                : ImGuiColors.DalamudRed;
+
+            ImGui.SameLine();
+            ImGui.TextColored(color, $"{cov.Covered}/{cov.InReach}");
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip(("Targets covered / targets within this skill's reach.\n" +
+                                  "Green rings on the ground are covered, red ones are not.\n" +
+                                  "The ring is the target's hitbox - that is what the game checks, not the centre dot.").Loc());
             }
         }
     }

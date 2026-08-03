@@ -117,6 +117,105 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                                       "Default is 90 degrees - awaiting in-game calibration.").Loc());
                 }
 
+                // ---- 目標點位 ----
+                bool showTargets = C.ShowMechaTargets;
+                if (ImGui.Checkbox("Show Target Markers".Loc() + "###ICEShowMechaTargets", ref showTargets))
+                {
+                    C.ShowMechaTargets = showTargets;
+                    C.Save();
+                }
+                ImGui.SameLine();
+                ImGui.TextDisabled("?");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("Marks where the targets actually are, and colours them by whether your skill range " +
+                                      "currently covers them: green = covered, red = not covered.\n" +
+                                      "The circle is the target's hitbox, the dot is its exact position.\n" +
+                                      "Display only - it never targets, casts or moves for you.").Loc());
+                }
+
+                using (ImRaii.Disabled(!showTargets))
+                {
+                    ImGui.Indent();
+
+                    bool showHitbox = C.ShowMechaTargetHitbox;
+                    if (ImGui.Checkbox("Draw Hitbox Circles".Loc() + "###ICEShowMechaTargetHitbox", ref showHitbox))
+                    {
+                        C.ShowMechaTargetHitbox = showHitbox;
+                        C.Save();
+                    }
+                    ImGui.SameLine();
+                    ImGui.TextDisabled("?");
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.SetTooltip(("The game decides a hit against the target's hitbox, not against its centre point, " +
+                                          "so a big target can be hit while its centre is outside your range.\n" +
+                                          "Turn this off if you only want the centre dots.").Loc());
+                    }
+
+                    bool useHitbox = C.MechaCoverageUseHitbox;
+                    if (ImGui.Checkbox("Count Hitbox As Covered".Loc() + "###ICEMechaCoverageUseHitbox", ref useHitbox))
+                    {
+                        C.MechaCoverageUseHitbox = useHitbox;
+                        C.Save();
+                    }
+                    ImGui.SameLine();
+                    ImGui.TextDisabled("?");
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.SetTooltip(("On: a target counts as covered as soon as its hitbox touches the shape - " +
+                                          "this matches how the game itself is understood to work.\n" +
+                                          "Off: only the centre point counts, which is the stricter reading.\n" +
+                                          "If what you see in game disagrees with the colours, try flipping this.").Loc());
+                    }
+
+                    bool showNames = C.ShowMechaTargetNames;
+                    if (ImGui.Checkbox("Show Target Names".Loc() + "###ICEShowMechaTargetNames", ref showNames))
+                    {
+                        C.ShowMechaTargetNames = showNames;
+                        C.Save();
+                    }
+
+                    float targetRadius = C.MechaTargetRadius;
+                    ImGui.SetNextItemWidth(150);
+                    if (ImGui.SliderFloat("Marker Range".Loc() + "###ICEMechaTargetRadius", ref targetRadius, 10f, 120f, "%.0f"))
+                    {
+                        C.MechaTargetRadius = targetRadius;
+                        C.SaveDebounced();
+                    }
+                    ImGui.SameLine();
+                    ImGui.TextDisabled("?");
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.SetTooltip(("How far out to look for targets, in yalms.\n" +
+                                          "60 is the longest mecha skill range, so the default already covers " +
+                                          "everything you could possibly hit.").Loc());
+                    }
+
+                    bool targetableOnly = C.MechaTargetsTargetableOnly;
+                    if (ImGui.Checkbox("Targetable Objects Only".Loc() + "###ICEMechaTargetableOnly", ref targetableOnly))
+                    {
+                        C.MechaTargetsTargetableOnly = targetableOnly;
+                        C.Save();
+                    }
+                    ImGui.SameLine();
+                    ImGui.TextDisabled("?");
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.SetTooltip(("Turn this off first if something you can clearly attack is not being marked - " +
+                                          "it drops the filter and shows every nearby object.").Loc());
+                    }
+
+                    bool includePlayers = C.MechaTargetsIncludePlayers;
+                    if (ImGui.Checkbox("Include Other Players".Loc() + "###ICEMechaIncludePlayers", ref includePlayers))
+                    {
+                        C.MechaTargetsIncludePlayers = includePlayers;
+                        C.Save();
+                    }
+
+                    ImGui.Unindent();
+                }
+
                 bool showCooldowns = C.ShowMechaCooldowns;
                 if (ImGui.Checkbox("Show Mecha Skill Cooldowns".Loc() + "###ICEShowMechaCooldowns", ref showCooldowns))
                 {
