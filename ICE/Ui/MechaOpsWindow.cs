@@ -394,10 +394,16 @@ namespace ICE.Ui
             var hasEvent = MechaOpsMonitor.EventFlagsValid
                 && (MechaOpsMonitor.EventFlags & WKSEventModuleFlag.HasCurrentEvent) != 0;
 
+            var rowId = MechaOpsMonitor.EventDetail?.DataRowId ?? 0u;
+
             if (markerCount < 0 && !hasEvent && pins == 0)
                 return false;                       // (a)
+
+            // ⚠️ 「一個標記都沒有」不等於「沒事可做」。協助員的目標（小型變異菌床之類）
+            //    不見得會有事件地圖標記，舊碼在這裡直接 return false，結果最需要看到
+            //    「我這個身份該做什麼」的人反而什麼都看不到。至少要把指示那一行畫出來。
             if (markerCount == 0 && pins == 0)
-                return false;                       // 讀過了，真的沒有標記
+                return DrawRoleObjective(rowId);
 
             ImGui.TextUnformatted("Objectives".Loc());
             ImGui.SameLine();
@@ -470,9 +476,7 @@ namespace ICE.Ui
             //    疊加層上只能畫「目標 1／目標 2」。事件名是使用者唯一看得到的
             //    「我在打什麼」，所以放在列上而不是 tooltip 裡。
             //    取不到就整段不畫（不畫成空白，也不猜）。
-            var eventName = MechaOpsMonitor.EventDetail is { } detail
-                ? MechaObjectNames.EventName(detail.DataRowId)
-                : null;
+            var eventName = MechaObjectNames.EventName(rowId);
             if (eventName != null)
             {
                 ImGui.SameLine();
@@ -483,6 +487,49 @@ namespace ICE.Ui
                                       "Its objective objects often have no name in the game data at all, in which case " +
                                       "the overlay falls back to numbering them.").Loc());
                 }
+            }
+
+            DrawRoleObjective(rowId);
+            return true;
+        }
+
+        /// <summary>
+        /// 「你這一場的指示」——依身份取 <c>WKSMechaEventData</c> 裡對應的那一段文字。
+        ///
+        /// 🔑 <b>為什麼這一段值得佔版面</b>（2026-08-06 使用者實機回報「協助員身份參加，目標不一樣」）：
+        /// 兩種身份的目標本來就不同——駕駛員剷除<b>巨型</b>變異菌床，協助員是用宇宙火焰噴射器
+        /// 焚燒<b>小型</b>變異菌床、再把灰燼投進野外探測器。疊加層畫的是遊戲標出來的點位，
+        /// 但「我到底該做什麼」只有這段文字講得清楚，所以放列上而不是塞進 tooltip。
+        ///
+        /// ⚠️ 判不出身份時整段不畫——寧可不講，也不要講錯身份的指示。
+        /// </summary>
+        private static bool DrawRoleObjective(uint rowId)
+        {
+            var role = MechaOpsMonitor.Role;
+            if (role == MechaRole.Unknown)
+                return false;
+
+            var text = MechaObjectNames.EventObjectiveText(rowId, role);
+            if (text == null)
+                return false;
+
+            var roleLabel = role == MechaRole.Pilot ? "Pilot".Loc() : "Ground Support".Loc();
+
+            ImGui.TextColored(ImGuiColors.DalamudViolet, roleLabel);
+            ImGui.SameLine();
+
+            // 指示文字本身可能兩行，而視窗是 AlwaysAutoResize——不設換行寬度會把視窗撐得很寬。
+            ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + 320f * ImGuiHelpers.GlobalScale);
+            ImGui.TextUnformatted(text.Replace("\n", " "));
+            ImGui.PopTextWrapPos();
+
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip(("What your own role is supposed to do this event.\n" +
+                                  "The pilot and the ground support have different objectives, so the objects you " +
+                                  "should be going for are not the same ones.\n" +
+                                  "Your role is worked out from the mecha actions currently on your hotbar; if it " +
+                                  "cannot be worked out, this line is not shown at all.").Loc());
             }
 
             return true;

@@ -221,10 +221,11 @@ internal static unsafe class MechaObjectiveTracker
     /// <summary>
     /// 這一幀被標記對上的那些物件的 <c>BaseId</c> 集合（第二態＝「疑似任務目標」的判準）。
     ///
-    /// 🔑 <b>這條線索不依賴任何遊戲資料表</b>：遊戲只標了二十幾個菌床裡的幾個，
-    /// 但被標到的那個的 <c>BaseId</c> 就等於告訴我們「長這樣的都是目標」。
-    /// 資料表那條線索（<see cref="MechaObjectNames.KnownEventObjectIds"/>）是另一條獨立的路，
-    /// 兩條聯集使用——任何一條失效都還有另一條。
+    /// 🔑 <b>這條線索不依賴任何遊戲資料表，而且天然跟著身份走</b>：遊戲只標了二十幾個菌床裡的
+    /// 幾個，但被標到的那個的 <c>BaseId</c> 就等於告訴我們「長這樣的都是目標」；
+    /// 而遊戲是<b>依你的身份</b>決定要標什麼給你看的。
+    /// 資料表那條線索是另一條獨立的路，但它必須先依身份篩過才能用——見
+    /// <see cref="IsObjectiveBaseId"/>。
     /// </summary>
     public static IReadOnlySet<uint> ConfirmedBaseIds => confirmedBaseIds;
     private static HashSet<uint> confirmedBaseIds = [];
@@ -236,15 +237,44 @@ internal static unsafe class MechaObjectiveTracker
     /// </summary>
     private static readonly HashSet<uint> learnedBaseIds = [];
 
+    /// <summary>診斷用：這一場事件從遊戲的標記學到幾個 BaseId。</summary>
+    public static int LearnedBaseIdCount => learnedBaseIds.Count;
+
     /// <summary>
-    /// 這個 <c>BaseId</c> 是不是「疑似任務目標」。兩條**互相獨立**的線索取聯集：
-    ///  ① 執行期學到的（標記真的對上過的那些物件，不依賴任何資料表）；
-    ///  ② 資料表 <c>WKSMechaEventObject</c> 的白名單（<see cref="MechaObjectNames.KnownEventObjectIds"/>）。
-    /// 任何一條失效都還有另一條；兩條都失效時退回原本「只看可選取旗標」的行為。
+    /// 這個 <c>BaseId</c> 是不是「疑似任務目標」。兩條**互相獨立**的線索，但**不對等**：
+    ///
+    /// 🔴 <b>2026-08-06 修正</b>：舊版把兩條直接取聯集，而資料表白名單裡的
+    /// 2014720／2014722 是<b>駕駛員</b>的巨型目標（離線證據見
+    /// <see cref="MechaObjectNames.ObjectIdsForRole"/>），於是協助員會看到一批不是他要打的東西
+    /// ——使用者實機回報的「協助員身份參加有害菌床驅除指令，目標不一樣」。
+    ///
+    /// 現在的優先順序：
+    /// <list type="number">
+    ///   <item>① 執行期學到的<b>永遠</b>有效。那是遊戲自己標出來的——它給誰標就是誰的目標，
+    ///         比我們從資料表推出來的任何東西都可信，也天然跟著身份走。</item>
+    ///   <item>② 資料表白名單只在<b>判得出身份</b>時才補充，而且只補這個身份該看的那一批。
+    ///         判不出身份（<see cref="MechaRole.Unknown"/>）就完全不用它。</item>
+    /// </list>
+    /// 所以最壞情況是「只剩遊戲自己的標記」＝<b>少畫</b>，不會畫錯批。
     /// </summary>
     public static bool IsObjectiveBaseId(uint baseId)
-        => baseId != 0
-           && (learnedBaseIds.Contains(baseId) || MechaObjectNames.KnownEventObjectIds.Contains(baseId));
+    {
+        if (baseId == 0)
+            return false;
+
+        // ① 遊戲自己的答案，優先且無條件。
+        if (learnedBaseIds.Contains(baseId))
+            return true;
+
+        // ② 資料表推論，依身份收窄。ObjectIdsForRole 對 Unknown 一律回空集合，
+        //    這裡仍然先擋一次，省掉不必要的建表。
+        var role = MechaOpsMonitor.Role;
+        if (role == MechaRole.Unknown)
+            return false;
+
+        var rowId = MechaOpsMonitor.EventDetail?.DataRowId ?? 0u;
+        return MechaObjectNames.ObjectIdsForRole(rowId, role).Contains(baseId);
+    }
 
     // ---- 診斷（給狀態視窗與 Information 級 log 用）----
 
@@ -871,10 +901,22 @@ internal static unsafe class MechaObjectiveTracker
             sb.Append("。⚠️ 一個都沒對上：預設不會畫任何東西（前置閘門）。"
                     + "配對半徑目前 ").Append(C.MechaObjectiveMatchRadius.ToString("F0")).Append(" 公尺。");
 
-        // 目標識別用的兩條線索。空的話「無名目標」就只剩後備標籤可用，過濾也退回舊行為。
-        sb.Append("\n  目標識別：執行期學到 ").Append(learnedBaseIds.Count).Append(" 個 BaseId")
+        // 目標識別用的兩條線索，以及身份把白名單收窄到多少。
+        // ⚠️ 兩個數字要分開看：學到的是遊戲自己標的（跟著身份走），
+        //    白名單是我們從資料表推的（要靠身份才篩得對）。
+        var role = MechaOpsMonitor.Role;
+        var rowId = MechaOpsMonitor.EventDetail?.DataRowId ?? 0u;
+        sb.Append("\n  目標識別：身份=").Append(role switch
+          {
+              MechaRole.Pilot => "駕駛員",
+              MechaRole.GroundSupport => "協助員",
+              _ => "判不出來",
+          })
+          .Append("；標記學到 ").Append(learnedBaseIds.Count).Append(" 個 BaseId")
           .Append(learnedBaseIds.Count > 0 ? "（" + string.Join(",", learnedBaseIds.OrderBy(x => x)) + "）" : "")
-          .Append("；資料表白名單 ").Append(MechaObjectNames.KnownEventObjectIds.Count).Append(" 個");
+          .Append("；資料表白名單本身 ").Append(MechaObjectNames.KnownEventObjectIds.Count)
+          .Append(" 個，依身份篩後 ")
+          .Append(role == MechaRole.Unknown ? "不套用" : MechaObjectNames.RoleIdCount(rowId, role) + " 個");
 
         // 校準用的原始值。⚠️ 這裡只印座標與 id，**不印任何角色名**。
         var layoutMap = MechaObjectNames.LayoutToBaseId;

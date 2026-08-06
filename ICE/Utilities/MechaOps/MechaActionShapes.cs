@@ -4,6 +4,36 @@ using LuminaStatus = Lumina.Excel.Sheets.Status;
 
 namespace ICE.Utilities.MechaOps;
 
+/// <summary>
+/// 機甲行動的參與身份。
+///
+/// 🔑 <b>為什麼要分</b>（2026-08-06 使用者實機回報「協助員身份參加有害菌床驅除指令，目標不一樣」）：
+/// 兩種身份的任務目標<b>本來就不同</b>，這一點在遊戲資料裡是白紙黑字的。
+/// <c>WKSMechaEventData</c> 第 5 列（有害菌床驅除指令）：
+/// <code>
+///   欄 Unknown2（駕駛員）：「駕駛輪式鏟裝車，剷除巨型變異菌床。」
+///   欄 Unknown3（協助員）：「使用宇宙火焰噴射器焚燒小型變異菌床。
+///                            將燃燒後留下的灰燼投入野外探測器分析。」
+/// </code>
+/// 也就是說駕駛員打的是<b>巨型</b>、協助員打的是<b>小型</b>，另外還要把灰燼投進野外探測器。
+/// 資料表白名單（<see cref="MechaObjectNames"/>）收到的
+/// 2014720／2014722 是<b>駕駛員</b>的巨型目標，直接拿去給協助員用就是「目標不一樣」。
+/// </summary>
+internal enum MechaRole
+{
+    /// <summary>
+    /// 判不出來。⚠️ 這不是「兩種都算」——它是<b>保守退化</b>的訊號：
+    /// 這種狀態下一律只信遊戲自己給的標記，不套用任何資料表推論出來的白名單。
+    /// </summary>
+    Unknown = 0,
+
+    /// <summary>駕駛員（開機甲）。</summary>
+    Pilot = 1,
+
+    /// <summary>協助員（步行支援，用宇宙工具）。</summary>
+    GroundSupport = 2,
+}
+
 /// <summary>形狀種類。座標語意見 <see cref="MechaAoeOverlay"/>。</summary>
 internal enum MechaAoeKind
 {
@@ -49,6 +79,37 @@ internal static class MechaActionShapes
     /// 只作為設定 UI 的保底清單與候選濾網的白名單；觸發與形狀本身都走 Lumina 表。
     /// </summary>
     public static readonly uint[] BaselineActionIds = [42150, 42258, 42037, 42071, 42261, 42036];
+
+    /// <summary>
+    /// 只有<b>駕駛員</b>（開機甲的人）拿得到的技能。
+    /// 角色註記本來就寫在類別註解的表裡（2026-08-02 離線驗證），這裡只是把它變成可查詢的資料。
+    /// </summary>
+    private static readonly uint[] PilotActionIds = [42037, 42071, 42261, 42036];
+
+    /// <summary>
+    /// 只有<b>協助員</b>（步行支援）用得到的技能，也就是宇宙工具。
+    ///
+    /// 🔑 <b>交叉驗證</b>：<c>WKSMechaEventData</c> 的協助員指示文字直接點名這兩個工具——
+    /// 第 1 列（巨型偏屬性水晶破壞指令）寫「使用<b>宇宙鑽頭</b>粉碎小型偏屬性水晶」，
+    /// 第 5 列（有害菌床驅除指令）寫「使用<b>宇宙火焰噴射器</b>焚燒小型變異菌床」，
+    /// 與 42150／42258 的技能名逐字相符。兩條完全獨立的資料（Action 表 vs 事件文字）
+    /// 指向同一個結論，所以這個角色歸屬不是猜的。
+    /// </summary>
+    private static readonly uint[] GroundSupportActionIds = [42150, 42258];
+
+    /// <summary>
+    /// 這個 ActionId 屬於哪一種身份。**不在上面兩份清單裡的一律回
+    /// <see cref="MechaRole.Unknown"/>**——日後新增的機甲技能在被離線驗證之前
+    /// 不該去左右身份判定（寧可判不出來，也不要判錯）。
+    /// </summary>
+    public static MechaRole RoleOf(uint actionId)
+    {
+        if (Array.IndexOf(PilotActionIds, actionId) >= 0)
+            return MechaRole.Pilot;
+        if (Array.IndexOf(GroundSupportActionIds, actionId) >= 0)
+            return MechaRole.GroundSupport;
+        return MechaRole.Unknown;
+    }
 
     /// <summary>
     /// 機甲技能的 ClassJobCategory（=35，能工巧匠／大地使者）。

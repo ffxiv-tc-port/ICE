@@ -204,6 +204,15 @@ internal static class MechaContextMenu
             sb.AppendLine($"  ServerTimeNow = {d.ServerTimeNow} (sampled {d.ServerTimeAtSample})");
         }
 
+        // 身份與兩條目標線索。⚠️ 「協助員看到駕駛員的目標」那一類回報，答案只在這幾行裡。
+        var role = MechaOpsMonitor.Role;
+        var roleRowId = d?.DataRowId ?? 0u;
+        sb.AppendLine($"  Role = {role} (from PetHotbar actions; module flags are informational only)");
+        sb.AppendLine($"  RoleObjective = {MechaObjectNames.EventObjectiveText(roleRowId, role)?.Replace("\n", " ") ?? "(none)"}");
+        sb.AppendLine($"  LearnedBaseIds = {MechaObjectiveTracker.LearnedBaseIdCount}" +
+                      $"  SheetWhitelist = {MechaObjectNames.KnownEventObjectIds.Count}" +
+                      $"  AfterRoleSplit = {(role == MechaRole.Unknown ? "not applied" : MechaObjectNames.RoleIdCount(roleRowId, role).ToString())}");
+
         sb.AppendLine($"  Objectives: markers={MechaObjectiveTracker.MarkerCount} " +
                       $"confirmed={MechaObjectiveTracker.ConfirmedCount} " +
                       $"source={MechaObjectiveTracker.Source} " +

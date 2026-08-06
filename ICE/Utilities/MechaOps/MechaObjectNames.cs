@@ -89,12 +89,14 @@ internal static class MechaObjectNames
     }
 
     /// <summary>
-    /// 機甲事件會用到的物件 <c>DataId</c> 白名單（台服 7.20 應為
-    /// 2014717／2014720／2014721／2014722／2014723 這幾個）。
+    /// 機甲事件會用到的物件 <c>DataId</c> 白名單（台服 7.20 應為 2014717／2014720／2014722）。
     ///
     /// 🔑 用途是**過濾**，不是識別：清單裡的東西即使沒有名字、也不可選取，
     /// 仍然要當成「疑似任務目標」列出來；反過來不在清單裡的無名場景裝飾才是雜訊。
     /// 讀不到就是空集合＝這條線索不生效，過濾完全退回原本的行為。
+    ///
+    /// 🔴 <b>這一份沒有分身份</b>，直接拿去過濾會讓協助員看到駕駛員的目標
+    /// （2026-08-06 實機回報）。過濾一律走 <see cref="ObjectIdsForRole"/>。
     /// </summary>
     public static IReadOnlySet<uint> KnownEventObjectIds
     {
@@ -102,6 +104,138 @@ internal static class MechaObjectNames
         {
             EnsureBuilt();
             return knownEventObjectIds ?? EmptyIds;
+        }
+    }
+
+    // ---- 身份相關（2026-08-06 新增）----
+
+    /// <summary>上一次做身份分類時用的事件列 id。換事件就要重算。</summary>
+    private static uint roleSplitRowId;
+    private static HashSet<uint>? groundSupportIds;
+    private static HashSet<uint>? pilotIds;
+
+    /// <summary>
+    /// 這個身份**該看到**的機甲事件物件 <c>DataId</c>。
+    ///
+    /// 分類方式刻意<b>不</b>依賴 <c>WKSMechaEventObject</c> 那幾個語意不明的數值欄，
+    /// 而是拿物件自己的名字去比對這一場事件的兩段指示文字（見 <see cref="EventObjectiveText"/>）：
+    /// <list type="bullet">
+    ///   <item>名字出現在<b>協助員</b>指示文字裡 → 協助員該看的（例如「野外探測器」）；</item>
+    ///   <item>其餘一律歸<b>駕駛員</b>——包含沒有名字、比對不出來的。</item>
+    /// </list>
+    ///
+    /// 🔑 <b>預設倒向保守那一邊是刻意的</b>：分不出來就歸給駕駛員，代表協助員拿到的是一份
+    /// <b>偏小</b>的白名單。這個方向的失敗是「少畫幾個，還有遊戲自己的標記兜底」；
+    /// 反過來把駕駛員的巨型目標塞給協助員，失敗形式就是使用者回報的「目標不一樣」。
+    ///
+    /// ⚠️ <see cref="MechaRole.Unknown"/> 一律回空集合——判不出身份時只信遊戲自己的標記。
+    ///
+    /// 📌 台服 7.20 的實際分類（離線核對）：
+    /// <code>
+    ///   2014717 野外探測器      → 出現在兩場事件的協助員指示文字裡 → 協助員
+    ///   2014720 巨型偏屬性水晶  → 沒出現在協助員文字裡（在駕駛員文字裡）→ 駕駛員
+    ///   2014722 （無名，即巨型變異菌床）→ 沒有名字可比對 → 駕駛員（保守預設）
+    /// </code>
+    /// 第三筆正是使用者回報的那一個，而保守預設剛好給了正確答案。
+    /// </summary>
+    public static IReadOnlySet<uint> ObjectIdsForRole(uint dataRowId, MechaRole role)
+    {
+        if (role == MechaRole.Unknown)
+            return EmptyIds;
+
+        EnsureRoleSplit(dataRowId);
+
+        if (role == MechaRole.GroundSupport)
+            return groundSupportIds ?? EmptyIds;
+
+        // 駕駛員：自己的目標 ＋ 協助員也看得到的共用物件（野外探測器之類）。
+        // 多畫一個探測器不會造成「打錯批」，所以這一邊不必收緊。
+        return pilotIds ?? EmptyIds;
+    }
+
+    /// <summary>診斷用：這一場事件分到協助員那一邊的有幾個。</summary>
+    public static int RoleIdCount(uint dataRowId, MechaRole role)
+    {
+        if (role == MechaRole.Unknown)
+            return 0;
+        EnsureRoleSplit(dataRowId);
+        return (role == MechaRole.GroundSupport ? groundSupportIds?.Count : pilotIds?.Count) ?? 0;
+    }
+
+    private static void EnsureRoleSplit(uint dataRowId)
+    {
+        if (groundSupportIds != null && roleSplitRowId == dataRowId)
+            return;
+
+        EnsureBuilt();
+        var all = knownEventObjectIds;
+        if (all == null)
+            return;   // 白名單本身還沒建起來；不要把空結果快取住，下次再試
+
+        var support = new HashSet<uint>();
+        var pilot = new HashSet<uint>();
+
+        var supportText = EventObjectiveText(dataRowId, MechaRole.GroundSupport) ?? string.Empty;
+
+        foreach (var id in all)
+        {
+            var name = FromSheet(id);
+
+            // 🔑 名字要有兩個字以上才拿去做子字串比對：一個字的名字在長句子裡太容易誤命中，
+            //    而誤命中的方向剛好是「把駕駛員目標判給協助員」——正是要避免的那一種。
+            var isSupport = name is { Length: >= 2 }
+                            && supportText.Contains(name, StringComparison.Ordinal);
+
+            if (isSupport)
+                support.Add(id);
+            else
+                pilot.Add(id);
+        }
+
+        // 駕駛員看得到全部（自己的＋共用的）。
+        pilot.UnionWith(support);
+
+        groundSupportIds = support;
+        pilotIds = pilot;
+        roleSplitRowId = dataRowId;
+    }
+
+    /// <summary>
+    /// 這一場事件對**這個身份**的指示文字。
+    ///
+    /// 📌 離線核對（<c>exd-tc/7.20</c>，兩場事件都吻合）：
+    /// <code>
+    ///   WKSMechaEventData 欄 Unknown2 ＝ 駕駛員指示
+    ///     第 1 列「駕駛動力裝甲，粉碎巨型偏屬性水晶。」
+    ///     第 5 列「駕駛輪式鏟裝車，剷除巨型變異菌床。」
+    ///   WKSMechaEventData 欄 Unknown3 ＝ 協助員指示
+    ///     第 1 列「使用宇宙鑽頭粉碎小型偏屬性水晶。將獲取的資源投入野外探測器分析。」
+    ///     第 5 列「使用宇宙火焰噴射器焚燒小型變異菌床。將燃燒後留下的灰燼投入野外探測器分析。」
+    /// </code>
+    /// 🔑 兩欄的歸屬不是猜的：欄 Unknown2 每一列都以「駕駛…」開頭，而欄 Unknown3 點名的
+    /// 宇宙鑽頭／宇宙火焰噴射器正好就是 <c>MechaActionShapes</c> 早就離線驗證過、
+    /// 標記為「協助員」的 42150／42258 兩個技能。兩份獨立的資料互相印證。
+    /// </summary>
+    public static string? EventObjectiveText(uint dataRowId, MechaRole role)
+    {
+        if (dataRowId == 0 || role == MechaRole.Unknown)
+            return null;
+
+        try
+        {
+            var row = Svc.Data.GetExcelSheet<WKSMechaEventData>()?.GetRowOrDefault(dataRowId);
+            if (row == null)
+                return null;
+
+            var raw = role == MechaRole.GroundSupport ? row.Value.Unknown3 : row.Value.Unknown2;
+            var text = GameTextUtil.StripGameIcons(raw.ExtractText());
+            return text.Length == 0 ? null : text;
+        }
+        catch (Exception ex)
+        {
+            if (EzThrottler.Throttle("MechaObjectiveTextFailed", 60_000))
+                IceLogging.Info($"讀 WKSMechaEventData 的指示文字失敗，這一段不顯示：{ex.Message}", "[MechaOps]");
+            return null;
         }
     }
 

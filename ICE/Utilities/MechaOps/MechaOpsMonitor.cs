@@ -228,6 +228,17 @@ internal static unsafe class MechaOpsMonitor
     public static bool EventFlagsValid { get; private set; }
 
     /// <summary>
+    /// 這一輪判定的參與身份。判準是<b>手上有哪些機甲技能</b>（見 <see cref="ResolveRole"/>）。
+    ///
+    /// 🔑 <b>為什麼不用 <c>WKSEventModuleFlag.PilotApplicationAccepted</c></b>：那是「申請有沒有
+    /// 中籤」，而 CS 對同一組結構裡的其他旗標明文註記「時間過了也不會被清掉」，我們無法離線
+    /// 證明它在事件結束後會歸零。萬一它是黏著的，下一場事件就會把協助員誤判成駕駛員——
+    /// 而那個方向的誤判正是使用者回報的「目標不一樣」。技能清單是<b>當下</b>的事實，
+    /// 沒有這個問題。旗標仍然照樣印進診斷，讓實機資料自己說話。
+    /// </summary>
+    public static MechaRole Role { get; private set; } = MechaRole.Unknown;
+
+    /// <summary>
     /// 目前這場機甲事件的進度快照，<c>null</c> 代表「這一輪讀不到」——
     /// 沒有 <see cref="WKSEventModuleFlag.HasCurrentEvent"/>、指標是 null，
     /// 或指標沒有通過 <see cref="IsInsideEventArray"/> 的範圍驗證。
@@ -356,6 +367,10 @@ internal static unsafe class MechaOpsMonitor
         SnapshotTick = Environment.TickCount64;
         activeCandidates = candidates;
         activeProcs = procs;
+
+        // 身份要在候選發布之後才算——它就是從這一份清單推出來的。
+        Role = ResolveRole(candidates);
+        ReportRole();
 
         // ---- 偵察診斷 ----
         // 只在「機甲技能可用期間」輸出；狀態變化時輸出一次，不每幀。
@@ -539,6 +554,77 @@ internal static unsafe class MechaOpsMonitor
 
         // 換參考發布，發布後不再修改內容。
         activeTargets = targets;
+    }
+
+    /// <summary>
+    /// 從「現在手上有哪些機甲技能」推出參與身份。
+    ///
+    /// 📌 六個技能的身份歸屬在 <see cref="MechaActionShapes"/> 的表裡（2026-08-02 離線驗證），
+    /// 而且與 <c>WKSMechaEventData</c> 的協助員指示文字互相印證（那段文字直接點名
+    /// 宇宙鑽頭／宇宙火焰噴射器，正是被標成協助員的 42150／42258）。
+    ///
+    /// 🔴 <b>駕駛員技能優先</b>：真的坐進機甲時，協助員的宇宙工具有沒有殘留在熱鍵上
+    /// 我們並不知道；反過來協助員手上絕不可能出現駕駛員技能。所以「看到駕駛員技能就是駕駛員」
+    /// 這個方向是安全的，倒過來則不是。
+    ///
+    /// ⚠️ 兩邊都沒看到（例如還沒上機甲、或日後新增了沒驗證過的技能）就回
+    /// <see cref="MechaRole.Unknown"/>，呼叫端一律退化成「只信遊戲自己的標記」。
+    /// </summary>
+    private static MechaRole ResolveRole(List<MechaCandidate> candidates)
+    {
+        var sawGroundSupport = false;
+
+        foreach (var c in candidates)
+        {
+            switch (MechaActionShapes.RoleOf(c.ActionId))
+            {
+                case MechaRole.Pilot:
+                    return MechaRole.Pilot;
+                case MechaRole.GroundSupport:
+                    sawGroundSupport = true;
+                    break;
+            }
+        }
+
+        return sawGroundSupport ? MechaRole.GroundSupport : MechaRole.Unknown;
+    }
+
+    private static string lastRoleSignature = "";
+
+    /// <summary>
+    /// 身份／白名單狀態變化時輸出一行 Information。
+    /// 📌 使用者跑 LogLevel 2，Debug 收不到；而「ICE 以為我是哪一種身份」正是
+    /// 「目標對不對得上」唯一問得出答案的地方。
+    /// </summary>
+    private static void ReportRole()
+    {
+        var rowId = eventDetail?.DataRowId ?? 0u;
+        var sig = $"{Role}/{rowId}/{EventFlags}";
+        if (sig == lastRoleSignature)
+            return;
+        lastRoleSignature = sig;
+
+        var roleText = Role switch
+        {
+            MechaRole.Pilot => "駕駛員",
+            MechaRole.GroundSupport => "協助員",
+            _ => "判不出來",
+        };
+
+        var whitelist = Role == MechaRole.Unknown
+            ? "不套用資料表白名單（只信遊戲自己的標記）"
+            : $"資料表白名單 {MechaObjectNames.RoleIdCount(rowId, Role)} 個 DataId";
+
+        var objective = MechaObjectNames.EventObjectiveText(rowId, Role);
+
+        IceLogging.Info(
+            $"機甲身份判定：{roleText}（依據＝PetHotbar 上的技能 "
+            + $"[{string.Join(", ", activeCandidates.Select(c => c.ActionId + " " + c.Name))}]）"
+            + $"；事件列 {rowId}；{whitelist}"
+            + $"；標記學到 {MechaObjectiveTracker.LearnedBaseIdCount} 個 BaseId"
+            + $"；模組旗標 0x{(uint)EventFlags:X}（僅供對照，不參與判定）"
+            + (objective != null ? "\n  你的指示：" + objective.Replace("\n", " ") : ""),
+            "[MechaOps]");
     }
 
     /// <summary>
@@ -830,6 +916,12 @@ internal static unsafe class MechaOpsMonitor
             activeProcs = [];
         // 目標點位跟技能是一組的：沒有技能就沒有「有沒有蓋到」可言。
         ClearTargets();
+
+        // 🔑 身份是從技能清單推出來的，清單沒了就不能繼續宣稱身份——
+        //    留著上一輪的值等於「事件結束後還記得你是駕駛員」，而那正是
+        //    我們刻意不用中籤旗標的理由。
+        Role = MechaRole.Unknown;
+
         if (wasActive)
         {
             wasActive = false;
