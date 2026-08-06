@@ -465,6 +465,26 @@ namespace ICE.Ui
                     break;
             }
 
+            // 這一場事件叫什麼（例如「有害菌床驅除指令」）。
+            // 🔑 為什麼放這裡：機甲事件的目標物件在遊戲資料裡可能**根本沒有名字**，
+            //    疊加層上只能畫「目標 1／目標 2」。事件名是使用者唯一看得到的
+            //    「我在打什麼」，所以放在列上而不是 tooltip 裡。
+            //    取不到就整段不畫（不畫成空白，也不猜）。
+            var eventName = MechaOpsMonitor.EventDetail is { } detail
+                ? MechaObjectNames.EventName(detail.DataRowId)
+                : null;
+            if (eventName != null)
+            {
+                ImGui.SameLine();
+                ImGui.TextDisabled(eventName);
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("The mecha event currently running.\n" +
+                                      "Its objective objects often have no name in the game data at all, in which case " +
+                                      "the overlay falls back to numbering them.").Loc());
+                }
+            }
+
             return true;
         }
 

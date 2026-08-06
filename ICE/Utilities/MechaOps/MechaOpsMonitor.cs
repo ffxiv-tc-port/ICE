@@ -263,13 +263,17 @@ internal static unsafe class MechaOpsMonitor
             return;
         }
 
-        // 目標點位每幀取樣（不進節流）——理由見 ActiveTargets 的註解。
-        SampleTargets();
-
-        // 目的指示的 ObjectTable 解析也每幀做：標記座標 250ms 更新一次沒差，
+        // 目的指示的 ObjectTable 解析每幀做：標記座標 250ms 更新一次沒差，
         // 但「對上的那個物件現在在哪」慢 250ms 就會讓方向箭頭指偏。
         // ⚠️ 只讀受管理 API，不碰任何原生結構。
+        //
+        // 🔑 順序有意義：它要先跑，SampleTargets 才拿得到**這一幀**的
+        //    ConfirmedObjectIds／BaseId 白名單。反過來的話目標分級會固定慢一幀，
+        //    表現就是任務目標在剛出現時閃一下才被認出來。
         MechaObjectiveTracker.ResolveFrame();
+
+        // 目標點位每幀取樣（不進節流）——理由見 ActiveTargets 的註解。
+        SampleTargets();
 
         if (!EzThrottler.Throttle("MechaOpsMonitorScan", 250))
             return;
@@ -418,10 +422,19 @@ internal static unsafe class MechaOpsMonitor
     /// （<c>Address</c> 在建構時凍結、永不重解析，<c>IsValid()</c> 只檢查有沒有登入，
     ///  兩者都不是防護；物件被回收後解參考就是攔不住的 AccessViolationException。）
     ///
-    /// 🔑 <b>刻意不去猜「哪一個才是任務目標」</b>：過度篩選的失敗形式是「該顯示的沒顯示」，
-    /// 那比多顯示幾個糟得多。預設就是「可選取、在半徑內、不是自己也不是坐騎寵物」，
-    /// 剩下的交給設定過濾（<c>MechaTargetsTargetableOnly</c>／<c>MechaTargetsIncludePlayers</c>／
-    /// <c>MechaTargetRadius</c>）。
+    /// 🔑 <b>過濾是語意的，不是二元的</b>（2026-08-06 改）。使用者回報：機甲任務
+    /// 「有害菌床驅除指令」的目標<b>沒有名字</b>，而把「只顯示可選取的物件」關掉之後
+    /// <b>整片場景與 NPC 都灌進來</b>。兩個症狀是同一個根因——舊碼唯一的判準是
+    /// <c>IsTargetable</c>，而那個旗標既擋掉了真正的任務目標，也放行了所有場景裝飾。
+    ///
+    /// 現在的判準分三層（<see cref="MechaTargetTier"/>）：
+    ///  1. <b>已確認</b>：這一幀有目的指示標記對上它 → <b>一律列出</b>，不受任何過濾影響；
+    ///  2. <b>疑似</b>：<c>BaseId</c> 跟確認過的目標相同，或落在資料表白名單裡 → 同樣一律列出；
+    ///  3. <b>其他</b>：才套用使用者的過濾（可選取／玩家／雜訊）。
+    ///
+    /// ⚠️ 仍然<b>不去猜</b>第 3 層裡哪一個是目標——過度篩選的失敗形式是「該顯示的沒顯示」，
+    /// 那比多顯示幾個糟得多。新增的雜訊過濾只在使用者已經把「只顯示可選取的物件」
+    /// 關掉時才生效，而且可以再關掉（<c>MechaTargetsHideSceneryAndNpcs</c>）。
     ///
     /// ⚠️ 每幀跑一次。成本是「掃一次 ObjectTable ＋ 讀幾個受管理屬性」，
     /// 而且整段被三個條件擋著（總開關、目標開關、機甲技能真的在 PetHotbar 上），
@@ -453,6 +466,9 @@ internal static unsafe class MechaOpsMonitor
         // 「這是不是我當前選取的目標」——只比對 id，不保留 Svc.Targets.Target 這個物件。
         var currentTargetId = Svc.Targets.Target?.GameObjectId ?? 0UL;
 
+        // 這一幀的「已確認任務目標」清單（由 MechaObjectiveTracker.ResolveFrame 剛剛算好的）。
+        var confirmedIds = MechaObjectiveTracker.ConfirmedObjectIds;
+
         var targets = new List<MechaTarget>();
         foreach (var obj in Svc.Objects)
         {
@@ -466,32 +482,85 @@ internal static unsafe class MechaOpsMonitor
                 or ObjectKind.Ornament or ObjectKind.Retainer)
                 continue;
 
+            // 玩家的過濾放在分級之前：其他玩家不是任務目標，而且名字有隱私考量，
+            // 這一條無論如何都尊重使用者的設定。
             if (kind == ObjectKind.Player && !C.MechaTargetsIncludePlayers)
                 continue;
 
-            if (C.MechaTargetsTargetableOnly && !obj.IsTargetable)
-                continue;
-
+            // ⚠️ 距離先篩：底下的名字解析會配置字串，而 ObjectTable 動輒好幾百格、
+            //    這個方法**每幀**都跑。座標比對是純量運算，放前面才不會白白配置一堆字串。
             var pos = obj.Position;
             var dx = pos.X - origin.X;
             var dz = pos.Z - origin.Z;
             if (dx * dx + dz * dz > maxDistSq)
                 continue;
 
+            // 📌 Dalamud 已把 DataId 改名為 BaseId（同一個 Struct->BaseId，值完全一樣），
+            //    舊名還在但標了 [Obsolete]。新碼一律用 BaseId。
+            var baseId = obj.BaseId;
+
+            var tier = confirmedIds.Contains(obj.GameObjectId) ? MechaTargetTier.Objective
+                : MechaObjectiveTracker.IsObjectiveBaseId(baseId) ? MechaTargetTier.Likely
+                : MechaTargetTier.Other;
+
+            var rawName = GameTextUtil.StripGameIcons(obj.Name.ToString());
+
+            // 🔑 任務目標（前兩層）一律列出，不受「只顯示可選取的物件」與雜訊過濾影響。
+            //    這就是使用者回報那兩個症狀的正解：目標不必是可選取的，
+            //    也不必為了看到它而把所有場景物件一起放進來。
+            if (tier == MechaTargetTier.Other)
+            {
+                if (C.MechaTargetsTargetableOnly)
+                {
+                    if (!obj.IsTargetable)
+                        continue;
+                }
+                else if (C.MechaTargetsHideSceneryAndNpcs && IsKnownNoise(kind, rawName, obj.IsTargetable))
+                {
+                    continue;
+                }
+            }
+
+            // 名字空的時候再問資料表（EObjName）。⚠️ 台服「有害菌床」兩邊都是空的，
+            // 所以顯示端還要有自己的後備標籤——這裡不硬塞一個假名字進去。
+            var label = rawName.Length > 0 ? rawName : MechaObjectNames.FromSheet(baseId) ?? string.Empty;
+
             targets.Add(new MechaTarget(
                 obj.GameObjectId,
-                // 📌 Dalamud 已把 DataId 改名為 BaseId（同一個 Struct->BaseId，值完全一樣），
-                //    舊名還在但標了 [Obsolete]。新碼一律用 BaseId。
-                obj.BaseId,
-                obj.Name.ToString(),
+                baseId,
+                rawName,
+                label,
                 pos,
                 obj.HitboxRadius,
                 kind,
-                currentTargetId != 0 && obj.GameObjectId == currentTargetId));
+                currentTargetId != 0 && obj.GameObjectId == currentTargetId,
+                tier));
         }
 
         // 換參考發布，發布後不再修改內容。
         activeTargets = targets;
+    }
+
+    /// <summary>
+    /// 「這一筆是已知的雜訊嗎」——只在使用者已經把「只顯示可選取的物件」關掉時才會被問到，
+    /// 而且任務目標（<see cref="MechaTargetTier.Objective"/>／<see cref="MechaTargetTier.Likely"/>）
+    /// 根本不會走到這裡。
+    ///
+    /// 🔑 判準刻意寫成「**已知**是雜訊」而不是「不像目標」：前者漏掉的東西照樣顯示（安全的失敗方向），
+    /// 後者漏判就會把真正的目標藏起來。所以清單只放兩類：
+    ///  ① 機能型物件——NPC、以太之光、採集點、房屋、區域、過場、卡牌台；
+    ///  ② <b>不可選取</b>且<b>沒有名字</b>的場景裝飾。
+    ///
+    /// ⚠️ ② 的兩個條件必須同時成立。少了「沒有名字」會連無名的任務目標一起濾掉——
+    /// 那正是這次要修的 bug（不過任務目標在上一層就已經放行了，這裡是第二道保險）。
+    /// </summary>
+    private static bool IsKnownNoise(ObjectKind kind, string name, bool targetable)
+    {
+        if (kind is ObjectKind.EventNpc or ObjectKind.Aetheryte or ObjectKind.GatheringPoint
+            or ObjectKind.Housing or ObjectKind.Area or ObjectKind.Cutscene or ObjectKind.CardStand)
+            return true;
+
+        return !targetable && name.Length == 0;
     }
 
     private static void ClearTargets()

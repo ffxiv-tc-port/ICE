@@ -204,8 +204,37 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     ImGui.TextDisabled("?");
                     if (ImGui.IsItemHovered())
                     {
-                        ImGui.SetTooltip(("Turn this off first if something you can clearly attack is not being marked - " +
-                                          "it drops the filter and shows every nearby object.").Loc());
+                        ImGui.SetTooltip(("This filter no longer applies to mission objectives: anything an objective " +
+                                          "marker has matched, and anything of the same kind, is always listed even if " +
+                                          "it cannot be targeted and has no name at all.\n" +
+                                          "Turn this off only if some ordinary object you can clearly attack is still " +
+                                          "missing - it then shows every nearby object instead.").Loc());
+                    }
+
+                    // 只有在上面那項關掉時才有意義：那個開關一關，過濾就只剩這一道。
+                    using (ImRaii.Disabled(targetableOnly))
+                    {
+                        ImGui.Indent();
+
+                        bool hideNoise = C.MechaTargetsHideSceneryAndNpcs;
+                        if (ImGui.Checkbox("Hide Scenery And NPCs".Loc() + "###ICEMechaHideSceneryAndNpcs", ref hideNoise))
+                        {
+                            C.MechaTargetsHideSceneryAndNpcs = hideNoise;
+                            C.Save();
+                        }
+                        ImGui.SameLine();
+                        ImGui.TextDisabled("?");
+                        if (ImGui.IsItemHovered())
+                        {
+                            ImGui.SetTooltip(("Only matters while 'Targetable Objects Only' is off.\n" +
+                                              "On (default): still hides things that are never a target - NPCs, aetherytes, " +
+                                              "gathering points, housing, area and cutscene objects, and unnamed scenery " +
+                                              "you cannot target.\n" +
+                                              "Mission objectives are never hidden by this, even when they have no name.\n" +
+                                              "Off: shows literally every object nearby.").Loc());
+                        }
+
+                        ImGui.Unindent();
                     }
 
                     bool includePlayers = C.MechaTargetsIncludePlayers;

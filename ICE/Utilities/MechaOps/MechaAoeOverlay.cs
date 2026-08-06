@@ -238,7 +238,11 @@ internal static class MechaAoeOverlay
         }
 
         var dist = Vector3.Distance(origin, o.Position);
-        var name = o.Confirmed ? o.Label : MechaPrivacy.Unknown;
+
+        // 📌 Label 現在永遠有值：ObjectTable 名 → 資料表 EObjName → 「目標 N」
+        //    （見 MechaObjectiveTracker.ResolveLabel）。舊碼在沒對上時硬畫「?」，
+        //    等於把「這裡有一個目的指示」跟「我不知道它叫什麼」混成同一件事。
+        var name = o.Label.Length > 0 ? o.Label : MechaPrivacy.Unknown;
         var suffix = uncertain ? "  " + MechaPrivacy.Unknown : "";
         drawList.AddText(o.Position, color, $"{name}  {dist:F0}m{suffix}", 1f);
     }
@@ -322,6 +326,9 @@ internal static class MechaAoeOverlay
         var coneRad = Math.Clamp(C.MechaConeAngleDeg, 15f, 360f) * MathF.PI / 180f;
         var useHitbox = C.MechaCoverageUseHitbox;
 
+        // 「目標 N」的 N。只有真的沒有名字的任務目標才會用到（見 DrawTargetLabel）。
+        var unnamedOrdinal = 0;
+
         foreach (var t in targets)
         {
             var covered = false;
@@ -356,15 +363,54 @@ internal static class MechaAoeOverlay
             if (t.IsCurrentTarget)
                 drawList.AddCircle(t.Position, radius + 0.4f, TargetCurrentColor, 0, 2f);
 
-            // 🔴 名字一律過 MechaPrivacy：機甲行動是多人內容，附近幾乎一定有其他玩家，
-            //    而世界疊加層上的角色名一截圖就帶出去了。預設縮寫成「F. L.」。
-            //    在**顯示端**做而不是取樣端，是為了讓設定一改就立刻生效。
-            if (C.ShowMechaTargetNames && !string.IsNullOrEmpty(t.Name))
-                drawList.AddText(t.Position, TargetNameColor, MechaPrivacy.Sanitize(t.Name, t.Kind), 1f);
+            DrawTargetLabel(drawList, t, ref unnamedOrdinal);
         }
 
         // 全部算完才發布，讀取端不會看到半成品。
         coverage = counts;
+    }
+
+    /// <summary>
+    /// 目標的標籤。
+    ///
+    /// 🔑 三件事在這裡收斂：
+    ///  1. <b>「沒有名字」不等於不畫</b>——台服機甲事件「有害菌床」在遊戲資料裡就是空字串
+    ///     （離線證據見 <see cref="MechaObjectNames"/>），舊碼的
+    ///     <c>!string.IsNullOrEmpty(t.Name)</c> 讓它整個無聲消失，使用者看到的就是
+    ///     「目標沒名字」。無名的<b>任務目標</b>改畫「目標 N」。
+    ///  2. <b>兩態標示</b>（PalacePal 式）用符號而不是顏色：
+    ///     <c>◆</c>＝已確認（目的指示標記真的對上它）、<c>◇</c>＝疑似（同型物件）。
+    ///     顏色那一維已經被「有沒有被技能蓋到」（綠／紅）用掉了，再疊一層顏色會分不出誰是誰。
+    ///  3. 任務目標的標籤<b>不受「顯示目標名稱」開關影響</b>——那個開關要解決的是
+    ///     「一堆雜魚的名字很吵」，而任務目標只有幾個，把它藏起來就回到原本的 bug。
+    ///     一般物件仍然照舊尊重開關。
+    ///
+    /// 🔴 名字一律過 <see cref="MechaPrivacy"/>：機甲行動是多人內容，
+    /// 世界疊加層上的角色名一截圖就帶出去了。在**顯示端**做是為了設定一改就立刻生效。
+    /// </summary>
+    private static void DrawTargetLabel(PctDrawList drawList, in MechaTarget t, ref int unnamedOrdinal)
+    {
+        var isObjective = t.Tier != MechaTargetTier.Other;
+
+        // 已確認的那一個由 DrawObjectives 畫（同一個座標畫兩行字會疊在一起）。
+        if (t.Tier == MechaTargetTier.Objective && C.ShowMechaObjectives)
+            return;
+
+        if (!isObjective && (!C.ShowMechaTargetNames || t.Label.Length == 0))
+            return;
+
+        var name = t.Label.Length > 0
+            ? MechaPrivacy.Sanitize(t.Label, t.Kind)
+            : isObjective ? "Objective ??".Loc(++unnamedOrdinal) : MechaPrivacy.Unknown;
+
+        var mark = t.Tier switch
+        {
+            MechaTargetTier.Objective => "◆ ",
+            MechaTargetTier.Likely => "◇ ",
+            _ => "",
+        };
+
+        drawList.AddText(t.Position, TargetNameColor, mark + name, 1f);
     }
 
     /// <summary>個別技能開關：設定裡沒有紀錄＝開。</summary>

@@ -50,6 +50,13 @@ internal readonly record struct MechaObjectiveMarker(
 /// <paramref name="ObjectId"/> 只是個 id，每一幀都重新去 ObjectTable 查。
 /// </summary>
 /// <param name="ObjectId">對上的物件 id；<c>0</c> ＝ 這一幀在 ObjectTable 裡找不到對應物件。</param>
+/// <param name="BaseId">
+/// 對上的物件的 <c>IGameObject.BaseId</c>（EventObj 的話就是 EObj 的列 id）。
+/// 📌 <b>身分比對一律用 <c>BaseId</c> 而不是 <c>DataId</c></b>——後者在 Dalamud 已標
+/// <c>[Obsolete]</c>，兩者取的是同一個欄位，新碼統一用 <c>BaseId</c>。
+/// 這個值就是「同一種任務目標」的鍵：機甲事件的目標往往有二十幾個同型個體，
+/// 而遊戲只給其中幾個標記。
+/// </param>
 /// <param name="Position">要畫在哪。對上物件時是**物件當下的位置**，否則是標記自己的座標。</param>
 /// <param name="Label">已經過 <see cref="MechaPrivacy"/> 處理的顯示名稱。</param>
 /// <param name="StaleRisk">
@@ -60,6 +67,7 @@ internal readonly record struct MechaObjectiveMarker(
 internal readonly record struct MechaObjective(
     MechaObjectiveMarker Marker,
     ulong ObjectId,
+    uint BaseId,
     Vector3 Position,
     float Radius,
     string Label,
@@ -199,6 +207,44 @@ internal static unsafe class MechaObjectiveTracker
 
     /// <summary>標記鍵 → 已確認的物件 id。同樣只存 id，每幀重查。</summary>
     private static readonly Dictionary<uint, ulong> bindings = [];
+
+    /// <summary>
+    /// 這一幀真的被標記對上的物件 id。
+    ///
+    /// 🔑 這是「已確認」與「疑似」兩態標示的第一態，也是目標過濾器的白名單來源：
+    /// 目的指示對上的東西<b>一定</b>要列出來，不能被「只顯示可選取的物件」擋掉——
+    /// 使用者回報的正是「任務目標不可選取所以看不到，關掉過濾又整片場景灌進來」。
+    /// </summary>
+    public static IReadOnlySet<ulong> ConfirmedObjectIds => confirmedObjectIds;
+    private static HashSet<ulong> confirmedObjectIds = [];
+
+    /// <summary>
+    /// 這一幀被標記對上的那些物件的 <c>BaseId</c> 集合（第二態＝「疑似任務目標」的判準）。
+    ///
+    /// 🔑 <b>這條線索不依賴任何遊戲資料表</b>：遊戲只標了二十幾個菌床裡的幾個，
+    /// 但被標到的那個的 <c>BaseId</c> 就等於告訴我們「長這樣的都是目標」。
+    /// 資料表那條線索（<see cref="MechaObjectNames.KnownEventObjectIds"/>）是另一條獨立的路，
+    /// 兩條聯集使用——任何一條失效都還有另一條。
+    /// </summary>
+    public static IReadOnlySet<uint> ConfirmedBaseIds => confirmedBaseIds;
+    private static HashSet<uint> confirmedBaseIds = [];
+
+    /// <summary>
+    /// 這一場事件裡「曾經」被標記對上過的 <c>BaseId</c>。
+    /// ⚠️ 跟 <see cref="ConfirmedBaseIds"/> 的差別是**生命週期**：階段切換時遊戲會把標記整批清掉，
+    /// 但「長這樣的東西是這場事件的目標」在同一場事件裡不會變。事件結束／離開區域才丟。
+    /// </summary>
+    private static readonly HashSet<uint> learnedBaseIds = [];
+
+    /// <summary>
+    /// 這個 <c>BaseId</c> 是不是「疑似任務目標」。兩條**互相獨立**的線索取聯集：
+    ///  ① 執行期學到的（標記真的對上過的那些物件，不依賴任何資料表）；
+    ///  ② 資料表 <c>WKSMechaEventObject</c> 的白名單（<see cref="MechaObjectNames.KnownEventObjectIds"/>）。
+    /// 任何一條失效都還有另一條；兩條都失效時退回原本「只看可選取旗標」的行為。
+    /// </summary>
+    public static bool IsObjectiveBaseId(uint baseId)
+        => baseId != 0
+           && (learnedBaseIds.Contains(baseId) || MechaObjectNames.KnownEventObjectIds.Contains(baseId));
 
     // ---- 診斷（給狀態視窗與 Information 級 log 用）----
 
@@ -526,7 +572,8 @@ internal static unsafe class MechaObjectiveTracker
                 continue;
 
             candidatesScratch.Add(new ObjectSnapshot(
-                obj.GameObjectId, obj.Position, obj.HitboxRadius, kind));
+                // 📌 身分比對用 BaseId：Dalamud 已把 DataId 標成 [Obsolete]，兩者同值。
+                obj.GameObjectId, obj.BaseId, obj.Position, obj.HitboxRadius, kind));
         }
 
         var matchRadius = Math.Clamp(C.MechaObjectiveMatchRadius, 1f, 50f);
@@ -539,8 +586,16 @@ internal static unsafe class MechaObjectiveTracker
         var confirmed = 0;
         seenKeysScratch.Clear();
 
+        // 這一輪要發布的兩個白名單。整份換參考發布，讀取端不會看到半成品。
+        var confirmedIds = new HashSet<ulong>();
+        var confirmedBases = new HashSet<uint>();
+
         // 這一輪的標記是掃描來的還是遊戲的有效清單來的——整批同一個值。
         var staleRisk = SourceHasStaleRisk;
+
+        // 「目標 N」的 N。⚠️ 只有在**真的沒有名字**時才會用到，所以有名字的目標
+        //   不會佔號碼；編號依標記格位順序遞增，同一組標記下每幀都是同一個號。
+        var unnamedOrdinal = 0;
 
         foreach (var marker in markers)
         {
@@ -556,6 +611,17 @@ internal static unsafe class MechaObjectiveTracker
             {
                 bindings[marker.Key] = match.ObjectId;
                 confirmed++;
+
+                // 🔑 這兩行就是目標過濾器的資料來源：被標記對上的那個物件本身（已確認），
+                //    以及「長得跟它一樣的東西」（疑似）。詳見 ConfirmedBaseIds 的註解。
+                confirmedIds.Add(match.ObjectId);
+                if (match.BaseId != 0)
+                {
+                    confirmedBases.Add(match.BaseId);
+                    // 事件中途標記可能整批消失（階段切換），但「這個 BaseId 是目標」
+                    // 這件事在同一場事件裡不會變，所以另外記一份到事件結束才丟。
+                    learnedBaseIds.Add(match.BaseId);
+                }
             }
             else
             {
@@ -564,9 +630,12 @@ internal static unsafe class MechaObjectiveTracker
                     continue;   // 🔑 前置沒過 → 不畫。這就是那道機械閘門。
             }
 
+            // 🔴 沒有名字 ≠ 沒有東西。台服的「有害菌床」在遊戲資料裡就是空字串
+            //    （離線證據見 MechaObjectNames），所以這裡一定要給得出後備標籤，
+            //    不能讓圈上一片空白。
             var label = match.ObjectId != 0
-                ? ResolveLabel(match.ObjectId, match.Kind, selfId)
-                : MechaPrivacy.Unknown;
+                ? ResolveLabel(match.ObjectId, match.BaseId, match.Kind, selfId, ref unnamedOrdinal)
+                : FallbackLabel(ref unnamedOrdinal);
 
             var drawRadius = match.ObjectId != 0
                 ? MathF.Max(MathF.Max(match.HitboxRadius, marker.Radius), 1.5f)
@@ -575,6 +644,7 @@ internal static unsafe class MechaObjectiveTracker
             resolved.Add(new MechaObjective(
                 marker,
                 match.ObjectId,
+                match.BaseId,
                 match.ObjectId != 0 ? match.Position : marker.Position,
                 drawRadius,
                 label,
@@ -592,9 +662,10 @@ internal static unsafe class MechaObjectiveTracker
             resolved.Add(new MechaObjective(
                 new MechaObjectiveMarker(-1, 0, 0, 0, 0, snap.Position, 0f, false),
                 snap.ObjectId,
+                snap.BaseId,
                 snap.Position,
                 MathF.Max(snap.HitboxRadius, 1.5f),
-                ResolveLabel(snap.ObjectId, snap.Kind, selfId),
+                ResolveLabel(snap.ObjectId, snap.BaseId, snap.Kind, selfId, ref unnamedOrdinal),
                 snap.Kind,
                 0f,
                 // 釘選是使用者自己剛按的、而且每幀都在 ObjectTable 重查，
@@ -620,12 +691,19 @@ internal static unsafe class MechaObjectiveTracker
 
         active = resolved;
         ConfirmedCount = confirmed;
+
+        // 整份換參考發布（讀取端是同一條 Framework 執行緒的 SampleTargets，
+        // 以及繪製執行緒的疊加層；兩邊都只讀）。
+        confirmedObjectIds = confirmedIds;
+        confirmedBaseIds = confirmedBases;
+
         ReportDiagnostics();
     }
 
     /// <summary>ObjectTable 的一格純值快照。**沒有名字**——名字只在配對成功時才取。</summary>
     private readonly record struct ObjectSnapshot(
         ulong ObjectId,
+        uint BaseId,
         Vector3 Position,
         float HitboxRadius,
         ObjectKind Kind);
@@ -638,11 +716,23 @@ internal static unsafe class MechaObjectiveTracker
     /// 物件 id → 已遮蔽的顯示名稱的快取。
     /// 目的指示的繫結很穩定，所以不必每幀都 <c>Name.ToString()</c> 配置一次字串。
     /// ⚠️ 快取的是**遮蔽後**的結果，所以設定一改就要清掉。
+    /// 📌 空字串 ＝「查過了，這個物件真的沒有名字」——不要因此每幀重查。
     /// </summary>
     private static readonly Dictionary<ulong, string> labelCache = [];
     private static bool labelCacheFullNames;
 
-    private static string ResolveLabel(ulong objectId, ObjectKind kind, ulong selfId)
+    /// <summary>
+    /// 目的指示的顯示標籤，三段後備：
+    /// <list type="number">
+    ///   <item>ObjectTable 的 <c>Name</c>（過 <see cref="MechaPrivacy"/>）；</item>
+    ///   <item>資料表 <c>EObjName[BaseId]</c>（例如「野外探測器」「巨型偏屬性水晶」）；</item>
+    ///   <item>都沒有 → 「目標 N」。</item>
+    /// </list>
+    /// 🔴 第 3 段是這次修補的重點：台服「有害菌床」在 <c>EObjName</c> 裡就是空字串，
+    /// 前兩段必定落空。舊碼在這裡畫的是 <c>MechaPrivacy.Unknown</c>（一個「?」），
+    /// 使用者看到的就是「目標沒名字」。
+    /// </summary>
+    private static string ResolveLabel(ulong objectId, uint baseId, ObjectKind kind, ulong selfId, ref int unnamedOrdinal)
     {
         // 設定切換時整份作廢——否則關掉遮蔽之後畫面上還是舊的縮寫。
         if (labelCacheFullNames != C.MechaShowFullPlayerNames)
@@ -652,21 +742,43 @@ internal static unsafe class MechaObjectiveTracker
         }
 
         if (labelCache.TryGetValue(objectId, out var cached))
-            return cached;
+            return cached.Length > 0 ? cached : FallbackLabel(ref unnamedOrdinal);
 
+        string real;
         var obj = Svc.Objects.SearchById(objectId);
-        var label = obj == null
-            ? MechaPrivacy.Unknown
-            : MechaPrivacy.Sanitize(obj.Name.ToString(), kind, objectId == selfId);
+        if (obj == null)
+        {
+            real = string.Empty;
+        }
+        else
+        {
+            var raw = GameTextUtil.StripGameIcons(obj.Name.ToString());
+            if (raw.Length == 0)
+                raw = MechaObjectNames.FromSheet(baseId) ?? string.Empty;
+
+            real = raw.Length == 0
+                ? string.Empty
+                : MechaPrivacy.Sanitize(raw, kind, objectId == selfId);
+        }
 
         // 上限只是防呆：一場機甲行動不可能繫結到幾百個不同物件。
         if (labelCache.Count < 256)
-            labelCache[objectId] = label;
-        return label;
+            labelCache[objectId] = real;
+
+        return real.Length > 0 ? real : FallbackLabel(ref unnamedOrdinal);
     }
+
+    /// <summary>
+    /// 沒有任何名字可用時的標籤：「目標 1」「目標 2」…
+    /// 🔑 刻意<b>不</b>畫成空白或單一個「?」——「不知道叫什麼」跟「這裡有一個目標」是兩件事，
+    /// 後者必須看得見，而且多個目標要分得開（號碼依標記格位順序，同一組標記下每幀相同）。
+    /// </summary>
+    private static string FallbackLabel(ref int unnamedOrdinal)
+        => "Objective ??".Loc(++unnamedOrdinal);
 
     private readonly record struct ObjectMatch(
         ulong ObjectId,
+        uint BaseId,
         Vector3 Position,
         float HitboxRadius,
         ObjectKind Kind,
@@ -694,7 +806,7 @@ internal static unsafe class MechaObjectiveTracker
             {
                 // 繫結的那一個：只要還在放寬範圍內就繼續用它，不管有沒有更近的。
                 if (dSq <= keepRadiusSq)
-                    return new ObjectMatch(snap.ObjectId, snap.Position, snap.HitboxRadius, snap.Kind, MathF.Sqrt(dSq));
+                    return new ObjectMatch(snap.ObjectId, snap.BaseId, snap.Position, snap.HitboxRadius, snap.Kind, MathF.Sqrt(dSq));
                 continue;
             }
 
@@ -702,7 +814,7 @@ internal static unsafe class MechaObjectiveTracker
                 continue;
 
             bestSq = dSq;
-            best = new ObjectMatch(snap.ObjectId, snap.Position, snap.HitboxRadius, snap.Kind, MathF.Sqrt(dSq));
+            best = new ObjectMatch(snap.ObjectId, snap.BaseId, snap.Position, snap.HitboxRadius, snap.Kind, MathF.Sqrt(dSq));
         }
 
         return best;
@@ -759,12 +871,24 @@ internal static unsafe class MechaObjectiveTracker
             sb.Append("。⚠️ 一個都沒對上：預設不會畫任何東西（前置閘門）。"
                     + "配對半徑目前 ").Append(C.MechaObjectiveMatchRadius.ToString("F0")).Append(" 公尺。");
 
+        // 目標識別用的兩條線索。空的話「無名目標」就只剩後備標籤可用，過濾也退回舊行為。
+        sb.Append("\n  目標識別：執行期學到 ").Append(learnedBaseIds.Count).Append(" 個 BaseId")
+          .Append(learnedBaseIds.Count > 0 ? "（" + string.Join(",", learnedBaseIds.OrderBy(x => x)) + "）" : "")
+          .Append("；資料表白名單 ").Append(MechaObjectNames.KnownEventObjectIds.Count).Append(" 個");
+
         // 校準用的原始值。⚠️ 這裡只印座標與 id，**不印任何角色名**。
+        var layoutMap = MechaObjectNames.LayoutToBaseId;
         foreach (var m in markers)
         {
             sb.Append($"\n  slot{m.Slot:00} layout={m.LayoutId} type={m.MarkerType} icon={m.MarkerIcon}")
               .Append($" mapIcon={m.MapIconId} pos=({m.Position.X:F1}, {m.Position.Y:F1}, {m.Position.Z:F1})")
               .Append($" r={m.Radius:F1} hidden={m.Hidden}");
+
+            // ⚠️ 純診斷：假設 marker 的 LayoutId 與 WKSMechaEventObject 第 0 欄是同一套編號。
+            //    這個假設**沒有離線證明**，所以只印出來給人看，不參與任何顯示判斷。
+            //    對得上代表假設成立（可以拿去做更強的識別），對不上就只是少一段字。
+            if (m.LayoutId != 0 && layoutMap.TryGetValue(m.LayoutId, out var mappedBase))
+                sb.Append($" sheetBaseId={mappedBase}");
         }
 
         IceLogging.Info(sb.ToString(), "[MechaOps]");
@@ -783,6 +907,13 @@ internal static unsafe class MechaObjectiveTracker
         if (active.Count > 0)
             active = [];
         ConfirmedCount = -1;
+
+        // ⚠️ 這兩份是「這一幀」的狀態，跟著 active 一起清。
+        //    「這場事件的目標長什麼樣」記在 learnedBaseIds，那一份留到事件結束。
+        if (confirmedObjectIds.Count > 0)
+            confirmedObjectIds = [];
+        if (confirmedBaseIds.Count > 0)
+            confirmedBaseIds = [];
     }
 
     /// <summary>離開宇宙區域／事件消失：全部清空，連繫結與釘選一起丟掉。</summary>
@@ -794,6 +925,7 @@ internal static unsafe class MechaObjectiveTracker
         pinnedObjectIds.Clear();
         labelCache.Clear();
         candidatesScratch.Clear();
+        learnedBaseIds.Clear();
         lastDiagSignature = "";
     }
 
@@ -802,5 +934,9 @@ internal static unsafe class MechaObjectiveTracker
     {
         ResetMarkers();
         bindings.Clear();
+
+        // 沒有進行中的事件了 → 上一場學到的「目標長什麼樣」也失效。
+        // （階段切換時走的不是這一條，所以事件進行中不會被清掉。）
+        learnedBaseIds.Clear();
     }
 }

@@ -107,7 +107,18 @@ namespace ICE.Config
 
         // 只列可選取（IsTargetable）的物件。關掉會連不可選取的一起畫出來——
         // 實機發現「該畫的沒畫」時的第一個排查開關。
+        // ⚠️ 2026-08-06 起這一項**不再影響任務目標**：目的指示標記對上的物件、
+        //    以及跟它同 BaseId 的同型物件一律列出（見 MechaOpsMonitor.SampleTargets）。
+        //    原因是使用者回報的「有害菌床」目標既沒有名字也不可選取，
+        //    被這個旗標整批擋掉，而關掉它又會讓整片場景與 NPC 灌進來。
         public bool MechaTargetsTargetableOnly { get; set; } = true;
+
+        // 上面那項關掉之後，是否仍然排除**已知的**雜訊（NPC、以太之光、採集點、房屋、
+        // 區域、過場、卡牌台，以及不可選取又沒有名字的場景裝飾）。
+        // 🔑 判準是「已知是雜訊」而不是「不像目標」——漏掉的照樣顯示，失敗方向是安全的。
+        // ⚠️ 預設 true：這一項是為了修「關掉可選取過濾就整片灌進來」而加的，
+        //    預設不生效等於沒修。要看到**全部**物件（舊行為）把它關掉即可。
+        public bool MechaTargetsHideSceneryAndNpcs { get; set; } = true;
 
         // 把其他玩家也畫出來。預設關（隊友不是攻擊目標，只會擋住畫面）。
         public bool MechaTargetsIncludePlayers { get; set; } = false;
