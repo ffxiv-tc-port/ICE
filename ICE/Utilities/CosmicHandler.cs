@@ -47,8 +47,15 @@ namespace ICE.Utilities
             int classScore = 0;
             int cappedClassScore = 0;
             int totalScores = 0;
+
+            // 🔴 WKSManager 是 [StaticAddress]：**位址**解析失敗會擲例外，但解析成功之後
+            //    「槽位裡放的那個指標」在宇宙探索內容以外就是 null。直接 -> 解參考＝
+            //    AccessViolationException，而 AVE 在 .NET Core 是 corrupted-state exception，
+            //    try/catch 攔不到（會直接把遊戲帶走）。判空的寫法比照
+            //    Task_TurninMission.ScoreCheck。
+            //    讀不到就回全 0 —— 呼叫端拿到的分數是「還沒賺到」，不會誤判成已達標。
             var wksManager = WKSManager.Instance();
-            var currentMissionId = wksManager->CurrentMissionUnitRowId;
+            uint currentMissionId = wksManager != null ? wksManager->CurrentMissionUnitRowId : 0u;
 
             uint classId;
             /*
@@ -60,7 +67,7 @@ namespace ICE.Utilities
             */
             classId = Player.JobId;
 
-            if (classId is >= 8 and <= 18)
+            if (wksManager != null && classId is >= 8 and <= 18)
             {
                 var scores = wksManager->Scores;
 

@@ -123,8 +123,14 @@ public static partial class CosmicHelper
         int classScore = 0;
         int cappedClassScore = 0;
         int totalScores = 0;
+
+        // 🔴 判空理由同 CosmicHandler.GetCosmicClassScores：WKSManager 的 [StaticAddress] 槽位
+        //    在宇宙探索內容以外是 null，直接解參考是攔不到的 AccessViolationException。
+        //    刻意只擋「讀原生記憶體」那兩段，底下決定 classId 的邏輯照跑（它只看
+        //    C.SelectedJob / Player.JobId / SheetMissionDict，跟原生指標無關）——
+        //    這樣呼叫端就算讀不到分數，拿到的職業 ID 仍然是對的，畫面不會跳去別的職業。
         var wksManager = WKSManager.Instance();
-        var currentMissionId = wksManager->CurrentMissionUnitRowId;
+        uint currentMissionId = wksManager != null ? wksManager->CurrentMissionUnitRowId : 0u;
 
         uint classId;
 
@@ -151,7 +157,7 @@ public static partial class CosmicHelper
                 classId = C.SelectedJob;
         }
 
-        if (classId is >= 8 and <= 18)
+        if (wksManager != null && classId is >= 8 and <= 18)
         {
             var scores = wksManager->Scores;
 

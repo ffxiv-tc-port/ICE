@@ -210,22 +210,29 @@ namespace ICE.Ui
             if (C.ShowTotalScore)
             {
                 (uint TotalScore, uint TotalComplete, uint MaxScore, Dictionary<uint, uint> ClassInfo) = Relic_XP.GetTotalScores();
-                var ScoreBarSize = new Vector2(340, 10);
-                Relic_XP.DrawXPBar("Total Score | Completed: [?? / 11]".Loc(TotalComplete), TotalScore, MaxScore, ScoreBarSize);
-                if (ImGui.IsItemHovered())
+
+                // ClassInfo 是空的＝這一輪讀不到 WKSManager（見 Relic_XP.GetTotalScores 的判空）。
+                // 這種時候整條總分條都不畫，不要畫一條「0 / 5,500,000」——那會被讀成「進度被清空了」。
+                // ⚠️ 刻意用 if 包起來而不是 return：底下還有開始／停止按鈕與相關工具經驗值。
+                if (ClassInfo.Count > 0)
                 {
-                    ImGui.BeginTooltip();
-                    foreach (var job in ClassInfo)
+                    var ScoreBarSize = new Vector2(340, 10);
+                    Relic_XP.DrawXPBar("Total Score | Completed: [?? / 11]".Loc(TotalComplete), TotalScore, MaxScore, ScoreBarSize);
+                    if (ImGui.IsItemHovered())
                     {
-                        var jobIdInfo = job.Key;
-                        var jobScore = job.Value;
-                        var jobImage = CosmicHelper.JobIconDict[jobIdInfo];
-                        ImGui.Image(jobImage.GetWrapOrEmpty().Handle, new Vector2(23, 23));
-                        ImGui.SameLine();
-                        ImGui.AlignTextToFramePadding();
-                        ImGui.Text("Score: ??".Loc(jobScore.ToString("N0")));
+                        ImGui.BeginTooltip();
+                        foreach (var job in ClassInfo)
+                        {
+                            var jobIdInfo = job.Key;
+                            var jobScore = job.Value;
+                            var jobImage = CosmicHelper.JobIconDict[jobIdInfo];
+                            ImGui.Image(jobImage.GetWrapOrEmpty().Handle, new Vector2(23, 23));
+                            ImGui.SameLine();
+                            ImGui.AlignTextToFramePadding();
+                            ImGui.Text("Score: ??".Loc(jobScore.ToString("N0")));
+                        }
+                        ImGui.EndTooltip();
                     }
-                    ImGui.EndTooltip();
                 }
             }
 
