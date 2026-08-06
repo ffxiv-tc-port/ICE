@@ -1279,12 +1279,45 @@ public static partial class GatheringUtil
             {
                 "AHFOLDER_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",
             },
-            AmountRequired = 0,
+            // 2026-08-07 解除停用：494 要「用同一種餌釣到 6 種」。
+            //    6 這個數字有三個獨立來源互相印證：
+            //      ① 日文攻略「短時間で同じ餌から6種類釣る必要があり」（弱振 2 種＋強震 4 種）；
+            //      ② 本任務資料夾 preset 的 ListOfFish 去重後正好 6 筆（45895~45900）；
+            //      ③ 這 6 個 id 在台服 Item 表都有名字（月蠍／砷海角箱魨／砷化歐洛浦肯／
+            //         月油鰻／銀河噪聲／爪網蟲）＝都已實裝。
+            //    先前停用是因為交件判定三層依據全空（表上 RequiredItem 全 0、preset 沒給 RequiredFish），
+            //    會一路釣到逾時；補上 RequiredFish＋UniqueFish 之後走「湊滿 6 種」語意，與 486 同構。
+            AmountRequired = 6,
+            UniqueFish = true,
             Baits = new Dictionary<string, List<uint>>()
             {
             },
             RequiredFish = new Dictionary<string, List<uint>>()
             {
+                ["Lunar Scorpion"] = new List<uint>()
+                {
+                    45895,
+                },
+                ["Eolactoria Arsenici"] = new List<uint>()
+                {
+                    45900,
+                },
+                ["Arsenical Proto-hropken"] = new List<uint>()
+                {
+                    45896,
+                },
+                ["Lunar Oil Eel"] = new List<uint>()
+                {
+                    45897,
+                },
+                ["Galactic Noise"] = new List<uint>()
+                {
+                    45898,
+                },
+                ["Onychodictyon"] = new List<uint>()
+                {
+                    45899,
+                },
             },
         },
         // Export for Mission [495] - EX+: Unidentified Aquatic Specimens III（【高難+】調查未知水生生物 III）

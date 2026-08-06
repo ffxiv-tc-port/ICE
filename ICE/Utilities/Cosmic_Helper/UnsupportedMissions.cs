@@ -30,23 +30,10 @@ namespace ICE.Utilities.Cosmic
             //    所以資料夾匯入一通它就能跑完整個流程。
             //
 
-            // 🔴 494：**資料夾匯入已經做好了，卡住它的是另一件事——交件依據**。
-            //    它的 preset 資料已經補進 FishingPresets.cs（AHFOLDER_、3 個 preset 的狀態機），
-            //    ICE 也匯得進去了；但它的 WKSMissionText 是 113 →
-            //    ICEDictornaryCreation 對應到 Fish | ScoreVariety | ScoreTimeRemaining ⇒ **時間型**，
-            //    於是交件判定走 Task_CheckScore.TimeGradedFishRequirementsMet 的三層優先序，而它：
-            //      ① WKSMissionToDo[51] 的 RequiredItem[] **全是 0** ⇒ Gathering_Min 是空的
-            //      ② preset 的 RequiredFish 也是空的（資料夾裡那 6 條魚是給 AutoHook 篩咬鉤用的，
-            //         不是交件清單——上游沒有提供「要幾條、要哪幾條」）
-            //      ③ ⇒ 落在第三層「沒有任何依據」＝ 一路釣到逾時再放棄，**永遠交不出去**。
-            //    ⚠️ 曾經想用 WKSMissionToDo.Unknown15（494 是 2）當數量，**校準之後否決**：
-            //       全表 427 筆 RequiredItemQuantity[0] != 0 的列裡，Unknown15 只有 180 筆對得上、
-            //       247 筆對不上 ⇒ 那個欄位不是數量。542/543/544 剛好都是 3 是巧合。
-            //    ⇒ 放它進來只會讓 ICE 白白釣滿 510 秒再放棄，比停用更糟，所以維持停用。
-            //    🔴 **要解除的話，先補 RequiredFish／AmountRequired，不要只刪這一行**——
-            //       它的 FishingPreset 已經非空，MissingBuiltinFishingPreset 不會再擋，
-            //       刪掉這行就會直接變成「支援但永遠交不出去」。
-            494,
+                        // ✅ 2026-08-07 解除停用：缺的「交件依據」補上了。
+            //    使用者找到日文攻略：本任務要「用同一種餌釣到 6 種」（弱振 2＋強震 4），
+            //    而資料夾 preset 的 ListOfFish 去重正好 6 筆、6 個 id 在台服也都已實裝 —— 三方印證。
+            //    已在 FishingPresets.cs 補上 RequiredFish + AmountRequired=6 + UniqueFish=true。
 
             //    543：以前這裡寫「餌 47703／魚 47680 在台服是空名佔位列」——**那個歸因是錯的**。
             //    47703／47680 是**上游那段共用 preset**（「Red Alerts」，542／543／544 共用）
