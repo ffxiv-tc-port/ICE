@@ -432,6 +432,11 @@ public sealed partial class ICE
                     SilverScore = silver,
                     GoldScore = gold,
 
+                    // 疊加層在任務面板沒開著的時候，要靠這個才畫得出「總時限」那一半
+                    //（面板開著時一律以面板文字為準）。timeLimit 本來就已經讀出來了，
+                    // 只是先前沒有存進 CosmicInfo。
+                    TimeLimitSeconds = timeLimit,
+
                     RewardItem = rewardItemId,
                     RewardItemAmount = rewardItemAmount,
 

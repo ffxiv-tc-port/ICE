@@ -52,8 +52,35 @@ internal static class MissionObjectiveReader
     /// </summary>
     private static readonly Regex LabelWithFraction = new(@"^(.*\S)\s+([\d,]+\s*/\s*[\d,]+)\s*$", RegexOptions.Compiled);
 
-    /// <summary>只認「M:SS/M:SS」這種時間格式，跟目標進度的純數字 n/m 分開判斷，不會互相誤中。</summary>
-    private static readonly Regex TimeFraction = new(@"^\d{1,2}:\d{2}\s*/\s*\d{1,2}:\d{2}$", RegexOptions.Compiled);
+    /// <summary>
+    /// 只認「M:SS/M:SS」這種時間格式，跟目標進度的純數字 n/m 分開判斷，不會互相誤中。
+    /// 四個擷取群組依序是「剩餘分、剩餘秒、總分、總秒」。
+    /// </summary>
+    private static readonly Regex TimeFraction = new(@"^(\d{1,2}):(\d{2})\s*/\s*(\d{1,2}):(\d{2})$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// 銀星／金星達成條件裡的「剩餘時間 25:10以上」那個門檻。
+    /// </summary>
+    /// <remarks>
+    /// 刻意用<b>半形</b>冒號的「數字:數字」形狀來認：評價型任務的條件是純數字（"2,510"）
+    /// 或帶全形冒號的敘述，不會誤中。抓不到就代表這不是時間型條件，呼叫端要原樣顯示字串。
+    /// </remarks>
+    private static readonly Regex MedalTimeRequirement = new(@"(\d{1,2}):(\d{2})", RegexOptions.Compiled);
+
+    /// <summary>銀星達成條件那一列的標題字樣。</summary>
+    /// <remarks>
+    /// 🔴 <b>刻意只放台服原文，不放裸英文 "Silver"/"Gold"</b>：那兩個字會出現在道具名裡
+    /// （"Gold Ore" 之類），拿去比對目標列會<b>誤判成達成條件列</b>並顯示錯的數字。
+    /// 比對不到不是問題——呼叫端會退回資料表的旗標與門檻，那條路是對的；
+    /// 誤判才是問題。台服的「銀星」「金星」兩字組不會出現在道具名裡（「金屬」不含「金星」）。
+    /// </remarks>
+    private static readonly string[] SilverLabels = ["銀星"];
+
+    /// <summary>金星達成條件那一列的標題字樣。理由同 <see cref="SilverLabels"/>。</summary>
+    private static readonly string[] GoldLabels = ["金星"];
+
+    /// <summary>時間限制那一列的標題字樣。</summary>
+    private static readonly string[] TimeLimitLabels = ["時間限制", "時間限定", "Time Limit"];
 
     private const string AddonName = "WKSMissionInfomation";
 
@@ -74,6 +101,43 @@ internal static class MissionObjectiveReader
     internal static string? TimeRemaining { get; private set; }
 
     /// <summary>
+    /// 「時間限制」那一列左邊那個數字換算成秒（<b>剩餘</b>時間，不是已經過的時間）。抓不到是 null。
+    /// </summary>
+    /// <remarks>
+    /// 🔑 <b>「左邊是剩餘而不是已經過」是離線推出來的，不是猜的</b>：使用者 2026-08-06 的面板傾印裡
+    /// 面板顯示 <c>26:34/30:00</c>，而同一份傾印的 <c>AtkValues[7] = 1785995121</c>
+    /// 換算是 UTC 2026-08-06 05:45:21 —— 那個時間點在傾印被讀到的當下<b>還沒發生</b>，
+    /// 所以它只能是任務的截止時刻。把 26:34 當「剩餘」推回去，截圖時刻 = 截止 − 26:34
+    /// 落在傾印之前幾分鐘（合理）；當「已經過」推回去則會落在傾印之後十幾分鐘（不可能）。
+    /// 同一份傾印的 <c>AtkValues[8] = 1800</c> 也剛好等於 <c>WKSMissionUnit</c> 第 470 列的
+    /// <c>MissionTime</c>，交叉印證「右邊那個是總時限」。
+    /// </remarks>
+    internal static int? RemainingSeconds { get; private set; }
+
+    /// <summary>「時間限制」那一列右邊那個數字換算成秒（總時限）。抓不到是 null。</summary>
+    internal static int? TotalSeconds { get; private set; }
+
+    /// <summary>
+    /// 銀星／金星「達成條件」那一列的內容。<see cref="MedalCondition.Raw"/> 是遊戲原字串
+    /// （只剝掉畫不出來的圖示字元，不改寫），<see cref="MedalCondition.RequiredRemainingSeconds"/>
+    /// 只有在條件是「剩餘時間 M:SS 以上」時才有值。
+    /// </summary>
+    internal readonly record struct MedalCondition(string? Raw, int? RequiredRemainingSeconds)
+    {
+        /// <summary>這一列到底有沒有讀到東西。沒讀到時呼叫端要顯示「不知道」，不是顯示 0。</summary>
+        internal bool HasText => !string.IsNullOrWhiteSpace(Raw);
+
+        /// <summary>條件是不是「剩餘時間要多少以上」這種時間型。</summary>
+        internal bool IsTimeBased => RequiredRemainingSeconds is not null;
+    }
+
+    /// <summary>銀星達成條件。沒讀到時是 <c>default</c>（<see cref="MedalCondition.HasText"/> 為 false）。</summary>
+    internal static MedalCondition SilverCondition { get; private set; }
+
+    /// <summary>金星達成條件。</summary>
+    internal static MedalCondition GoldCondition { get; private set; }
+
+    /// <summary>
     /// 取得目前任務的目標進度。面板沒開、或找不到符合形狀的資料時回傳空清單。
     /// </summary>
     internal static IReadOnlyList<ObjectiveLine> Get(uint missionId)
@@ -82,7 +146,7 @@ internal static class MissionObjectiveReader
         {
             if (Cache.Count > 0)
                 Cache.Clear();
-            TimeRemaining = null;
+            ClearParsed();
             cachedMissionId = 0;
             return Cache;
         }
@@ -101,6 +165,19 @@ internal static class MissionObjectiveReader
         return Cache;
     }
 
+    /// <summary>
+    /// 把所有「這一輪從面板讀出來的」欄位歸零。面板關掉／讀不到時一定要走這裡，
+    /// 否則畫面會留著上一個任務的舊數字——那比什麼都不顯示更糟。
+    /// </summary>
+    private static void ClearParsed()
+    {
+        TimeRemaining = null;
+        RemainingSeconds = null;
+        TotalSeconds = null;
+        SilverCondition = default;
+        GoldCondition = default;
+    }
+
     private static unsafe void Refresh()
     {
         var found = new List<ObjectiveLine>();
@@ -111,7 +188,7 @@ internal static class MissionObjectiveReader
             if (ptr.Address == nint.Zero)
             {
                 Cache.Clear();
-                TimeRemaining = null;
+                ClearParsed();
                 return;
             }
 
@@ -119,7 +196,7 @@ internal static class MissionObjectiveReader
             if (!addon->IsVisible || !addon->IsReady)
             {
                 Cache.Clear();
-                TimeRemaining = null;
+                ClearParsed();
                 return;
             }
 
@@ -130,31 +207,50 @@ internal static class MissionObjectiveReader
 
             CollectTexts(&addon->UldManager, groups, index, ref budget, 0);
 
-            // 時間限制列跟目標列是不同形狀（"M:SS/M:SS" 含冒號，FractionOnly 不會誤中），
-            // 獨立掃一輪、用內容比對（找含「時間限制」的節點）取數字，不靠寫死索引。
-            // 刻意跟下面的目標列迴圈分開：目標列迴圈遇到形狀不符會 continue，會把這個群組跳過。
-            string? timeRemaining = null;
+            // 時間限制列與銀星／金星達成條件列跟目標列是不同形狀（"M:SS/M:SS" 含冒號，
+            // FractionOnly 不會誤中），獨立掃一輪、用內容比對（找含標題字樣的節點群組）取值，
+            // 不靠寫死索引。刻意跟下面的目標列迴圈分開：目標列迴圈遇到形狀不符會 continue，
+            // 會把這幾個群組跳過。
+            //
+            // ⚠️ 這裡一律先過 GameTextUtil.StripGameIcons：遊戲的列文字會夾帶私用區圖示字元
+            //    （實測任務名開頭是 \uE0BE），沒剝掉的話下面錨定的正規表示式全部落空，
+            //    失敗形式是「整段不顯示」而不是報錯。
+            ClearParsed();
+
             foreach (var group in groups)
             {
-                bool hasTimeLimitLabel = false;
-                string? timeText = null;
-
-                foreach (var text in group.Texts)
+                var texts = new List<string>(group.Texts.Count);
+                foreach (var raw in group.Texts)
                 {
-                    var trimmed = text.Trim();
-                    if (trimmed.Contains("時間限制") || trimmed.Contains("時間限定"))
-                        hasTimeLimitLabel = true;
-                    else if (TimeFraction.IsMatch(trimmed))
-                        timeText = trimmed;
+                    var cleaned = GameTextUtil.StripGameIcons(raw);
+                    if (cleaned.Length > 0)
+                        texts.Add(cleaned);
                 }
 
-                if (hasTimeLimitLabel && timeText != null)
+                if (texts.Count == 0)
+                    continue;
+
+                if (TimeRemaining == null && HasLabel(texts, TimeLimitLabels))
                 {
-                    timeRemaining = timeText;
-                    break;
+                    foreach (var text in texts)
+                    {
+                        var match = TimeFraction.Match(text);
+                        if (!match.Success)
+                            continue;
+
+                        TimeRemaining = text;
+                        RemainingSeconds = ToSeconds(match.Groups[1].Value, match.Groups[2].Value);
+                        TotalSeconds = ToSeconds(match.Groups[3].Value, match.Groups[4].Value);
+                        break;
+                    }
                 }
+
+                if (!SilverCondition.HasText)
+                    SilverCondition = ReadCondition(texts, SilverLabels);
+
+                if (!GoldCondition.HasText)
+                    GoldCondition = ReadCondition(texts, GoldLabels);
             }
-            TimeRemaining = timeRemaining;
 
             foreach (var group in groups.OrderBy(g => g.ScreenY))
             {
@@ -162,8 +258,11 @@ internal static class MissionObjectiveReader
                 string? progress = null;
                 var labels = new List<string>();
 
-                foreach (var text in group.Texts)
+                foreach (var raw in group.Texts)
                 {
+                    // 同上：先剝掉畫不出來的圖示字元，否則 FractionOnly 這種錨定樣式會落空，
+                    // 而且顯示出來的說明文字會夾著一個「�」。
+                    var text = GameTextUtil.StripGameIcons(raw);
                     var match = FractionOnly.Match(text);
                     if (match.Success)
                     {
@@ -173,13 +272,12 @@ internal static class MissionObjectiveReader
                             progress = null;
                             break;
                         }
-                        progress = text.Trim();
+                        progress = text;
                         continue;
                     }
 
-                    var trimmed = text.Trim();
-                    if (trimmed.Length > 0)
-                        labels.Add(trimmed);
+                    if (text.Length > 0)
+                        labels.Add(text);
                 }
 
                 // 備援：說明文字與 n/m 被塞在同一個節點裡。
@@ -211,7 +309,7 @@ internal static class MissionObjectiveReader
         {
             IceLogging.Debug($"讀取任務目標進度時發生例外：{ex.Message}", "[MissionObjectiveReader]");
             Cache.Clear();
-            TimeRemaining = null;
+            ClearParsed();
             return;
         }
 
@@ -232,6 +330,74 @@ internal static class MissionObjectiveReader
 
         Cache.Clear();
         Cache.AddRange(found);
+    }
+
+    /// <summary>這一組文字裡有沒有任何一段含有指定的標題字樣。</summary>
+    private static bool HasLabel(List<string> texts, string[] labels)
+    {
+        foreach (var text in texts)
+        {
+            foreach (var label in labels)
+            {
+                if (text.Contains(label, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// 從一個節點群組裡讀出「達成條件」那一列的內容。
+    /// </summary>
+    /// <remarks>
+    /// 遊戲的一列是「條件內容」＋「銀星達成條件／金星達成條件」兩個文字節點，
+    /// 所以<b>標題以外的那一段就是內容</b>。只有標題、沒有內容時回 <c>default</c>
+    /// ——寧可讓呼叫端顯示「不知道」，也不要拿標題自己充當內容。
+    /// </remarks>
+    private static MedalCondition ReadCondition(List<string> texts, string[] labels)
+    {
+        var labelIndex = -1;
+        for (var i = 0; i < texts.Count && labelIndex < 0; i++)
+        {
+            foreach (var label in labels)
+            {
+                if (texts[i].Contains(label, StringComparison.OrdinalIgnoreCase))
+                {
+                    labelIndex = i;
+                    break;
+                }
+            }
+        }
+
+        if (labelIndex < 0)
+            return default;
+
+        for (var i = 0; i < texts.Count; i++)
+        {
+            if (i == labelIndex)
+                continue;
+
+            var value = texts[i];
+            if (value.Length == 0)
+                continue;
+
+            var match = MedalTimeRequirement.Match(value);
+            int? required = null;
+            if (match.Success)
+                required = ToSeconds(match.Groups[1].Value, match.Groups[2].Value);
+
+            return new MedalCondition(value, required);
+        }
+
+        return default;
+    }
+
+    /// <summary>「分:秒」兩段字串換算成秒。任一段不是數字就回 null。</summary>
+    private static int? ToSeconds(string minutes, string seconds)
+    {
+        if (!int.TryParse(minutes, out var m) || !int.TryParse(seconds, out var s))
+            return null;
+        return (m * 60) + s;
     }
 
     /// <summary>
@@ -318,7 +484,7 @@ internal static class MissionObjectiveReader
                 var rendered = value.Type switch
                 {
                     ValueType.String or ValueType.ManagedString or ValueType.String8 =>
-                        value.String.Value != null ? $"\"{Dalamud.Memory.MemoryHelper.ReadSeStringNullTerminated((nint)value.String.Value).GetText()}\"" : "\"\"",
+                        value.String.Value != null ? $"\"{GameTextUtil.EscapeGameIcons(Dalamud.Memory.MemoryHelper.ReadSeStringNullTerminated((nint)value.String.Value).GetText())}\"" : "\"\"",
                     ValueType.Int => value.Int.ToString(),
                     ValueType.UInt => value.UInt.ToString(),
                     ValueType.Bool => value.Byte.ToString(),
@@ -334,8 +500,15 @@ internal static class MissionObjectiveReader
             var index = new Dictionary<nint, int>();
             var budget = MaxNodes;
             CollectTexts(&addon->UldManager, groups, index, ref budget, 0);
+            // 🔑 傾印是要拿去回報的，所以圖示字元跳脫成 \uE0BE 而不是剝掉——
+            //    「本來有哪個圖示字元」正是排查時要知道的事，畫成「�」等於沒情報。
             foreach (var group in groups.OrderBy(g => g.ScreenY))
-                lines.Add($"Y={group.ScreenY:F0} | {string.Join(" ǀ ", group.Texts)}");
+                lines.Add($"Y={group.ScreenY:F0} | {string.Join(" ǀ ", group.Texts.Select(GameTextUtil.EscapeGameIcons))}");
+
+            lines.Add("--- 解析結果 ---");
+            lines.Add($"TimeRemaining={TimeRemaining ?? "(無)"} RemainingSeconds={RemainingSeconds?.ToString() ?? "(無)"} TotalSeconds={TotalSeconds?.ToString() ?? "(無)"}");
+            lines.Add($"SilverCondition={(SilverCondition.HasText ? SilverCondition.Raw : "(無)")} 門檻秒={SilverCondition.RequiredRemainingSeconds?.ToString() ?? "(非時間型)"}");
+            lines.Add($"GoldCondition={(GoldCondition.HasText ? GoldCondition.Raw : "(無)")} 門檻秒={GoldCondition.RequiredRemainingSeconds?.ToString() ?? "(非時間型)"}");
         }
         catch (Exception ex)
         {
