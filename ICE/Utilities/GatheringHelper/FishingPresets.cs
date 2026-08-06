@@ -1,4 +1,5 @@
 ﻿using ICE.Utilities;
+using ICE.Utilities.Cosmic;
 using ICE.Utilities.Cosmic_Helper;
 using System;
 using System.Collections.Generic;
@@ -38,11 +39,16 @@ public static partial class GatheringUtil
     /// <c>Task_CheckScore.MinRequirementsMet</c> 是靠列舉 RequiredFish 去數身上有幾條魚的；
     /// RequiredFish 空的時候數出來恆為 0，這時若把 AmountRequired 設成 18，
     /// <c>0 &gt;= 18</c> 永遠不成立 ⇒ <b>任務永遠不會被交出去，直接卡死</b>。
-    /// AmountRequired 留 0 反而會走 <c>Task_CheckScore.cs</c> 的 bronze 分數保底路徑，是安全的。
-    /// 唯一命中這個條件的是 493（表上 18、但 RequiredFish 還沒有人填），所以它維持 0。
     /// <br/><br/>
-    /// 📌 也就是說<b>這個函式在今天是 no-op</b>——它的價值在於：以後有人補了 RequiredFish，
-    /// 數量會自動生效，不必再手動查表。
+    /// 📌 <b>2026-08-06 更新：這個函式不再是 no-op。</b>493 的 <c>RequiredFish</c> 已經補上
+    /// （目標魚＝深月海龍 45912，來源見該筆 preset 的註解），所以啟動時它會被補成表上的
+    /// <c>Unknown17 == 18</c>，交件判定改走「數到 18 條」的數量語意，不再落到
+    /// <c>TimeGradedFishRequirementsMet</c> 的「沒有任何依據」那一條。
+    /// 這正是當初把補值邏輯留在這裡的目的：數量的真值來源只有資料表一份，不手寫第二份。
+    /// <br/><br/>
+    /// ⚠️ 若 18 這個數字對 493（時限僅 240 秒）其實偏高，行為會退回**與補值前完全相同**的
+    /// 「釣到逾時再放棄」，不會卡死也不會誤交件——因為逾時路徑本來就會重跑一次
+    /// <c>MinRequirementsMet</c> 再決定交件或放棄。
     /// </remarks>
     public static void BackfillAmountRequiredFromSheet()
     {
@@ -94,6 +100,74 @@ public static partial class GatheringUtil
         }
 
         IceLogging.Info($"AmountRequired 資料表補值完成：補了 {filled} 筆、因缺 RequiredFish 跳過 {skippedNoRequiredFish.Count} 筆。", "[FishingPresets]");
+
+        ReportTimeGradedTurninCriteria();
+    }
+
+    /// <summary>
+    /// 把每個<b>時間型</b>釣魚任務的「交件依據會落在哪一層」寫進 log。
+    /// </summary>
+    /// <remarks>
+    /// 📌 <b>Information 級、啟動時只跑一次</b>——使用者跑 LogLevel 2，Debug／Verbose 收不到，
+    /// 而這是「486／493 到底修好了沒」唯一能離線回答的證據。
+    /// <br/><br/>
+    /// 對應 <c>Task_CheckScore.TimeGradedFishRequirementsMet</c> 的三層優先序：<br/>
+    /// ① 資料表 <c>Gathering_Min</c>（來自 <c>WKSMissionToDo.RequiredItem[]</c>）<br/>
+    /// ② preset 的 <c>RequiredFish</c>「至少一條目標魚」<br/>
+    /// ③ 兩者皆無 ⇒ 不宣稱達標，會一路釣到逾時再放棄。<br/>
+    /// 另外 <c>AmountRequired != 0</c> 的任務根本不會走進那個函式，直接走數量語意，
+    /// 所以也一併標出來，免得看 log 的人以為它落在第 ③ 層。
+    /// <br/><br/>
+    /// ⚠️ 只列時間型（<c>IsTimeGraded</c>）：評價型的交件依據是分數，不走這條優先序。<br/>
+    /// ⚠️ 也<b>跳過 <see cref="UnsupportedMissions.Ids"/> 上的任務</b>：494 是時間型、在
+    /// <c>FishingPreset</c> 裡有一筆空的 <c>FishingTools</c>、而且確實三層都沒有依據，
+    /// 但它已經因為「上游只給 AHFOLDER_ 整包匯出」被停用，ICE 根本不會接。
+    /// 不濾掉的話每次啟動都會對一個永遠不會發生的情境報警。
+    /// </remarks>
+    private static void ReportTimeGradedTurninCriteria()
+    {
+        var noCriteria = new List<uint>();
+        var lines = new List<string>();
+
+        foreach (var (missionId, tools) in FishingPreset)
+        {
+            if (!CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var entry))
+                continue; // 空名佔位列／非本服任務，DictionaryCreation 就沒收進來
+            if (!entry.IsTimeGraded)
+                continue;
+            if (UnsupportedMissions.Ids.Contains(missionId))
+                continue; // 停用中的任務不會被接，報警只會製造雜訊
+
+            string basis;
+            if (tools.AmountRequired != 0)
+                basis = $"數量語意（AmountRequired = {tools.AmountRequired}"
+                      + $"{(tools.UniqueFish ? "，計不重複魚種" : "，計總條數")}"
+                      + $"、魚種 {tools.RequiredFish.Count} 種）";
+            else if (entry.Gathering_Min.Count > 0)
+                basis = $"① 資料表 RequiredItem（{entry.Gathering_Min.Count} 項）";
+            else if (tools.RequiredFish.Count > 0)
+                basis = $"② preset RequiredFish 至少一條（{tools.RequiredFish.Count} 種）";
+            else
+            {
+                basis = "③ 無任何依據 ⇒ 會釣到逾時才放棄";
+                noCriteria.Add(missionId);
+            }
+
+            lines.Add($"{missionId}＝{basis}");
+        }
+
+        IceLogging.Info(
+            $"時間型釣魚任務的交件依據（共 {lines.Count} 個）：" + string.Join("｜", lines),
+            "[FishingPresets]");
+
+        if (noCriteria.Count > 0)
+            IceLogging.Info(
+                "⚠️ 這些時間型釣魚任務仍然沒有任何交件依據，接到的話會白白釣到逾時："
+                + string.Join("、", noCriteria)
+                + "。（要修：補該筆 preset 的 RequiredFish，或確認資料表上有 RequiredItem[]／Unknown17。）",
+                "[FishingPresets]");
+        else
+            IceLogging.Info("✅ 所有時間型釣魚任務都有可用的交件依據。", "[FishingPresets]");
     }
 
     public static Dictionary<uint, FishingTools> FishingPreset = new()
@@ -975,8 +1049,47 @@ public static partial class GatheringUtil
             Baits = new Dictionary<string, List<uint>>()
             {
             },
+            // 🔑 2026-08-06 補上：486 是**表上完全沒有數量資訊**的時間型任務
+            //    （WKSMissionToDo[43]：RequiredItem[] 全 0、Unknown17 也是 0），
+            //    在此之前 Task_CheckScore.TimeGradedFishRequirementsMet 的三層依據會**全部落空**
+            //    ⇒ 不宣稱達標 ⇒ 一路釣到逾時才放棄，整段任務時間全部浪費。
+            //    補了 RequiredFish 之後走第 ② 層「至少一條目標魚在身上」。
+            //
+            //    魚種來源＝**上面那串 AH6_ preset 自己的 ListOfFish**（離線解碼，
+            //    ~/.claude/tools/ahpreset/ahpreset.py）。這條來源對得起來的證據有三條：
+            //    ① 校準：對 469 解出來的 5 個 ListOfFish 物種，與下方 469 既有的 5 個
+            //       RequiredFish 鍵**逐一相同**；463（4 種）同樣全同。
+            //    ② 486 的 PlaceName 是 5206「儲淚池」，而解出來的魚正是
+            //       淚滴刀背魚／淚蟹／淚鯧 這一組「淚」字系 —— 地點與魚名互證。
+            //    ③ 45847..45851 是連續 id 區塊，正是同一個釣點的魚群。
+            //    道具 id 已用 tools/ahpreset/tc_item_exists.py 驗過：台服 5 個全部有名字，
+            //    不是 47680/47703 那種「列存在但 Name 空」的未實裝佔位列。
+            //
+            //    ⚠️ 刻意**不收** 45851（淚鯧）：它在 preset 裡是 "Enabled": false。
+            //    第 ② 層是「任一條就算達標」，多收一種只會讓交件**更早**觸發；
+            //    少收一種最多只是多釣幾竿。方向取保守的那邊。
+            //    ⚠️ 另外 45847（嘆息螯蝦）與同在儲淚池的 451／455 目標魚重疊 ——
+            //    身上若有那兩個任務留下的存貨，486 會在還沒釣到之前就判定可交件。
+            //    這是 ICE 全域「用背包當進度代理」的既有限制，不是這次新增的類別，
+            //    但 486 走的是「任一條」規則所以敏感度較高，先記在這裡。
             RequiredFish = new Dictionary<string, List<uint>>()
             {
+                ["Astacus Lamentorum"] = new List<uint>()
+                {
+                    45847,
+                },
+                ["Teardrop Knifefish"] = new List<uint>()
+                {
+                    45848,
+                },
+                ["Weeping Crab"] = new List<uint>()
+                {
+                    45849,
+                },
+                ["Silvermoon Tilapia"] = new List<uint>()
+                {
+                    45850,
+                },
             },
         },
         // Export for Mission [487] - 【高難+】採集精密淨水裝置所需的材料
@@ -1099,8 +1212,25 @@ public static partial class GatheringUtil
             Baits = new Dictionary<string, List<uint>>()
             {
             },
+            // 🔑 2026-08-06 補上：493 是 Unknown17 > 0 的 5 個任務裡**唯一**先前沒有
+            //    RequiredFish 的，所以 BackfillAmountRequiredFromSheet() 一直把它跳過
+            //    （見該函式的 remarks），AmountRequired 維持 0；而它表上又沒有 RequiredItem[]
+            //    ⇒ TimeGradedFishRequirementsMet 的三層依據全部落空，只能釣到逾時再放棄。
+            //    填上目標魚之後，那個補值函式會在啟動時自動把 AmountRequired 設成表上的
+            //    Unknown17（＝18），交件判定改走「數到 18 條」的數量語意。
+            //    **這裡刻意維持 0**：數量的真值來源是資料表，不要手寫第二份。
+            //
+            //    魚種來源＝上面那串 AH6_ preset 的 ListOfFish（唯一一筆，"Enabled": true），
+            //    離線解碼；校準方式與 486 同一套（對 469／463 逐一相符）。
+            //    深月海龍在 WKSItemInfo 子分類 2 裡是**獨一無二的名稱**（只有 45912 這一個 id），
+            //    所以不存在同名多 id 要不要展開的問題。
+            //    tc_item_exists.py 已驗：45912 在台服有名字「深月海龍」，非空佔位列。
             RequiredFish = new Dictionary<string, List<uint>>()
             {
+                ["Deepmoon Seadragon"] = new List<uint>()
+                {
+                    45912,
+                },
             },
         },
         [494] = new FishingTools { },
