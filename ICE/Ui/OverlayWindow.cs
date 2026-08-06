@@ -572,14 +572,19 @@ namespace ICE.Ui
                 return;
 
             if (!GenericHelpers.TryGetAddonMaster<WKSMissionInfomation>("WKSMissionInfomation", out var missionInfo)
-                || !missionInfo.IsAddonReady
-                || missionInfo.CriticalScore is not { } critical)
+                || !missionInfo.IsAddonReady)
                 return;
+
+            // 🔴 CriticalScore 讀不出來時原本是整列不畫 —— 那會讓使用者以為「這個任務沒有緊急進度」，
+            //    而不是「進度讀不到」。未知本身要在列上看得見（畫 ?，而且刻意不畫成 0）。
+            var critical = missionInfo.CriticalScore;
 
             ImGui.Text("    ");
             ImGui.SameLine(0, 0);
-            var criticalText = "Critical Progress: ??/1".Loc(critical);
-            if (critical >= 1)
+            var criticalText = "Critical Progress: ??/1".Loc(critical?.ToString() ?? UnknownMark);
+            if (critical is null)
+                ImGui.TextColored(ImGuiColors.DalamudYellow, criticalText);
+            else if (critical >= 1)
                 ImGui.TextColored(ImGuiColors.HealerGreen, criticalText);
             else
                 ImGui.TextUnformatted(criticalText);

@@ -369,7 +369,18 @@ namespace ICE.Scheduler.Tasks
 
                     if (mission.Attributes.HasFlag(MissionAttributes.Critical))
                     {
-                        if (missionInfo.CriticalScore == 1)
+                        // 🔴 CriticalScore 是 uint?：null＝「這格讀不出可信的數字」，不是 0、更不是達標。
+                        //    ECommons 端已把「把面板上所有數字黏成一個假數」的舊解析拿掉，讀不出來就回 null。
+                        //    這裡明確走三態，未知一律走保守路徑（不交件、繼續做），並留下可回報的診斷 ——
+                        //    否則使用者只會看到「ICE 卡著不交件」而完全沒有線索。
+                        var criticalScore = missionInfo.CriticalScore;
+                        if (criticalScore == null)
+                        {
+                            if (EzThrottler.Throttle("ICE: critical score unreadable (craft)", 10000))
+                                IceLogging.Info($"高難任務進度讀不出來，本輪不交件、繼續製作。" +
+                                                $"（面板原字串：「{missionInfo.CriticalScoreRaw ?? "<面板尚未載入>"}」）", tag);
+                        }
+                        else if (criticalScore == 1)
                         {
                             IceLogging.Verbose("We've completed the critical!", tag);
                             shouldTurnin = true;
@@ -553,7 +564,10 @@ namespace ICE.Scheduler.Tasks
 
                     if (mission.Attributes.HasFlag(MissionAttributes.Critical))
                     {
-                        if (missionInfo.CriticalScore == 1)
+                        // 🔴 三態，理由同 Crafts()：null＝未知，絕不能被當成達標。
+                        //    未知與「還沒到 1」走同一條保守路徑（繼續採集），差別只在有沒有留診斷。
+                        var criticalScore = missionInfo.CriticalScore;
+                        if (criticalScore == 1)
                         {
                             SchedulerMain.State = IceState.TurninMission;
                             P.TaskManager.Tasks.Clear();
@@ -564,6 +578,11 @@ namespace ICE.Scheduler.Tasks
                         }
                         else
                         {
+                            if (criticalScore == null && EzThrottler.Throttle("ICE: critical score unreadable (gather)", 10000))
+                                IceLogging.Info($"高難任務進度讀不出來，本輪不交件、繼續採集。" +
+                                                $"（面板原字串：「{missionInfo.CriticalScoreRaw ?? "<面板尚未載入>"}」）",
+                                                "[Check Score: Gather]");
+
                             // Still waiting for it to hit 1. So just returning true
                             return true;
                         }
