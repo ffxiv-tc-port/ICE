@@ -167,6 +167,30 @@ namespace ICE.Scheduler.Tasks
 
             IceLogging.Info($"任務 {missionId} 匯入 {presets.Count} 筆內建 AutoHook preset。", "[Task: Execute Mission]");
 
+            // 🔴 整包資料夾（AHFOLDER_／AHFOLDER2_）走的是完全不同的匯入路徑，**不能**跟單筆混著送。
+            //    資料夾裡的多筆 preset 是一台狀態機（彼此用 PresetToSwap 依名稱互指），
+            //    逐筆丟給 CreateAndSelectAnonymousPreset 的話每一筆都會重設 SelectedPreset，
+            //    結果是「只有最後一筆生效」——474 那個「開耐心」的 bug 就是這樣來的。
+            //    正確語意是「整包裝進去、只選進入點」，由 AutoHook 自己換。
+            if (presets[0].StartsWith("AHFOLDER", StringComparison.Ordinal))
+            {
+                if (presets.Count > 1)
+                {
+                    IceLogging.Info(
+                        $"任務 {missionId} 的第一筆是整包資料夾匯出，其餘 {presets.Count - 1} 筆會被忽略"
+                        + "（資料夾本身就已經含有全部階段）。", "[Task: Execute Mission]");
+                }
+
+                if (P.AutoHook.TryImportFolder(presets[0]) == 0)
+                {
+                    IceLogging.ChatError(
+                        $"任務 {missionId} 需要 AutoHook 的整包資料夾匯入功能，但匯入沒有成功，釣魚無法自動進行。"
+                        + "請確認 AutoHook 已更新到與這版 ICE 同一波出貨的版本。", "[ICE]");
+                }
+
+                return;
+            }
+
             // 🔴 保底診斷：AH6_ 是較新的 AutoHook 匯出格式。AutoHook 若還是舊版，
             //    Configuration.DecompressString 會對不認得的前綴丟 ApplicationException，
             //    而 ICE 這端的 EzIPC.Init 帶的是 SafeWrapper.AnyException ——
