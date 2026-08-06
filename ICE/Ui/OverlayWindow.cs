@@ -301,6 +301,10 @@ namespace ICE.Ui
                     ImGui.TextColored(ImGuiColors.HealerGreen, $"{objective.Text}  {objective.Progress}");
                     ImGui.SameLine(0, 4);
                     ImGuiEx.Icon(ImGuiColors.HealerGreen, FontAwesomeIcon.Check);
+
+                    // ImGuiEx.Icon 內部無條件 SameLine（見 DrawMissionStatusIcons 的 remarks），
+                    // 不收掉的話下一列目標（或底下的獎章列）會被黏到這一列尾巴。
+                    ImGui.NewLine();
                 }
                 else
                 {
@@ -642,6 +646,17 @@ namespace ICE.Ui
         /// 金牌＝已完成且已拿金章；綠勾＝已完成但還沒金章；紅叉＝尚未完成。
         /// 另外比照主視窗，有採集座標旗標／緊急任務地點的任務也一併標出來。
         /// </summary>
+        /// <remarks>
+        /// 🔴 <b>畫完會自己把那一行收掉（<c>ImGui.NewLine()</c>），呼叫端接下來畫的東西一定在下一行。</b><br/>
+        /// 原因是 ECommons 的 <c>ImGuiEx.Icon</c> 內部<b>無條件</b>呼叫 <c>ImGui.SameLine()</c>
+        /// （<c>ImGuiMethods/ImGuiEx/Text.cs</c> 的 <c>IconWithText</c>，即使沒有附帶文字也照做），
+        /// 所以每個 <c>ImGuiEx.Icon</c> 都會留下一個<b>待處理的 SameLine</b>。這個函式最後一定
+        /// 以 Icon 收尾，不收掉的話呼叫端下一個 widget 會被黏到任務名那一行尾巴——
+        /// 使用者 2026-08-06 回報的「評價那串跑到任務名同一行」就是這樣來的。<br/><br/>
+        /// ⚠️ 這裡用 <c>NewLine()</c> 是安全的：本函式必定至少畫過一個圖示，
+        /// 也就是這一行必定有內容（<c>CurrLineSize.y &gt; 0</c>），此時 <c>NewLine()</c> 只是把行收掉、
+        /// <b>不會</b>多插一行空白。（在空行上呼叫 <c>NewLine()</c> 才會多一行，那不是這裡的情況。）
+        /// </remarks>
         private static void DrawMissionStatusIcons(uint missionId)
         {
             var (completed, gold) = MissionStatusHelper.GetStatus(missionId);
@@ -671,6 +686,9 @@ namespace ICE.Ui
                     ImGuiEx.Icon(FontAwesomeIcon.FlagCheckered);
                 }
             }
+
+            // 把 ImGuiEx.Icon 留下的待處理 SameLine 收掉（理由見上面的 remarks）。
+            ImGui.NewLine();
         }
 
         /// <summary>已經為哪個任務印過掃描結果診斷，避免每幀洗記錄檔——同款節流手法見 <see cref="MissionObjectiveReader"/>。</summary>
