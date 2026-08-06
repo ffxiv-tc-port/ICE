@@ -309,9 +309,12 @@ namespace ICE.Scheduler.Tasks
                 bool confirmEnabled, leftWheelEnabled, rightWheelEnabled;
                 unsafe
                 {
-                    confirmEnabled = gamba.SpinWheelButton->IsEnabled;
-                    leftWheelEnabled = gamba.WheelLeftButton->IsEnabled;
-                    rightWheelEnabled = gamba.WheelRightButton->IsEnabled;
+                    // 這三個屬性都是 Addon->GetComponentButtonById(id)，找不到節點會回 null；
+                    // 且 IsEnabled 解的是 OwnerNode 而非 AtkResNode，兩層都要擋才不會 AVE。
+                    // 任一層為 null 一律當成「按鈕不可按」→ 本次不動作。
+                    confirmEnabled = GenericHelpers.IsComponentEnabled(gamba.SpinWheelButton);
+                    leftWheelEnabled = GenericHelpers.IsComponentEnabled(gamba.WheelLeftButton);
+                    rightWheelEnabled = GenericHelpers.IsComponentEnabled(gamba.WheelRightButton);
                 }
 
                 if (GenericHelpers.TryGetAddonMaster<SelectYesno>("SelectYesno", out var select) && select.IsAddonReady)

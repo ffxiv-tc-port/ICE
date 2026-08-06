@@ -92,34 +92,55 @@ public static class AddonHelper
         return node != null ? node->NodeText.GetText() : string.Empty;
     }
 
+    /// <summary>
+    /// 逐層走訪節點清單取出文字節點；任何一層取不到就回 <c>null</c>。
+    /// 🔴 呼叫端必須自己判空後才可解參考。
+    /// 原本的寫法對 NodeList 索引完全沒有邊界檢查，也沒有檢查
+    /// <c>((AtkComponentNode*)node)-&gt;Component</c> 是否為 null，兩者都是
+    /// AccessViolationException 入口；AVE 是 corrupted-state exception，try/catch 攔不到。
+    /// 守衛內容與本檔已加固的 <see cref="GetNodeText"/> 一致。
+    /// </summary>
     public static unsafe AtkTextNode* GetAtkTextNode(string addonName, params int[] nodeNumbers)
     {
-
         var ptr = Svc.GameGui.GetAddonByName(addonName, 1);
+        if (ptr.Address == IntPtr.Zero)
+            return null;
 
         var addon = (AtkUnitBase*)ptr.Address;
-        var uld = addon->UldManager;
+        if (addon->UldManager.NodeList == null || addon->UldManager.NodeListCount == 0)
+            return null;
 
+        var uld = addon->UldManager;
         AtkResNode* node = null;
-        var debugString = string.Empty;
+
         for (var i = 0; i < nodeNumbers.Length; i++)
         {
             var nodeNumber = nodeNumbers[i];
 
-            var count = uld.NodeListCount;
+            if (nodeNumber < 0 || nodeNumber >= uld.NodeListCount)
+                return null;
 
             node = uld.NodeList[nodeNumber];
-            debugString += $"[{nodeNumber}]";
+            if (node == null)
+                return null;
 
             // More nodes to traverse
             if (i < nodeNumbers.Length - 1)
             {
-                uld = ((AtkComponentNode*)node)->Component->UldManager;
+                if (node->Type != NodeType.Component)
+                    return null;
+
+                var component = ((AtkComponentNode*)node)->Component;
+                if (component == null ||
+                    component->UldManager.NodeList == null ||
+                    component->UldManager.NodeListCount == 0)
+                    return null;
+
+                uld = component->UldManager;
             }
         }
 
-        var textNode = (AtkTextNode*)node;
-        return textNode;
+        return (AtkTextNode*)node;
     }
 
     private static unsafe AtkResNode* GetNodeByIDChain(AtkResNode* node, params int[] ids)
@@ -141,9 +162,20 @@ public static class AddonHelper
 
             if ((int)node->Type >= 1000)
             {
+                // Component 是指標欄位，元件尚未建立完成時為 null；
+                // NodeList 也可能是空的。兩者不擋都會 AccessViolationException。
                 var componentNode = node->GetAsAtkComponentNode();
+                if (componentNode == null)
+                    return null;
+
                 var component = componentNode->Component;
+                if (component == null)
+                    return null;
+
                 var uldManager = component->UldManager;
+                if (uldManager.NodeList == null || uldManager.NodeListCount == 0)
+                    return null;
+
                 childNode = uldManager.NodeList[0];
                 return childNode == null ? null : GetNodeByIDChain(childNode, [.. newList]);
             }

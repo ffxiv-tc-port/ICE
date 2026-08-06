@@ -36,10 +36,11 @@ namespace ICE.Utilities
 
         internal unsafe static bool IsMissionTimedOut()
         {
-            if (AddonHelper.GetAtkTextNode("WKSMissionInfomation", 23)->IsVisible())
-                return true;
-            else
-                return false;
+            // GetAtkTextNode 取不到節點會回 null，直接解參考就是 AVE。
+            // 取不到時一律回 false(視為「未逾時」)：寧可本次不動作，
+            // 也不要把「不知道」當成「已確認逾時」。
+            var timeoutNode = AddonHelper.GetAtkTextNode("WKSMissionInfomation", 23);
+            return timeoutNode != null && timeoutNode->IsVisible();
         }
         internal unsafe static (int classScore, int cappedClassScore, int totalScores, uint classId) GetCosmicClassScores()
         {
