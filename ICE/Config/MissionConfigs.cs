@@ -123,6 +123,37 @@ namespace ICE.Config
         // 取樣端會先做指標範圍驗證，驗證不過就什麼都不顯示。
         public bool ShowMechaEventProgress { get; set; } = true;
 
+        // ---- 目的指示標示（Utilities/MechaOps/MechaObjectives.cs）----
+        // 把機甲事件自己的 map marker 畫成世界疊加層（有方向、有外框、不疊顏色）。
+        // 比照其他子開關預設開，但整組仍然掛在 ShowMechaAoeOverlay 底下（該項預設關）。
+        public bool ShowMechaObjectives { get; set; } = true;
+
+        // 🔴 使用者裁決的前置：「先確認目標在不在 ObjectTable」。
+        // 開著（預設）＝只畫在 ObjectTable 裡真的對上實體物件的標記，位置也跟著物件走。
+        // 關掉＝連對不上的標記也畫在它自己的座標上（會用灰色「未確認」樣式）。
+        // ⚠️ 預設不要改成 false：這個閘門同時也是「欄位偏移萬一失準」時的自動停用機制。
+        public bool MechaObjectiveRequireObjectTable { get; set; } = true;
+
+        // 標記座標要多近才算對上同一個東西（公尺，XZ 平面）。
+        // 沒有官方資料，5 是猜的合理預設；做成滑桿讓實機自己調。
+        public float MechaObjectiveMatchRadius { get; set; } = 5f;
+
+        // 從玩家往目的指示畫一條方向線（NecroLens 風格：有方向、有外框、不疊顏色）。
+        public bool ShowMechaObjectiveDirection { get; set; } = true;
+
+        // 在目的指示旁邊標名稱與距離。
+        public bool ShowMechaObjectiveNames { get; set; } = true;
+
+        // ---- 右鍵選單（Utilities/MechaOps/MechaContextMenu.cs）----
+        // 只在宇宙區域出現，且全部是純顯示項目（釘選標示／複製診斷）。
+        public bool ShowMechaContextMenu { get; set; } = true;
+
+        // ---- 隱私（Utilities/MechaOps/MechaPrivacy.cs）----
+        // 其他玩家的角色名預設縮寫成「F. L.」，避免疊加層截圖與「複製記錄到剪貼簿」
+        // 把別人的角色名帶出去。開啟＝顯示完整名稱。
+        // ⚠️ 預設保守的那一邊是刻意的，改預設要由使用者裁決。
+        public bool MechaShowFullPlayerNames { get; set; } = false;
+
         #endregion
 
         #region MissionSettings

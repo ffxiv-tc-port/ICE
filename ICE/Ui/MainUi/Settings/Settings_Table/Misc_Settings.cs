@@ -216,6 +216,78 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     ImGui.Unindent();
                 }
 
+                // ---- 目的指示標示 ----
+                bool showObjectives = C.ShowMechaObjectives;
+                if (ImGui.Checkbox("Show Objective Markers".Loc() + "###ICEShowMechaObjectives", ref showObjectives))
+                {
+                    C.ShowMechaObjectives = showObjectives;
+                    C.Save();
+                }
+                ImGui.SameLine();
+                ImGui.TextDisabled("?");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("Draws the mecha event's own objective markers in the world: an outlined ring where " +
+                                      "the objective is, plus a short arrow at your feet pointing at it.\n" +
+                                      "Useful as ground support too, where you have no mecha skills at all.\n" +
+                                      "Display only - it never moves you and never picks a target.").Loc());
+                }
+
+                using (ImRaii.Disabled(!showObjectives))
+                {
+                    ImGui.Indent();
+
+                    bool requireObjectTable = C.MechaObjectiveRequireObjectTable;
+                    if (ImGui.Checkbox("Only Confirmed Objectives".Loc() + "###ICEMechaObjectiveRequireObjectTable", ref requireObjectTable))
+                    {
+                        C.MechaObjectiveRequireObjectTable = requireObjectTable;
+                        C.Save();
+                    }
+                    ImGui.SameLine();
+                    ImGui.TextDisabled("?");
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.SetTooltip(("On (recommended): only draws a marker once a real object has been found at that " +
+                                          "spot in the game's object table, and then follows that object as it moves.\n" +
+                                          "Off: also draws markers that matched nothing, in grey, at the raw marker position. " +
+                                          "Those can be stale or simply wrong.\n" +
+                                          "Leaving this on also means that if a future patch shifts the fields ICE reads, " +
+                                          "the overlay quietly shows nothing instead of scattering wrong rings on the ground.").Loc());
+                    }
+
+                    float matchRadius = C.MechaObjectiveMatchRadius;
+                    ImGui.SetNextItemWidth(150);
+                    if (ImGui.SliderFloat("Objective Match Radius".Loc() + "###ICEMechaObjectiveMatchRadius", ref matchRadius, 1f, 30f, "%.0f"))
+                    {
+                        C.MechaObjectiveMatchRadius = matchRadius;
+                        C.SaveDebounced();
+                    }
+                    ImGui.SameLine();
+                    ImGui.TextDisabled("?");
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.SetTooltip(("How close an object has to be to a marker to count as that objective, in yalms.\n" +
+                                          "There is no official value for this - 5 is a guess. Raise it if objectives are " +
+                                          "never confirmed, lower it if the wrong thing gets marked.").Loc());
+                    }
+
+                    bool showDirection = C.ShowMechaObjectiveDirection;
+                    if (ImGui.Checkbox("Show Direction Arrow".Loc() + "###ICEShowMechaObjectiveDirection", ref showDirection))
+                    {
+                        C.ShowMechaObjectiveDirection = showDirection;
+                        C.Save();
+                    }
+
+                    bool showObjectiveNames = C.ShowMechaObjectiveNames;
+                    if (ImGui.Checkbox("Show Objective Names".Loc() + "###ICEShowMechaObjectiveNames", ref showObjectiveNames))
+                    {
+                        C.ShowMechaObjectiveNames = showObjectiveNames;
+                        C.Save();
+                    }
+
+                    ImGui.Unindent();
+                }
+
                 bool showCooldowns = C.ShowMechaCooldowns;
                 if (ImGui.Checkbox("Show Mecha Skill Cooldowns".Loc() + "###ICEShowMechaCooldowns", ref showCooldowns))
                 {
@@ -295,6 +367,43 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     }
                     ImGui.TreePop();
                 }
+            }
+
+            // ⚠️ 下面兩項刻意放在總開關的 Disabled 範圍**之外**：
+            //    右鍵選單與角色名遮蔽都跟「有沒有畫技能範圍」無關，
+            //    總開關關著時它們照樣有作用，所以也必須照樣改得到。
+            ImGui.Dummy(new Vector2(0, 5));
+
+            bool showContextMenu = C.ShowMechaContextMenu;
+            if (ImGui.Checkbox("Mecha Right-click Menu".Loc() + "###ICEShowMechaContextMenu", ref showContextMenu))
+            {
+                C.ShowMechaContextMenu = showContextMenu;
+                C.Save();
+            }
+            ImGui.SameLine();
+            ImGui.TextDisabled("?");
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip(("Adds ICE entries to the right-click menu while you are in a cosmic zone: mark an object " +
+                                  "in the mecha overlay, and copy the mecha event diagnostics.\n" +
+                                  "Display only - nothing there acts for you.").Loc());
+            }
+
+            bool showFullNames = C.MechaShowFullPlayerNames;
+            if (ImGui.Checkbox("Show Full Player Names".Loc() + "###ICEMechaShowFullPlayerNames", ref showFullNames))
+            {
+                C.MechaShowFullPlayerNames = showFullNames;
+                C.Save();
+            }
+            ImGui.SameLine();
+            ImGui.TextDisabled("?");
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip(("Off (default): other players' character names are shortened to initials both on the " +
+                                  "overlay and in ICE's own log history.\n" +
+                                  "Mecha ops is group content, so the log - which has a 'copy to clipboard' button - " +
+                                  "would otherwise carry other people's character names out of the game with it.\n" +
+                                  "Your own name is never shortened.").Loc());
             }
         }
 
