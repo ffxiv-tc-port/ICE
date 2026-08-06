@@ -5,6 +5,7 @@ using ECommons.GameHelpers;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.UI;
 using FFXIVClientStructs.FFXIV.Component.GUI;
+using ICE.Resources.GatheringRoutes;
 using ICE.Utilities.Cosmic_Helper;
 using ICE.Utilities.GatheringHelper;
 using Microsoft.VisualBasic.ApplicationServices;
@@ -69,72 +70,123 @@ namespace ICE.Scheduler.Tasks
             var missionFlag = missionEntry.MapPosition;
             var gatherInfo = GatheringRouteLoader.GetRoute(zoneId, missionFlag);
 
-            if (gatherInfo != null)
+            // ⚠️ 原本這裡只有 `if (gatherInfo != null)`，查不到路線時會一路掉到最後的
+            //    `return false` —— 也就是這個任務永遠不會完成。TaskConfig 是
+            //    timeLimitMS 30 分鐘 + abortOnTimeout: false，所以失敗形式是「靜靜地卡住半小時」。
+            //    真正會講話的守衛在下一個任務 PathandCheckNode 裡，所以這裡放行讓它去講。
+            if (gatherInfo == null || gatherInfo.Count == 0)
             {
-                if (Mission_Settings.previousMap != missionFlag)
-                {
-                    // We're currently at a whole new area. So going to check the gathering nodes to see which one we're closest to
-                    Mission_Settings.previousMap = missionFlag;
-                    var closestNodeIndex = gatherInfo.Select((node, index) => new { Node = node, Index = index })
-                                                     .Where(x => Svc.Objects.Any(obj => obj.ObjectKind == ObjectKind.GatheringPoint && obj.IsTargetable && obj.DataId == x.Node.NodeId))
-                                                     .OrderBy(x =>
-                                                     {
-                                                         var gameObject = Svc.Objects.First(obj => obj.DataId == x.Node.NodeId);
-                                                         return Player.DistanceTo(gameObject.Position);
-                                                     })
-                                                     .Select(x => x.Index)
-                                                     .FirstOrDefault(0);
+                if (EzThrottler.Throttle("ICE: gather route missing (CheckCurrentLocation)", 5000))
+                    IceLogging.Info($"任務 {CosmicHelper.CurrentLunarMission} 在區域 {zoneId} 座標 {missionFlag} " +
+                                    "找不到採集路線，這一步先放行，由下一步回報。", "[Check Gather Locations]");
+                return true;
+            }
 
-                    Mission_Settings.nodeCounter = closestNodeIndex;
+            if (Mission_Settings.previousMap != missionFlag)
+            {
+                // We're currently at a whole new area. So going to check the gathering nodes to see which one we're closest to
+                Mission_Settings.previousMap = missionFlag;
+                Mission_Settings.nodeCounter = PickStartNodeIndex(gatherInfo, "[Check Gather Locations]");
+            }
+            else
+            {
+                // we're currently in a map location that has been previously recorded, so we're going to check to see if we're within range of any first
+                var closestDistance = gatherInfo.Where(x => Player.DistanceTo(x.Position) < 5).FirstOrDefault();
+                if (closestDistance == null)
+                {
+                    // We're currently to far from any node. going to rely on the index to tell us where we should be
+                    if (Mission_Settings.nodeCounter >= gatherInfo.Count)
+                    {
+                        // resetting it back to 0 because we're outside the normal index array
+                        Mission_Settings.nodeCounter = 0;
+                    }
+                    return true;
+
                 }
                 else
                 {
-                    // we're currently in a map location that has been previously recorded, so we're going to check to see if we're within range of any first
-                    var closestDistance = gatherInfo.Where(x => Player.DistanceTo(x.Position) < 5).FirstOrDefault();
-                    if (closestDistance == null)
+                    // We're currently close to a node, time to check and see if it's a viable node, or if we need to pathfind to the next
+                    var nodeId = closestDistance.NodeId;
+                    var closestNode = Svc.Objects.Where(x => x.DataId == nodeId && x.IsTargetable).FirstOrDefault();
+
+                    if (closestNode != null)
                     {
-                        // We're currently to far from any node. going to rely on the index to tell us where we should be
-                        if (Mission_Settings.nodeCounter >= gatherInfo.Count)
+                        // Node is targetable, set the counter to this node's index
+                        var currentNodeIndex = gatherInfo.FindIndex(x => x.NodeId == nodeId);
+                        if (currentNodeIndex >= 0)
                         {
-                            // resetting it back to 0 because we're outside the normal index array
-                            Mission_Settings.nodeCounter = 0;
+                            Mission_Settings.nodeCounter = currentNodeIndex;
                         }
                         return true;
-
                     }
                     else
                     {
-                        // We're currently close to a node, time to check and see if it's a viable node, or if we need to pathfind to the next
-                        var nodeId = closestDistance.NodeId;
-                        var closestNode = Svc.Objects.Where(x => x.DataId == nodeId && x.IsTargetable).FirstOrDefault();
+                        // Node is not targetable, increment to next node
+                        Mission_Settings.nodeCounter++;
 
-                        if (closestNode != null)
+                        // Check if we're out of bounds and wrap back to 0
+                        if (Mission_Settings.nodeCounter >= gatherInfo.Count)
                         {
-                            // Node is targetable, set the counter to this node's index
-                            var currentNodeIndex = gatherInfo.FindIndex(x => x.NodeId == nodeId);
-                            if (currentNodeIndex >= 0)
-                            {
-                                Mission_Settings.nodeCounter = currentNodeIndex;
-                            }
-                            return true;
+                            Mission_Settings.nodeCounter = 0;
                         }
-                        else
-                        {
-                            // Node is not targetable, increment to next node
-                            Mission_Settings.nodeCounter++;
-
-                            // Check if we're out of bounds and wrap back to 0
-                            if (Mission_Settings.nodeCounter >= gatherInfo.Count)
-                            {
-                                Mission_Settings.nodeCounter = 0;
-                            }
-                            return true;
-                        }
+                        return true;
                     }
                 }
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// 換到新的任務旗標時，決定「從路線上的哪一個採集點開始跑」。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 這裡原本是
+        /// <c>route.Where(在 ObjectTable 裡且可選取).OrderBy(距離).Select(索引).FirstOrDefault(0)</c>。
+        /// 篩選條件要求採集點<b>此刻就在 ObjectTable 裡而且可選取</b>，但剛傳送進區域、
+        /// 或人站在旗標圈的另一邊時，較遠的採集點根本還沒載入 —— 篩選結果是空的，
+        /// 然後 <c>FirstOrDefault(0)</c> <b>靜默回傳索引 0</b>，也就是「路線檔裡的第一個點」，
+        /// 跟「離玩家最近」完全無關。使用者看到的就是「明明旁邊有採集點，它卻跑去遠的那個」。<br/>
+        /// 第二層陷阱：「篩選全空」與「最近的剛好就是索引 0」<b>回傳值一模一樣</b>，
+        /// 事後看 log 也分不出來 —— 典型的「把不知道當成一個具體值」。<br/>
+        /// 現在：ObjectTable 沒有任何命中時，退回用<b>路線檔自己的靜態座標</b>挑最近
+        /// （那是 YAML 裡的資料，不需要物件載入），並且兩條路徑各寫一行 Information，
+        /// 使用者的 log 可以直接證明走了哪一條、選了第幾個點、距離多遠。
+        /// </remarks>
+        /// <param name="route">呼叫端必須先保證非空。</param>
+        private static int PickStartNodeIndex(List<GathNodeInfo> route, string handle)
+        {
+            // ⚠️ ObjectTable 的物件只在這一次呼叫（同一幀）內使用，不存起來跨幀用。
+            var live = route.Select((node, index) => new
+                            {
+                                Index = index,
+                                Node = node,
+                                Obj = Svc.Objects.FirstOrDefault(o => o.ObjectKind == ObjectKind.GatheringPoint
+                                                                  && o.IsTargetable
+                                                                  && o.DataId == node.NodeId)
+                            })
+                            .Where(x => x.Obj != null)
+                            .OrderBy(x => Player.DistanceTo(x.Obj!.Position))
+                            .ToList();
+
+            if (live.Count > 0)
+            {
+                var best = live[0];
+                IceLogging.Info($"挑起始採集點：ObjectTable 命中 {live.Count}/{route.Count} 個，" +
+                                $"選索引 {best.Index}（採集點 {best.Node.NodeId}，" +
+                                $"距離 {Player.DistanceTo(best.Obj!.Position):N1}）。", handle);
+                return best.Index;
+            }
+
+            var fallback = route.Select((node, index) => new { Index = index, Node = node })
+                                .OrderBy(x => Player.DistanceTo(x.Node.Position))
+                                .First();
+
+            IceLogging.Info($"挑起始採集點：ObjectTable 一個都沒命中（共 {route.Count} 個點，" +
+                            "採集點還沒載入或目前不可選取），改用路線檔的座標挑最近 —— " +
+                            $"選索引 {fallback.Index}（採集點 {fallback.Node.NodeId}，" +
+                            $"距離 {Player.DistanceTo(fallback.Node.Position):N1}）。", handle);
+            return fallback.Index;
         }
 
         public static bool? PathandCheckNode()

@@ -1410,13 +1410,24 @@ namespace ICE.Scheduler.Tasks
                 var mapId = missionEntry.MapPosition;
                 var gatherInfo = GatheringRouteLoader.GetRoute(missionTerritory, mapId);
 
-                if (gatherInfo.Count == 0)
+                // ⚠️ GetRoute 查不到路線時回 null，不是空清單 —— 原本直接 .Count 是
+                //    NullReferenceException，表現成「卡住不動而且沒有訊息」。
+                if (gatherInfo == null || gatherInfo.Count == 0)
                 {
                     IceLogging.Info("HEY. This gathering location hasn't been set to gather, and should honestly be set to a manual state. Cause things are about to bug out. If it's a new area please let me know o/");
                     return true;
                 }
 
-                Vector3 closestNode = gatherInfo[0].LandZone;
+                // 🔴 原本這裡寫死 `gatherInfo[0].LandZone` —— 不管人站在哪，第一次進場一律
+                //    先走去「路線檔的第一個點」。路線是環狀的（PathandCheckNode 會遞增並回繞），
+                //    從哪一個點起跑都合法，所以挑最近的那個；用路線檔自己的座標算，
+                //    不依賴採集點有沒有載進 ObjectTable。
+                var entryNode = gatherInfo.OrderBy(x => Player.DistanceTo(x.LandZone)).First();
+                Vector3 closestNode = entryNode.LandZone;
+                if (EzThrottler.Throttle("ICE: gather route entry node", 5000))
+                    IceLogging.Info($"前往採集區域：路線共 {gatherInfo.Count} 個點，" +
+                                    $"選最近的採集點 {entryNode.NodeId}（距離 {Player.DistanceTo(entryNode.LandZone):N1}）當入口。",
+                                    "[FindMission: NavmeshMoveTo]");
 
                 if (!P.Navmesh.IsRunning())
                 {

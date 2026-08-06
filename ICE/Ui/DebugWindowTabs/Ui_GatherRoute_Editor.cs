@@ -120,6 +120,10 @@ namespace ICE.Ui.DebugWindowTabs
                 if (selectedRoute != Vector2.Zero)
                 {
                     GatheringRouteExportUI.DrawExportSelectedButton(selectedZone, selectedRoute);
+
+                    // ⚠️ 上面那個「匯出」寫出去的檔案沒有任何路徑會讀回來 —— 它只是備份。
+                    //    這一顆才是「讓我在這裡改的東西真的生效」：寫進自訂路線資料夾並立刻重新載入。
+                    GatheringRouteExportUI.DrawSaveAsCustomButton(selectedZone, selectedRoute);
                 }
             }
 
@@ -534,6 +538,38 @@ namespace ICE.Ui.DebugWindowTabs
                 if (ImGui.IsItemHovered())
                 {
                     ImGui.SetTooltip("Export this route to plugin config folder");
+                }
+
+                DrawExportMessage();
+            }
+
+            /// <summary>
+            /// 把目前記憶體裡（含在這個編輯器改過但還沒存的）這條路線寫進自訂路線資料夾，並立刻生效。
+            /// </summary>
+            public static void DrawSaveAsCustomButton(uint zoneId, Vector2 flag)
+            {
+                if (ImGui.Button("Save as Custom Route"))
+                {
+                    try
+                    {
+                        var path = GatheringRouteLoader.SaveAsCustomRoute(zoneId, flag);
+                        _lastExportMessage = $"Saved and now active:\n{path}";
+                        _lastExportSuccess = true;
+                        _lastExportMessageTime = DateTime.Now;
+                    }
+                    catch (Exception ex)
+                    {
+                        PluginLog.Error($"Save as custom route failed: {ex.Message}");
+                        _lastExportMessage = $"Save failed: {ex.Message}";
+                        _lastExportSuccess = false;
+                        _lastExportMessageTime = DateTime.Now;
+                    }
+                }
+
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip("Writes this route into the custom route folder and reloads.\n" +
+                                     "Unlike Export, this one actually takes effect.");
                 }
 
                 DrawExportMessage();

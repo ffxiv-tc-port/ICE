@@ -70,6 +70,10 @@ namespace ICE.Ui.MainUi
                     if (C.Show_MiscSettings)
                         DrawSelectableWithIcon(FontAwesomeIcon.UserCog, "Misc Settings".Loc(), "setting_Misc");
 
+                    // 刻意不加 C.Show_* 開關：這一頁的重點就是「讓使用者知道採集路線可以自己改」，
+                    // 藏在偵錯視窗底下等於沒有。
+                    DrawSelectableWithIcon(FontAwesomeIcon.MapSigns, "Gathering Routes".Loc(), "setting_GatherRoutes");
+
                     DrawSelectableWithIcon(FontAwesomeIcon.Cog, "All Settings".Loc(), "helpSelect_AllSettings");
                 }
                 if (C.Show_HubActivities)

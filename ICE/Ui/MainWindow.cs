@@ -104,6 +104,9 @@ namespace ICE.Ui
                 case "setting_Misc":
                     Misc_Settings.Draw();
                     break;
+                case "setting_GatherRoutes":
+                    GatherRouteCustomization.Draw();
+                    break;
                 case "helpSelect_AllSettings":
                     helpSelect_AllSettings.Draw();
                     break;
