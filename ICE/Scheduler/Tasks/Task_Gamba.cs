@@ -129,8 +129,12 @@ namespace ICE.Scheduler.Tasks
         /// <b>byte</b>（0–255）去索引長度 4 的陣列，只要遊戲那個欄位不是預期值就直接
         /// IndexOutOfRangeException。台服目前只開放第一張圖（1237），索引恆為 0，但這條路徑
         /// 現在掛在使用者按得到的按鈕上，不能靠「應該不會發生」。
+        /// <br/>
+        /// 📌 2026-08-06 改成 internal：<c>Task_CheckState</c> 有兩處
+        /// （<c>StopOnceHitLunarCredits</c>／<c>GambaBetweenRuns</c>）是同一段程式碼的複製品，
+        /// 而且**兩處都沒有判空也沒有邊界檢查**。改成共用這裡的實作，不要再各留一份。
         /// </remarks>
-        private static unsafe bool TryGetCosmoCreditItemId(out uint itemId)
+        internal static unsafe bool TryGetCosmoCreditItemId(out uint itemId)
         {
             uint[] currencies = [45691, 48146, 48147, 48148];
             itemId = 0;

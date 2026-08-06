@@ -126,6 +126,8 @@ public sealed partial class ICE : IDalamudPlugin
             SelectableSidebar.currentSelection = "helpSelect_AllSettings";
         };
         DictionaryCreation();
+        // 要放在 DictionaryCreation() 之後：它依賴 ExcelHelper 的 sheet 已經取好。
+        GatheringUtil.BackfillAmountRequiredFromSheet();
         Task_Gamba.EnsureGambaWeightsInitialized();
         ConfigMigrator.UpdateConfigMissionList();
         ConfigMigrator.MigrateConfigv1();

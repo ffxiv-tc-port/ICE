@@ -167,6 +167,22 @@ namespace ICE.Scheduler.Tasks
 
             IceLogging.Info($"任務 {missionId} 匯入 {presets.Count} 筆內建 AutoHook preset。", "[Task: Execute Mission]");
 
+            // 🔴 保底診斷：AH6_ 是較新的 AutoHook 匯出格式。AutoHook 若還是舊版，
+            //    Configuration.DecompressString 會對不認得的前綴丟 ApplicationException，
+            //    而 ICE 這端的 EzIPC.Init 帶的是 SafeWrapper.AnyException ——
+            //    例外被吞掉、CreateAndSelectAnonymousPreset 是 Action 連回傳值都沒有，
+            //    結果就是「preset 完全沒進去、釣魚一直不動、log 一行都沒有」。
+            //    我們無法在呼叫端觀測成敗（EzIpcFailureLog 會印出被吞掉的例外，但訊息是通用的），
+            //    所以在這裡先講清楚這一筆需要什麼版本，讓 log 自己說得出因果。
+            var ah6Count = presets.Count(p => p.StartsWith("AH6_", StringComparison.Ordinal));
+            if (ah6Count > 0)
+            {
+                IceLogging.Info(
+                    $"任務 {missionId} 的 {ah6Count} 筆 preset 是 AH6_ 格式，需要同一波出貨的 AutoHook 才吃得下。" +
+                    "若接下來釣魚沒有動作（餌沒換、竿沒下），請先確認 AutoHook 已更新到最新版 —— " +
+                    "舊版會把這個匯入靜默丟掉，不會有錯誤訊息。", "[Task: Execute Mission]");
+            }
+
             // Import first preset immediately
             P.AutoHook.CreateAndSelectAnonymousPreset(presets[0]);
 

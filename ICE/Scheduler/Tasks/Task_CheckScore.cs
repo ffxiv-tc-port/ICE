@@ -163,12 +163,10 @@ namespace ICE.Scheduler.Tasks
                     IceLogging.Debug("WE'RE NOT IN A CRITICAL MISSION");
 
                     var currentScore = (missionInfo.CurrentScore ?? 0);
-                    var silverScore = mission.SilverScore;
-                    var goldScore = mission.GoldScore;
 
-                    MedalChecker(currentScore, silverScore, goldScore);
+                    MedalChecker(mission, currentScore);
                 }
-            } 
+            }
 
             if (GenericHelpers.TryGetAddonMaster<WKSMissionInfomation>("WKSMissionInfomation", out var missionInfo) && missionInfo.IsAddonReady)
             {
@@ -462,10 +460,8 @@ namespace ICE.Scheduler.Tasks
                         else
                         {
                             var currentScore = (missionInfo.CurrentScore ?? 0);
-                            var silverScore = mission.SilverScore;
-                            var goldScore = mission.GoldScore;
 
-                            MedalChecker(currentScore, silverScore, goldScore);
+                            MedalChecker(mission, currentScore);
                         }
 
                         return true;
@@ -675,7 +671,7 @@ namespace ICE.Scheduler.Tasks
                                 SchedulerMain.State = IceState.TurninMission;
                                 P.TaskManager.Tasks.Clear();
 
-                                MedalChecker(currentScore, silverScore, goldScore);
+                                MedalChecker(mission, currentScore);
 
                                 return true;
                             }
@@ -801,9 +797,7 @@ namespace ICE.Scheduler.Tasks
                         else
                         {
                             var currentScore = (missionInfo.CurrentScore ?? 0);
-                            var silverScore = mission.SilverScore;
-                            var goldScore = mission.GoldScore;
-                            MedalChecker(currentScore, silverScore, goldScore);
+                            MedalChecker(mission, currentScore);
                         }
 
                         SchedulerMain.State = IceState.TurninMission;
@@ -864,9 +858,13 @@ namespace ICE.Scheduler.Tasks
                 $"Silver Requirement: {silverRequirement}\n" +
                 $"Gold Requirement: {goldRequirement}");
 
-            if (remainingTime >= goldRequirement)
+            // 🔴 門檻 TimeSpan.Zero 代表「沒讀到」，不是「零秒就達標」。
+            //    ParseRequirementTime 解析失敗時回的就是 TimeSpan.Zero（節點讀不到、面板還沒畫好都會），
+            //    沒有這個前置的話 remainingTime >= Zero 恆真 ⇒ 讀不到面板時一律記成金星。
+            //    這條路徑現在還多了 MedalChecker 轉進來的時間型任務，所以這個洞一定要補。
+            if (goldRequirement > TimeSpan.Zero && remainingTime >= goldRequirement)
                 return TurninState.Gold;
-            else if (remainingTime >= silverRequirement)
+            else if (silverRequirement > TimeSpan.Zero && remainingTime >= silverRequirement)
                 return TurninState.Silver;
             else
                 return TurninState.Bronze;
@@ -944,14 +942,47 @@ namespace ICE.Scheduler.Tasks
             return AddonHelper.GetNodeText("WKSMissionInfomation", 11);
         }
 
-        private static void MedalChecker(uint current, uint silver, uint gold)
+        /// <summary>
+        /// 判定這次交件要記成哪一種獎章，寫進 <see cref="Mission_Settings.TurninState"/>。
+        /// </summary>
+        /// <remarks>
+        /// 📌 這個值**不決定要不要交件**——交不交件在呼叫端就已經由 shouldTurnin／canTurnin 決定完了。
+        /// 它的下游只有：<c>Task_TurninMission.UpdateScoreInfo()</c> 的分數換算倍率
+        /// （金 ×5、銀 ×4）、<c>MissionTimer</c> 的統計、以及任務表的顏色。<br/><br/>
+        ///
+        /// 原本的寫法 <c>current &gt;= gold</c> 有兩個會靜默給錯答案的地方：<br/>
+        /// ① <b>門檻 0 讓比較恆真</b>：<c>gold == 0</c> 時任何分數都 <c>&gt;= 0</c>，一律記成金星。<br/>
+        /// ② <b>時間型任務的單位根本不是分數</b>：這一型的 <c>SilverScore</c>／<c>GoldScore</c> 是
+        ///    「剩餘秒數 × 10」（見 <see cref="CosmicHelper.CosmicInfo.IsTimeGraded"/> 的離線核對），
+        ///    而傳進來的 <c>current</c> 是面板的評價分數；更糟的是這一型的面板
+        ///    <c>AtkValues[2]</c> 是 Undefined，<c>CurrentScore</c> 取不到值、<c>?? 0</c> 後恆為 0
+        ///    ⇒ <b>時間型任務過去一律被記成銅星</b>，而且完全沒有徵兆。
+        /// </remarks>
+        private static void MedalChecker(CosmicHelper.CosmicInfo mission, uint current)
         {
-            if (current >= gold)
-                Mission_Settings.TurninState = TurninState.Gold;
-            else if (current >= silver)
-                Mission_Settings.TurninState = TurninState.Silver;
-            else
-                Mission_Settings.TurninState = TurninState.Bronze;
+            if (mission.IsTimeGraded)
+            {
+                // 時間型走時間語意：讀面板的時間列來比。
+                // 這正是既有 ScoreTimeRemaining 路徑（本檔 :199、:574）本來就在用的函式，
+                // 四個呼叫端統一走這裡之後兩邊不會再分岔。
+                Mission_Settings.TurninState = DetermineTurninState();
+                return;
+            }
+
+            Mission_Settings.TurninState = ScoreMedal(current, mission.SilverScore, mission.GoldScore);
+        }
+
+        /// <summary>
+        /// 評價型任務的獎章判定。
+        /// 🔴 <b>門檻 0 一律當成「沒有這個門檻」，不是「零分就達成」。</b>
+        /// </summary>
+        private static TurninState ScoreMedal(uint current, uint silver, uint gold)
+        {
+            if (gold > 0 && current >= gold)
+                return TurninState.Gold;
+            if (silver > 0 && current >= silver)
+                return TurninState.Silver;
+            return TurninState.Bronze;
         }
     }
 }

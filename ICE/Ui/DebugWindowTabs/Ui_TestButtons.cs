@@ -216,7 +216,13 @@ namespace ICE.Ui.DebugWindowTabs
             //  1          - Unknown 10
             //  1          - Unknown 11
 
-            ImGui.Text($"{WKSManager.Instance()->CurrentMissionUnitRowId}");
+            // 🔴 原本直接解參考 WKSManager.Instance()。宇宙探索內容以外那個槽位是 null，
+            //    直接 -> 就是攔不到的 AccessViolationException（AVE 在 .NET Core 是
+            //    corrupted-state exception，try/catch 無效）。除錯視窗更容易在區外被打開。
+            //    🔑 讀不到畫「?」而不是 0 —— 0 是有效的任務 ID 語意（＝沒有進行中的任務），
+            //       把「不知道」畫成 0 會直接誤導看的人。
+            var testButtonsManager = WKSManager.Instance();
+            ImGui.Text(testButtonsManager == null ? "?" : $"{testButtonsManager->CurrentMissionUnitRowId}");
 
             if (ImGui.Button("Find Mission"))
             {

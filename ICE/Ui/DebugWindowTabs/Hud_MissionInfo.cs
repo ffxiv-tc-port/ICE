@@ -105,33 +105,54 @@ namespace ICE.Ui.DebugWindowTabs
                         x.Abandon();
                     }
 
+                    // 🔴 原本直接 wks->Scores / wks->FishingBait，沒有判空。
+                    //    WKSManager 在宇宙探索內容以外是 null，直接解參考＝攔不到的
+                    //    AccessViolationException（corrupted-state exception，try/catch 無效）。
+                    //    🔑 讀不到就整段畫「?」，不要畫 0 —— 分數 0 與餌 0 都是有效值。
                     var wks = WKSManager.Instance();
 
-                    ImGui.TableNextRow();
-                    ImGui.TableSetColumnIndex(0);
-                    ImGui.Text("Score 1");
-                    ImGui.TableNextColumn();
-                    ImGui.Text($"{wks->Scores.Length}");
-
-                    int score = 0;
-
-                    foreach (var item in wks->Scores)
+                    if (wks == null)
                     {
                         ImGui.TableNextRow();
                         ImGui.TableSetColumnIndex(0);
-                        ImGui.Text($"Score: [{score}]");
+                        ImGui.Text("Scores");
                         ImGui.TableNextColumn();
-                        ImGui.Text($"{wks->Scores[score]}");
-                        score += 1;
+                        ImGui.Text("?（讀不到 WKSManager，不在宇宙探索內容裡）");
+
+                        ImGui.TableNextRow();
+                        ImGui.TableSetColumnIndex(0);
+                        ImGui.Text("Bait:");
+                        ImGui.TableNextColumn();
+                        ImGui.Text("?");
                     }
+                    else
+                    {
+                        ImGui.TableNextRow();
+                        ImGui.TableSetColumnIndex(0);
+                        ImGui.Text("Score 1");
+                        ImGui.TableNextColumn();
+                        ImGui.Text($"{wks->Scores.Length}");
 
-                    var currentlyEquippped = wks->FishingBait | 0;
+                        int score = 0;
 
-                    ImGui.TableNextRow();
-                    ImGui.TableSetColumnIndex(0);
-                    ImGui.Text("Bait:");
-                    ImGui.TableNextColumn();
-                    ImGui.Text($"{currentlyEquippped}");
+                        foreach (var item in wks->Scores)
+                        {
+                            ImGui.TableNextRow();
+                            ImGui.TableSetColumnIndex(0);
+                            ImGui.Text($"Score: [{score}]");
+                            ImGui.TableNextColumn();
+                            ImGui.Text($"{wks->Scores[score]}");
+                            score += 1;
+                        }
+
+                        var currentlyEquippped = wks->FishingBait | 0;
+
+                        ImGui.TableNextRow();
+                        ImGui.TableSetColumnIndex(0);
+                        ImGui.Text("Bait:");
+                        ImGui.TableNextColumn();
+                        ImGui.Text($"{currentlyEquippped}");
+                    }
 
 
                     ImGui.EndTable();
