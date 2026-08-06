@@ -1231,7 +1231,8 @@ namespace ICE.Scheduler.Tasks
                     var abandonMission = x.StellerMissions.First(m => m.MissionId == missionToAbandon);
                     abandonMission.Select();
                     P.TaskManager.Insert(() => GrabMission(missionToAbandon, true), "Going to abandon mission now");
-                    // 零守衛的字典索引，而且只是為了印一行 log —— 沒有任何理由讓它有機會把佇列打斷。
+                    // ✅ 曾經是零守衛的字典索引，已修：守衛＝下一行的 TryGetValue。
+                    //    這裡只是為了印一行 log，沒有任何理由讓它有機會把佇列打斷。
                     var abandonRank = CosmicHelper.SheetMissionDict.TryGetValue(missionToAbandon, out var abandonEntry)
                         ? abandonEntry.Rank.ToString()
                         : "不在任務表裡";
@@ -1360,7 +1361,8 @@ namespace ICE.Scheduler.Tasks
         {
             ThrottleMessage("Currently in a navmesh movement");
 
-            // 零守衛的字典索引 ×2，而且是兩個鍵集合不同的字典，要分開守。
+            // ✅ 曾經是零守衛的字典索引 ×2，已修：兩個字典的鍵集合不同，所以分開守 ——
+            //    守衛＝下一行的 SheetMissionDict.TryGetValue 與下方的 C.MissionConfig.TryGetValue。
             if (!CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var missionEntry))
             {
                 IceLogging.ChatError($"任務 {missionId} 不在任務表裡，無法前往任務地點。", "[ICE]");
@@ -1696,7 +1698,8 @@ namespace ICE.Scheduler.Tasks
         }
         private static bool? ChangeJob(uint missionId)
         {
-            // 零守衛的字典索引。查不到就當成「不用換職業」直接放行，讓後面的步驟去處理，
+            // ✅ 曾經是零守衛的字典索引，已修：守衛＝下一行的 TryGetValue。
+            // 查不到就當成「不用換職業」直接放行，讓後面的步驟去處理，
             // 總比在這裡丟例外把整個佇列卡住好。
             if (!CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var jobMission))
             {

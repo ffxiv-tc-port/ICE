@@ -31,7 +31,8 @@ namespace ICE.Scheduler.Tasks
                 IceLogging.Debug("Not currently gathering, starting fresh instead");
                 P.TaskManager.EnqueueDelay(100);
 
-                // 🔴 零守衛的字典索引，而且是在 Enqueue 裡（跑在 SchedulerMain.Tick 上、不在任務內），
+                // ✅ 曾經是零守衛的字典索引，已修：守衛＝下一行的 SchedulerMain.CurrentMissionUnavailable。
+                //    原因留存：這裡是 Enqueue（跑在 SchedulerMain.Tick 上、不在任務內），
                 //    例外會直接冒到 Framework.Update 而且每個 tick 重來一次 —— 正是上次事故
                 //    「同一行連噴 37 次」的形狀。
                 if (SchedulerMain.CurrentMissionUnavailable("[Task_Gather: Enqueue]", out var enqueueMission))
@@ -217,7 +218,8 @@ namespace ICE.Scheduler.Tasks
         }
         public static unsafe bool? GatheringInteraction()
         {
-            // 零守衛的字典索引 ×2（CurrentMissionInfo 與 C.MissionConfig）。
+            // ✅ 曾經是零守衛的字典索引 ×2（CurrentMissionInfo 與 C.MissionConfig），已修：
+            //    前者的守衛＝下一行的 CurrentMissionUnavailable，後者＝下方的 C.MissionConfig.TryGetValue。
             if (SchedulerMain.CurrentMissionUnavailable("[Task_Gather: Gathering Interaction]", out var missionInfo))
                 return true;
 
@@ -789,7 +791,7 @@ namespace ICE.Scheduler.Tasks
         {
             IceLogging.Info($"Current itemId: {Mission_Settings.item_collectableId}", "[Gather: Check Reduce Mission]");
 
-            // 零守衛的字典索引。
+            // ✅ 曾經是零守衛的字典索引，已修：守衛＝下方的 SchedulerMain.CurrentMissionUnavailable。
             // ⚠️ 這裡的 hasCollectable 讀到 0 只是「不做精選」，不是破壞性判斷，所以不必擋換區。
             if (SchedulerMain.CurrentMissionUnavailable("[Gather: Check Reduce Mission]", out var reduceMission))
                 return true;

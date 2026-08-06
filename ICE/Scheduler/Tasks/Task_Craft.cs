@@ -187,7 +187,8 @@ namespace ICE.Scheduler.Tasks
                 return false;
             }
 
-            // 🔴 零守衛的字典索引。SheetMissionDict 沒有 key 0，而遊戲端取消任務時
+            // ✅ 曾經是零守衛的字典索引，已修：守衛＝下一行的 SchedulerMain.CurrentMissionUnavailable。
+            //    原因留存：SheetMissionDict 沒有 key 0，而遊戲端取消任務時
             //    CurrentLunarMission 就是 0 —— 例外在任務裡只會表現成「卡住不動」。
             if (SchedulerMain.CurrentMissionUnavailable(handle, out var mission))
                 return true;

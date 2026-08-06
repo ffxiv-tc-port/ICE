@@ -977,7 +977,8 @@ namespace ICE.Ui.MainUi.ModeSelect
                             for (int i = 0; i < prevMissions.Count; i++)
                             {
                                 var prevMission = prevMissions[i];
-                                // 零守衛的字典索引。GetOnlyPreviousMissionsRecursive 會把 LockedBehind 的
+                                // ✅ 曾經是零守衛的字典索引，已修：守衛＝下方的 TryGetValue（查不到顯示 "???"）。
+                                //    原因留存：GetOnlyPreviousMissionsRecursive 會把 LockedBehind 的
                                 // rowId 原封不動加進來，而它不保證在 SheetMissionDict 裡（台服 7.20 逐筆
                                 // 比對 WKSMissionUnit.csv 目前是乾淨的，但那是資料湊巧，不是程式有守）。
                                 // 這是每幀跑的 ImGui 迴圈，丟例外會讓整個視窗畫不出來。
@@ -1038,7 +1039,8 @@ namespace ICE.Ui.MainUi.ModeSelect
                             {
                                 CompletionStatus_Normal(mission);
                                 ImGui.SameLine();
-                                // 零守衛的字典索引（MissionUnlock 是寫死的表，跟 SheetMissionDict 沒有共同保證）。
+                                // ✅ 曾經是零守衛的字典索引，已修：守衛＝下一行的 TryGetValue（查不到顯示 "???"）。
+                                //    原因留存：MissionUnlock 是寫死的表，跟 SheetMissionDict 沒有共同保證。
                                 var unlockName = CosmicHelper.SheetMissionDict.TryGetValue(mission, out var unlockEntry) ? unlockEntry.Name : "???";
                                 ImGui.Text($"[{mission}] - {MissionSupport.NameWithMarker(mission, unlockName)}");
                             }
@@ -1354,7 +1356,8 @@ namespace ICE.Ui.MainUi.ModeSelect
                     {
                         CompletionStatus_Normal(lockedMission);
                         ImGui.SameLine();
-                        // 零守衛的字典索引（同上，來源是寫死的 MissionUnlock 表）。
+                        // ✅ 曾經是零守衛的字典索引，已修：守衛＝下一行的 TryGetValue（查不到顯示 "???"）。
+                        //    原因留存：同上，來源是寫死的 MissionUnlock 表。
                         var lockedName = CosmicHelper.SheetMissionDict.TryGetValue(lockedMission, out var lockedEntry) ? lockedEntry.Name : "???";
                         ImGui.Text($"[{lockedMission}] - {MissionSupport.NameWithMarker(lockedMission, lockedName)}");
                     }

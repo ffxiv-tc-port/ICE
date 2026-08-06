@@ -318,7 +318,8 @@ namespace ICE.Scheduler.Tasks
             SchedulerMain.MissionState = MissionAttributes.None;
 
             // Grabbing the mission info from the dictionary entry
-            // 零守衛的字典索引。SheetMissionDict 的鍵集合是「Name 不為空的 row」
+            // ✅ 曾經是零守衛的字典索引，已修：守衛＝下一行的 SheetMissionDict.TryGetValue。
+            //    原因留存：SheetMissionDict 的鍵集合是「Name 不為空的 row」
             //（台服 7.20 逐筆比對 WKSMissionUnit.csv 實測＝只有 1..544），沒有 0 也沒有 545 以上。
             // 查不到就維持在上面剛清乾淨的 None —— 呼叫端本來就是依 MissionState 分支的。
             if (!CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var missionDictInfo))

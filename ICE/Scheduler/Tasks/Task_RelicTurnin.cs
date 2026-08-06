@@ -28,9 +28,10 @@ namespace ICE.Scheduler.Tasks
         public static bool? PathToRelicNPC()
         {
             var zoneId = Player.Territory;
-            // 🔴 零守衛的字典索引。MoonNpcs 只有月面兩個 key（1237／1291），而這裡的 key 是
+            // ✅ 這裡曾經是零守衛的字典索引，已修：守衛＝下一行的 NpcData.TryGetMoonNpc。
+            // 原因留存：MoonNpcs 只有月面兩個 key（1237／1291），而這裡的 key 是
             // Player.Territory —— 佇列排好之後玩家還是可能被傳送走（機甲行動抽中駕駛員就會），
-            // 下一個 tick 讀到的區域就不是月面了。原本的 .First()/.FirstOrDefault() 兩種寫法
+            // 下一個 tick 讀到的區域就不是月面了。修之前的 .First()/.FirstOrDefault() 兩種寫法
             // 都沒處理「找不到」，一個丟 InvalidOperationException、一個回 null 再 NRE。
             if (!NpcData.TryGetMoonNpc(zoneId, NpcData.NpcType.Relic, out var npcEntry))
             {
@@ -106,9 +107,10 @@ namespace ICE.Scheduler.Tasks
             // 台服的研究員 NPC DataId 與國際服不同，純靠 TryGetObjectByDataId 永遠找不到
             // （實機徵狀：人就站在 NPC 旁邊，狀態卻一直卡在 HubReturn）。
             // TryGetNpcObject 在 DataId 查不到時會退回「靠近設定座標」的判定。
-            // 🔴 零守衛的字典索引。MoonNpcs 只有月面兩個 key（1237／1291），而這裡的 key 是
+            // ✅ 這裡曾經是零守衛的字典索引，已修：守衛＝下一行的 NpcData.TryGetMoonNpc。
+            // 原因留存：MoonNpcs 只有月面兩個 key（1237／1291），而這裡的 key 是
             // Player.Territory —— 佇列排好之後玩家還是可能被傳送走（機甲行動抽中駕駛員就會），
-            // 下一個 tick 讀到的區域就不是月面了。原本的 .First()/.FirstOrDefault() 兩種寫法
+            // 下一個 tick 讀到的區域就不是月面了。修之前的 .First()/.FirstOrDefault() 兩種寫法
             // 都沒處理「找不到」，一個丟 InvalidOperationException、一個回 null 再 NRE。
             if (!NpcData.TryGetMoonNpc(Player.Territory, NpcData.NpcType.Relic, out var npcEntry))
             {

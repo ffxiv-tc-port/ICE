@@ -50,8 +50,10 @@ namespace ICE.Scheduler.Tasks
                 return false;
             }
 
-            // 🔴 零守衛的字典索引 ×3（SheetMissionDict[id]、C.MissionConfig[id] ×2）。
-            //    SheetMissionDict 沒有 key 0，而遊戲端取消任務時 CurrentLunarMission 就是 0。
+            // ✅ 曾經是零守衛的字典索引 ×3（SheetMissionDict[id]、C.MissionConfig[id] ×2），已修：
+            //    SheetMissionDict 那顆的守衛＝下一行的 CurrentMissionUnavailable，
+            //    MissionConfig 那兩顆的守衛＝下方的 C.MissionConfig.TryGetValue。
+            //    原因留存：SheetMissionDict 沒有 key 0，而遊戲端取消任務時 CurrentLunarMission 就是 0。
             if (SchedulerMain.CurrentMissionUnavailable(handle, out var mission))
                 return true;
 
@@ -192,7 +194,8 @@ namespace ICE.Scheduler.Tasks
 
             IceLogging.Debug("Starting 'Check Gather State'");
 
-            // 零守衛的字典索引，同 CheckMaterials 的形狀。
+            // ✅ 曾經是零守衛的字典索引（同 CheckMaterials 的形狀），已修：
+            //    守衛＝下一行的 SchedulerMain.CurrentMissionUnavailable。
             if (SchedulerMain.CurrentMissionUnavailable(handle, out var mission))
                 return true;
 
@@ -318,7 +321,8 @@ namespace ICE.Scheduler.Tasks
 
         public static unsafe bool? GatheringInteraction()
         {
-            // 零守衛的字典索引 ×2（CurrentMissionInfo 與 C.MissionConfig）。
+            // ✅ 曾經是零守衛的字典索引 ×2（CurrentMissionInfo 與 C.MissionConfig），已修：
+            //    前者的守衛＝下一行的 CurrentMissionUnavailable，後者＝下方的 C.MissionConfig.TryGetValue。
             if (SchedulerMain.CurrentMissionUnavailable("[Task_DualClass | Gathering Interaction]", out var missionInfo))
                 return true;
 
@@ -526,7 +530,8 @@ namespace ICE.Scheduler.Tasks
             else
             {
                 // Currently in the middle of gathering here. Going to check for just general item progress.
-                // 零守衛的字典索引 ×2（CurrentMissionInfo 與 C.MissionConfig）。
+                // ✅ 曾經是零守衛的字典索引 ×2（CurrentMissionInfo 與 C.MissionConfig），已修：
+                //    前者的守衛＝下一行的 CurrentMissionUnavailable，後者＝下方的 C.MissionConfig.TryGetValue。
                 if (SchedulerMain.CurrentMissionUnavailable(handle, out var mission))
                     return true;
 

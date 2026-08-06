@@ -15,8 +15,9 @@ namespace ICE.Scheduler.Tasks
     {
         public static void Enqueue()
         {
-            // 🔴 零守衛的字典索引，而且是在 Enqueue 裡 —— 這個方法跑在 SchedulerMain.Tick 上，
-            //    也被 Task_Craft.Enqueue()/Task_DualClass.Enqueue()/Task_Gather.Enqueue() 轉呼叫。
+            // ✅ 曾經是零守衛的字典索引，已修：守衛＝下一行的 SchedulerMain.CurrentMissionUnavailable。
+            //    原因留存：這裡是 Enqueue，跑在 SchedulerMain.Tick 上，也被
+            //    Task_Craft.Enqueue()/Task_DualClass.Enqueue()/Task_Gather.Enqueue() 轉呼叫，
             //    例外會冒到 Framework.Update 而且每個 tick 重來一次。
             if (SchedulerMain.CurrentMissionUnavailable("[Task: Score Check]", out var mission))
                 return;
@@ -345,8 +346,8 @@ namespace ICE.Scheduler.Tasks
                     }
 
                     var Id = CosmicHelper.CurrentLunarMission;
-                    // var mission = CosmicHelper.Dict_CosmicMissions[Id];
-                    // 零守衛的字典索引。
+                    // var mission = CosmicHelper.Dict_CosmicMissions[Id];  ← 原本的零守衛索引
+                    // ✅ 已修：守衛＝下一行的 SchedulerMain.CurrentMissionUnavailable。
                     if (SchedulerMain.CurrentMissionUnavailable(tag, out var mission))
                         return true;
 
@@ -532,7 +533,7 @@ namespace ICE.Scheduler.Tasks
                     IceLogging.Debug("Checking score for gathering. . .", "[Check Score: Gather]");
                     // Hud info should be available. Now time to check the mission status.
                     var id = CosmicHelper.CurrentLunarMission;
-                    // 零守衛的字典索引。
+                    // ✅ 曾經是零守衛的字典索引，已修：守衛＝下一行的 SchedulerMain.CurrentMissionUnavailable。
                     if (SchedulerMain.CurrentMissionUnavailable("[Check Score: Gather]", out var mission))
                         return true;
 
@@ -725,8 +726,8 @@ namespace ICE.Scheduler.Tasks
                     }
 
                     var Id = CosmicHelper.CurrentLunarMission;
-                    // var mission = CosmicHelper.Dict_CosmicMissions[Id];
-                    // 零守衛的字典索引。
+                    // var mission = CosmicHelper.Dict_CosmicMissions[Id];  ← 原本的零守衛索引
+                    // ✅ 已修：守衛＝下一行的 SchedulerMain.CurrentMissionUnavailable。
                     if (SchedulerMain.CurrentMissionUnavailable(tag, out var mission))
                         return true;
 
