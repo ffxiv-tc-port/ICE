@@ -62,6 +62,20 @@ namespace ICE.Scheduler.Tasks
                 string tag = "[Fishing Score | Minimum Fish Caught]";
                 if (GatheringUtil.FishingPreset.TryGetValue(id, out var fishingInfo) && CosmicHelper.SheetMissionDict.TryGetValue(id, out var missionEntry))
                 {
+                    // 🔴 時間型任務**不能**走下面那條「分數保底」—— 那條保底在這一型上是**恆真**的。
+                    //    ① 資料表 34/34 個時間型任務的 BronzeScore 全都是 0（離線核對 exd-tc/7.20）；
+                    //    ② 面板的目前評價（AtkValues[2]）對這一型是 Undefined，CurrentScore 回 null ⇒ `?? 0`。
+                    //    於是 `0 >= 0` 永遠成立 ⇒ **任務面板一開就判「已達標」直接交件，身上一條魚都沒有。**
+                    //    這正是「時間型的門檻單位不是分數」在交件閘門上的實際爆點：
+                    //    兩個對這一型都沒有意義的值拿來比大小，答案看起來是「可以交」。
+                    //    改走數量語意，見 TimeGradedFishRequirementsMet。
+                    if (fishingInfo.AmountRequired == 0
+                        && !missionEntry.Attributes.HasFlag(MissionAttributes.Critical)
+                        && missionEntry.IsTimeGraded)
+                    {
+                        return TimeGradedFishRequirementsMet(id, fishingInfo, missionEntry, tag);
+                    }
+
                     if (fishingInfo.AmountRequired == 0 && !missionEntry.Attributes.HasFlag(MissionAttributes.Critical))
                     {
                         IceLogging.Debug("We're in a mission where score is the only importants. Checking to see if we meet the minimum score thresh", tag);
@@ -240,8 +254,10 @@ namespace ICE.Scheduler.Tasks
                                             return true;
 
                                         bool AnyTurnin = config.AutoTurnin;
-                                        bool GoldGoal = goldScore <= currentScore;
-                                        bool SilverGoal = silverScore <= currentScore;
+                                        // 型別分岔統一走 EvaluateMedalGoals：時間型比時間、評價型比分數，
+                                        // 兩種單位不再相遇。這條路今天只走得到評價型（上面 ScoreTimeRemaining
+                                        // 已經把時間型分出去了），但判別留在這裡才不會因為上游分支改動而靜默錯配。
+                                        EvaluateMedalGoals(id, mission, currentScore, handle, out var GoldGoal, out var SilverGoal);
                                         bool TurninBronze = config.TurninBronze;
 
                                         if (config.AutoTurnin)
@@ -408,8 +424,10 @@ namespace ICE.Scheduler.Tasks
                                 return true;
 
                             bool AnyTurnin = config.AutoTurnin;
-                            bool GoldGoal = goldScore <= currentScore;
-                            bool SilverGoal = silverScore <= currentScore;
+                            // 🔴 這裡以前**完全沒有型別分岔** —— 直接 `goldScore <= currentScore`。
+                            //    台服目前 384 個純製作任務全是 MissionType 1（評價型），所以打不到；
+                            //    但碼上沒有任何東西擋住時間型任務走進來，那是靜默錯配的溫床。改走統一入口。
+                            EvaluateMedalGoals(Id, mission, currentScore, tag, out var GoldGoal, out var SilverGoal);
                             bool TurninBronze = config.TurninBronze;
 
                             if (config.AutoTurnin)
@@ -624,8 +642,9 @@ namespace ICE.Scheduler.Tasks
                                 return true;
 
                             bool AnyTurnin = config.AutoTurnin;
-                            bool GoldGoal = goldScore <= currentScore;
-                            bool SilverGoal = silverScore <= currentScore;
+                            // 同 Fish()：時間型在上面的 ScoreTimeRemaining 分支就分出去了，
+                            // 這裡實際上只會是評價型；判別留著是為了不讓上游分支的改動靜默錯配。
+                            EvaluateMedalGoals(id, mission, currentScore, "[Check Score: Gather]", out var GoldGoal, out var SilverGoal);
                             bool TurninBronze = config.TurninBronze;
 
                             bool shouldTurnin = false;
@@ -749,8 +768,9 @@ namespace ICE.Scheduler.Tasks
                             return true;
 
                         bool AnyTurnin = config.AutoTurnin;
-                        bool GoldGoal = goldScore <= currentScore;
-                        bool SilverGoal = silverScore <= currentScore;
+                        // 🔴 與 Crafts() 同樣的洞：以前完全沒有型別分岔。台服 16 個雙職業任務
+                        //    目前全是 MissionType 1，所以打不到，但碼上沒有守衛。改走統一入口。
+                        EvaluateMedalGoals(Id, mission, currentScore, tag, out var GoldGoal, out var SilverGoal);
                         bool TurninBronze = config.TurninBronze;
 
                         if (config.AutoTurnin)
@@ -844,7 +864,11 @@ namespace ICE.Scheduler.Tasks
             return false;
         }
 
-        public static TurninState DetermineTurninState()
+        /// <param name="logDetails">
+        /// 交件當下要留下時間對照（預設）。<b>每幀會呼叫到的判定路徑請傳 <see langword="false"/></b>——
+        /// 這個函式本身沒有節流，掛在 Tick 上會把 log 灌爆。
+        /// </param>
+        public static TurninState DetermineTurninState(bool logDetails = true)
         {
             string timerString = ActiveTimerAddon();
             TimeSpan silverRequirement = ParseRequirementTime(SilverTimerAddon());
@@ -853,10 +877,11 @@ namespace ICE.Scheduler.Tasks
             // Parse the timer string to get remaining time (left side of /)
             var remainingTime = ParseCurrentTime(timerString);
 
-            IceLogging.Info($"Timer Info:\n" +
-                $"Current Timer: {remainingTime}\n" +
-                $"Silver Requirement: {silverRequirement}\n" +
-                $"Gold Requirement: {goldRequirement}");
+            if (logDetails)
+                IceLogging.Info($"Timer Info:\n" +
+                    $"Current Timer: {remainingTime}\n" +
+                    $"Silver Requirement: {silverRequirement}\n" +
+                    $"Gold Requirement: {goldRequirement}");
 
             // 🔴 門檻 TimeSpan.Zero 代表「沒讀到」，不是「零秒就達標」。
             //    ParseRequirementTime 解析失敗時回的就是 TimeSpan.Zero（節點讀不到、面板還沒畫好都會），
@@ -940,6 +965,158 @@ namespace ICE.Scheduler.Tasks
         private static string GoldTimerAddon()
         {
             return AddonHelper.GetNodeText("WKSMissionInfomation", 11);
+        }
+
+        /// <summary>
+        /// 交件門檻判定的<b>單一型別分岔點</b>：回答「金／銀的門檻達到了沒」。
+        /// 四個呼叫端（<see cref="Fish"/>／<see cref="Crafts"/>／<see cref="Gather"/>／<see cref="DualClass"/>）
+        /// 全部走這裡，<b>兩種單位才不會再相遇</b>。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 <b>時間型任務（<see cref="CosmicHelper.CosmicInfo.IsTimeGraded"/>）的
+        /// <c>SilverScore</c>／<c>GoldScore</c> 單位是「剩餘秒數 × 10」而不是分數</b>
+        /// （台服 34 個，離線對 <c>exd-tc/7.20</c> 核對過：第 470 列 15100／15500 ＝ 25:10／25:50，
+        /// 與實機面板逐字相符）。而傳進來的 <paramref name="currentScore"/> 是面板的評價分數，
+        /// 這一型的面板 <c>AtkValues[2]</c> 又是 Undefined ⇒ <c>CurrentScore</c> 回 null ⇒ <c>?? 0</c>。
+        /// 拿 <c>0</c> 去跟 <c>15500</c> 比大小，得到的不是「還沒達標」而是<b>問錯了問題</b>。<br/><br/>
+        ///
+        /// 📌 <b>門檻值 0 在這裡與 <see cref="ScoreMedal"/> 語意相反，而且兩邊都對</b>：<br/>
+        /// 交件閘門的 0 ＝「沒有這一級的要求，不必等它」⇒ 視為<b>達標</b>（拿掉會讓純交付型任務永遠交不出去）；<br/>
+        /// 獎章判定的 0 ＝「這一級不存在」⇒ <b>不能</b>記成那一級。<br/>
+        /// 所以這裡刻意<b>保留</b> <c>threshold &lt;= current</c> 的原始寫法，沒有加 <c>&gt; 0</c> 前置。<br/><br/>
+        ///
+        /// 📌 <b>不經過 ECommons 的 <c>SilverScore</c>／<c>GoldScore</c></b>：那是面板字串解析出來的，
+        /// 對時間型任務只會回 null（加固後）或假分數（加固前）。這裡的門檻一律取
+        /// <c>WKSMissionUnit</c> 的表值，型別判別也取表值（<c>WKSMissionText</c> → <c>ScoreTimeRemaining</c>，
+        /// 與另一條完全獨立的 <c>WKSMissionToDo.MissionType == 8</c> 命中同樣 34 個、一個不差），
+        /// <b>兩者都是離線可決定的資料，繞開了面板解析這個假分數來源</b>。
+        /// 時間型唯一需要讀面板的是「現在剩多少時間」——那走
+        /// <see cref="DetermineTurninState"/> 的時間節點（24／15／11），本來就是時間單位。
+        /// </remarks>
+        private static void EvaluateMedalGoals(uint missionId, CosmicHelper.CosmicInfo mission, uint currentScore,
+                                               string handle, out bool goldGoal, out bool silverGoal)
+        {
+            if (mission.IsTimeGraded)
+            {
+                // 時間型走時間語意：讀面板的時間列換算出「現在交出去會是哪一級」，再拿獎章比獎章。
+                // 用的是 MedalChecker 已經在用的同一個函式，兩邊不會分岔。
+                // logDetails: false —— 這條路掛在 Tick 上，DetermineTurninState 自己沒有節流。
+                var achieved = DetermineTurninState(logDetails: false);
+                goldGoal = achieved >= TurninState.Gold;
+                silverGoal = achieved >= TurninState.Silver;
+                LogGoalDecisionOnce(missionId, handle, true, currentScore, mission, achieved, goldGoal, silverGoal);
+                return;
+            }
+
+            goldGoal = mission.GoldScore <= currentScore;
+            silverGoal = mission.SilverScore <= currentScore;
+            LogGoalDecisionOnce(missionId, handle, false, currentScore, mission, TurninState.None, goldGoal, silverGoal);
+        }
+
+        /// <summary>
+        /// 上一次印出來的交件門檻判定簽章。判定結果沒變就不重印 —— 這條路在 Tick 上，不能無節制地印。
+        /// </summary>
+        private static string _lastGoalLogSignature = "";
+
+        /// <summary>
+        /// 把交件門檻的判定過程寫進 log。<b>Information 級</b>：使用者跑 LogLevel 2，
+        /// 這是「修對了沒」唯一能離線回答的證據，不能降成 Debug。
+        /// 只在判定結果變動時印一次（分數會一直跳，但達標與否不會）。
+        /// </summary>
+        private static void LogGoalDecisionOnce(uint missionId, string handle, bool timeGraded, uint currentScore,
+                                                CosmicHelper.CosmicInfo mission, TurninState achieved,
+                                                bool goldGoal, bool silverGoal)
+        {
+            var signature = $"{missionId}|{timeGraded}|{achieved}|{goldGoal}|{silverGoal}";
+            if (signature == _lastGoalLogSignature)
+                return;
+            _lastGoalLogSignature = signature;
+
+            if (timeGraded)
+                IceLogging.Info(
+                    $"交件門檻判定〔時間型〕：任務 {missionId}｜門檻單位＝剩餘秒數×10"
+                    + $"（銀 {mission.SilverScore} ＝ {mission.SilverScore / 10} 秒、金 {mission.GoldScore} ＝ {mission.GoldScore / 10} 秒）｜"
+                    + $"依面板時間判到的獎章＝{achieved}｜金達標＝{goldGoal}、銀達標＝{silverGoal}。"
+                    + "（這一型不比分數；面板的目前評價對這一型是 Undefined。）", handle);
+            else
+                IceLogging.Info(
+                    $"交件門檻判定〔評價型〕：任務 {missionId}｜門檻單位＝分數"
+                    + $"（銅 {mission.BronzeScore}、銀 {mission.SilverScore}、金 {mission.GoldScore}）｜"
+                    + $"目前分數＝{currentScore}｜金達標＝{goldGoal}、銀達標＝{silverGoal}。"
+                    + "（門檻 0 代表沒有這一級的要求，視為達標。）", handle);
+        }
+
+        /// <summary>
+        /// 時間型釣魚任務、且 preset 沒填 <c>AmountRequired</c> 時的交件依據。
+        /// </summary>
+        /// <remarks>
+        /// 取代原本的「分數保底」——那條在這一型上是<b>恆真</b>的（BronzeScore 表上全 0
+        /// ＋ 面板評價 Undefined ⇒ <c>0 &gt;= 0</c>），會讓 ICE 一開面板就空手交件。
+        /// 台服受影響的任務：<b>481／484／486／493</b>（都在 2026-08-06 那波從黑名單放行，
+        /// 而且 <c>RequiredFish</c> 都還是空的）。<br/><br/>
+        /// 依據的優先序：<br/>
+        /// ① <c>Gathering_Min</c>：<c>WKSMissionToDo.RequiredItem[] → WKSItemInfo → Item</c> 的數量需求。
+        ///    釣魚任務也有建（<c>ICEDictornaryCreation</c> 對整個 <c>GatheringJobList</c> 都建，含漁夫 18）——
+        ///    481 需要 1 條球睛威（45870）、484 需要 1 條月鱘（45846），都是表上直接有的真值。<br/>
+        /// ② preset 的 <c>RequiredFish</c>：至少要有一條目標魚在身上。<br/>
+        /// ③ 兩者都沒有 ⇒ <b>不宣稱達標</b>。這時會一路釣到逾時再放棄（<see cref="Fish"/> 的逾時路徑），
+        ///    不會卡死；而且會留下 Information 說明「沒有任何可用的交件依據」。
+        ///    這是刻意選的方向：空手交件是不可逆的損失，多釣幾分鐘只是浪費時間。
+        /// </remarks>
+        private static bool TimeGradedFishRequirementsMet(uint id, GatheringUtil.FishingTools fishingInfo,
+                                                          CosmicHelper.CosmicInfo missionEntry, string tag)
+        {
+            // 🔴 傳送／換區途中 GetItemCount 一律回 0。這時判「還沒達標」是安全方向（不會誤交件），
+            //    但要講清楚原因，否則 log 看起來會像「魚一直沒進帳」。
+            if (!PlayerHelper.InventoryReadable())
+            {
+                if (EzThrottler.Throttle("ICE: timed fish requirement inventory unreadable", 5000))
+                    IceLogging.Info($"任務 {id}〔時間型〕：玩家處於傳送／讀取中，道具數量讀出來會全是 0，暫停交件判定。", tag);
+                return false;
+            }
+
+            if (missionEntry.Gathering_Min.Count > 0)
+            {
+                foreach (var item in missionEntry.Gathering_Min)
+                {
+                    if (!PlayerHelper.GetItemCount(item.Key, out var have) || have < item.Value)
+                    {
+                        IceLogging.Debug($"任務 {id}〔時間型〕：資料表要求道具 {item.Key} × {item.Value}，目前 {have}。繼續釣。", tag);
+                        return false;
+                    }
+                }
+
+                if (EzThrottler.Throttle($"ICE: timed fish sheet met {id}", 10000))
+                    IceLogging.Info($"任務 {id}〔時間型〕：資料表的數量需求已全部滿足，判定可交件"
+                                  + $"（依據＝WKSMissionToDo.RequiredItem，共 {missionEntry.Gathering_Min.Count} 項）。", tag);
+                return true;
+            }
+
+            if (fishingInfo.RequiredFish.Count > 0)
+            {
+                foreach (var fishEntry in fishingInfo.RequiredFish)
+                {
+                    foreach (var fishId in fishEntry.Value)
+                    {
+                        if (PlayerHelper.GetItemCount(fishId, out var have) && have > 0)
+                        {
+                            if (EzThrottler.Throttle($"ICE: timed fish any met {id}", 10000))
+                                IceLogging.Info($"任務 {id}〔時間型〕：沒有數量門檻可用，改以「至少一條目標魚」為交件依據，"
+                                              + $"已符合（道具 {fishId} × {have}）。", tag);
+                            return true;
+                        }
+                    }
+                }
+
+                IceLogging.Debug($"任務 {id}〔時間型〕：目標魚一條都還沒有，繼續釣。", tag);
+                return false;
+            }
+
+            if (EzThrottler.Throttle($"ICE: timed fish no criteria {id}", 30000))
+                IceLogging.Info($"任務 {id}〔時間型〕：preset 沒有 AmountRequired、也沒有 RequiredFish，資料表同樣沒有數量需求 —— "
+                              + "沒有任何可用的交件依據，所以不判定為可交件，會一路釣到逾時再放棄。"
+                              + "（原本的分數保底在這一型上是恆真的，會直接空手交件。）", tag);
+            return false;
         }
 
         /// <summary>
