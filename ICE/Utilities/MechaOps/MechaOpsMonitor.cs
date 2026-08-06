@@ -266,6 +266,11 @@ internal static unsafe class MechaOpsMonitor
         // 目標點位每幀取樣（不進節流）——理由見 ActiveTargets 的註解。
         SampleTargets();
 
+        // 目的指示的 ObjectTable 解析也每幀做：標記座標 250ms 更新一次沒差，
+        // 但「對上的那個物件現在在哪」慢 250ms 就會讓方向箭頭指偏。
+        // ⚠️ 只讀受管理 API，不碰任何原生結構。
+        MechaObjectiveTracker.ResolveFrame();
+
         if (!EzThrottler.Throttle("MechaOpsMonitorScan", 250))
             return;
 
@@ -376,9 +381,16 @@ internal static unsafe class MechaOpsMonitor
         var pos = Player.Position;
         var rot = Player.Object.Rotation;
         var target = Svc.Targets.Target;
+
+        // 🔴 這一行會進 IceLogging 的 LogSystem —— 那是一份 3000 筆的歷史紀錄，
+        //    而且 UI 上有「複製記錄到剪貼簿」。目標可能是**其他玩家**，
+        //    所以名字一律先過 MechaPrivacy（預設縮寫成「F. L.」）再寫進去。
+        //    ⚠️ 遮蔽必須發生在字串**進入 log 之前**，不能只在顯示端做——
+        //    紀錄一旦寫進去就補不回來了。
         var targetText = target == null
             ? "無"
-            : $"{target.Name} @ ({target.Position.X:F1}, {target.Position.Y:F1}, {target.Position.Z:F1})";
+            : $"{MechaPrivacy.Sanitize(target.Name.ToString(), target.ObjectKind, target.GameObjectId == Player.Object.GameObjectId)}"
+              + $" @ ({target.Position.X:F1}, {target.Position.Y:F1}, {target.Position.Z:F1})";
 
         var candidateText = string.Join("; ", candidates.Select(c => $"{c.ActionId} {c.Name} [{c.Shape.Kind} {c.Shape.Primary:F0}/{c.Shape.HalfWidth * 2:F0}]"));
 
@@ -558,6 +570,7 @@ internal static unsafe class MechaOpsMonitor
             EventFlags = 0;
             EventFlagsValid = false;
             eventDetail = null;
+            MechaObjectiveTracker.ClearMarkersOnly();
             return;
         }
 
@@ -579,14 +592,21 @@ internal static unsafe class MechaOpsMonitor
     private static MechaEventDetail? TryReadEventDetail(WKSMechaEventModule* mod)
     {
         if ((mod->Flags & WKSEventModuleFlag.HasCurrentEvent) == 0)
+        {
+            MechaObjectiveTracker.ClearMarkersOnly();
             return null;
+        }
 
         var ev = mod->CurrentEvent;
         if (ev == null)
+        {
+            MechaObjectiveTracker.ClearMarkersOnly();
             return null;
+        }
 
         if (!IsInsideEventArray(mod, ev))
         {
+            MechaObjectiveTracker.ClearMarkersOnly();
             // ⚠️ 這是「合格的失敗」：驗證不過就當作讀不到，絕不放寬條件。
             //    節流到 60 秒一次，不要每幀洗版。
             if (EzThrottler.Throttle("MechaEventPointerRejected", 60_000))
@@ -600,6 +620,10 @@ internal static unsafe class MechaOpsMonitor
             }
             return null;
         }
+
+        // 🔑 目的指示的取樣掛在這裡而不是別處，是因為安全論證的前提就是
+        //    「ev 已經通過 IsInsideEventArray」——放在這一行以外的任何地方都失去那個保證。
+        MechaObjectiveTracker.SampleMarkers(ev);
 
         // ---- 以下全部是純量讀取，位置一律落在 _events 這塊模組自有配置裡 ----
         return new MechaEventDetail(
@@ -751,5 +775,7 @@ internal static unsafe class MechaOpsMonitor
         EventFlags = 0;
         EventFlagsValid = false;
         eventDetail = null;
+        // 目的指示連同繫結與手動釘選一起丟掉——換區之後物件 id 一律失效。
+        MechaObjectiveTracker.Deactivate();
     }
 }

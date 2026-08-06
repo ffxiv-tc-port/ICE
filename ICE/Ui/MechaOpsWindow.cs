@@ -38,7 +38,7 @@ namespace ICE.Ui
             if (!C.ShowMechaAoeOverlay)
                 return false;
             if (!C.ShowMechaCooldowns && !C.ShowMechaTargets && !C.ShowMechaProcAlert
-                && !C.ShowMechaEventStatus && !C.ShowMechaEventProgress)
+                && !C.ShowMechaEventStatus && !C.ShowMechaEventProgress && !C.ShowMechaObjectives)
                 return false;
             if (!PlayerHelper.IsInCosmicZone())
                 return false;
@@ -46,6 +46,12 @@ namespace ICE.Ui
             // 沒在機甲階段、也沒有任何事件旗標時就整個收起來，
             // 不要在宇宙探索全程掛一個空視窗。
             if (MechaOpsMonitor.ActiveCandidates.Count > 0)
+                return true;
+
+            // 目的指示只要讀到過標記（或使用者釘了東西）就值得掛著——
+            // 協助員沒有機甲技能，這一行是他唯一看得到的東西。
+            if (C.ShowMechaObjectives
+                && (MechaObjectiveTracker.MarkerCount > 0 || MechaObjectiveTracker.PinnedCount > 0))
                 return true;
 
             if (C.ShowMechaEventStatus
@@ -70,6 +76,13 @@ namespace ICE.Ui
                 if (drewSomething)
                     ImGui.Separator();
                 drewSomething |= DrawEventProgress();
+            }
+
+            if (C.ShowMechaObjectives)
+            {
+                if (drewSomething)
+                    ImGui.Separator();
+                drewSomething |= DrawObjectiveRow();
             }
 
             if (C.ShowMechaProcAlert)
@@ -357,6 +370,102 @@ namespace ICE.Ui
             return ts.TotalHours >= 1d
                 ? $"{(int)ts.TotalHours}:{ts.Minutes:00}:{ts.Seconds:00}"
                 : $"{ts.Minutes:00}:{ts.Seconds:00}";
+        }
+
+        /// <summary>
+        /// 目的指示那一行：「已確認 / 讀到的標記數」。
+        ///
+        /// 🔑 UI 判準：「不知道」本身必須在**列上**看得見，不能藏進 tooltip，
+        /// 更不能畫成 0——把「這一輪根本沒讀到」畫成「0 個標記」會直接誤導使用者。
+        /// 所以取樣端用 <c>-1</c> 表示未知，這裡畫成灰色的「?」。
+        /// tooltip 藏的是「為什麼」，不是「有沒有問題」。
+        /// </summary>
+        private static bool DrawObjectiveRow()
+        {
+            var markerCount = MechaObjectiveTracker.MarkerCount;
+            var confirmed = MechaObjectiveTracker.ConfirmedCount;
+            var pins = MechaObjectiveTracker.PinnedCount;
+
+            // 🔑 這裡要分清楚三種狀態，不能全部畫成 0：
+            //   (a) 根本沒有進行中的事件  → 這一行不該存在（不是「0 個目的指示」）
+            //   (b) 有事件但一個標記都讀不到 → 「?」，那是真正的「不知道」
+            //   (c) 讀到了 N 個            → 「已確認/N」
+            // markerCount < 0 代表「這一輪沒去讀」，要靠事件旗標才分得出 (a) 還是 (b)。
+            var hasEvent = MechaOpsMonitor.EventFlagsValid
+                && (MechaOpsMonitor.EventFlags & WKSEventModuleFlag.HasCurrentEvent) != 0;
+
+            if (markerCount < 0 && !hasEvent && pins == 0)
+                return false;                       // (a)
+            if (markerCount == 0 && pins == 0)
+                return false;                       // 讀過了，真的沒有標記
+
+            ImGui.TextUnformatted("Objectives".Loc());
+            ImGui.SameLine();
+
+            if (markerCount < 0)
+            {
+                // (b) 未知 ≠ 0。灰色問號，tooltip 說明是哪一種未知。
+                ImGui.TextColored(ImGuiColors.DalamudGrey3, "?");
+            }
+            else
+            {
+                var shown = confirmed < 0 ? 0 : confirmed;
+                var color = shown >= markerCount ? ImGuiColors.HealerGreen
+                    : shown > 0 ? ImGuiColors.DalamudYellow
+                    : ImGuiColors.DalamudRed;
+                ImGui.TextColored(color, $"{(confirmed < 0 ? "?" : shown.ToString())}/{markerCount}");
+            }
+
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip(("Objectives confirmed in the object table / map markers read from the event.\n" +
+                                  "'?' means there is an event running but no marker could be read at all - " +
+                                  "that is not the same as zero.\n" +
+                                  "By default only confirmed objectives are drawn, so a low number here " +
+                                  "explains why the overlay looks empty.").Loc());
+            }
+
+            if (pins > 0)
+            {
+                ImGui.SameLine();
+                ImGui.TextDisabled($"+{pins}");
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip("Objects you marked yourself from the right-click menu.".Loc());
+            }
+
+            // 標記來源。⚠️ 三種來源的可信度不同，UI 上必須分得開：
+            //   Scan（預設）    → 灰色「~」：正常狀態，但清單可能含舊標記。刻意不用警告色。
+            //   VectorRejected  → 黃色「*」：使用者開了精準模式而它失敗了，這才是異常。
+            //   Vector          → 不畫任何東西。
+            switch (MechaObjectiveTracker.Source)
+            {
+                case MechaMarkerSource.Scan:
+                    ImGui.SameLine();
+                    ImGui.TextColored(ImGuiColors.DalamudGrey3, "~");
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.SetTooltip(("Markers come from scanning every marker slot. That never dereferences a " +
+                                          "game pointer, so it cannot crash - but the list can still contain " +
+                                          "leftovers from an earlier stage.\n" +
+                                          "Those are drawn with a faded ring and a '?' next to them.\n" +
+                                          "The exact list exists but reading it needs an opt-in that can crash the " +
+                                          "game; see 'Use the game's own marker list' in the settings.").Loc());
+                    }
+                    break;
+
+                case MechaMarkerSource.VectorRejected:
+                    ImGui.SameLine();
+                    ImGui.TextColored(ImGuiColors.DalamudYellow, "*");
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.SetTooltip(("You enabled the game's own marker list, but it failed its shape check " +
+                                          "this pass, so ICE fell back to scanning all marker slots.\n" +
+                                          "The fallback is safe, but positions may include stale entries.").Loc());
+                    }
+                    break;
+            }
+
+            return true;
         }
 
         /// <summary>

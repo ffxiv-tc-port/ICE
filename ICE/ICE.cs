@@ -114,6 +114,8 @@ public sealed partial class ICE : IDalamudPlugin
         Svc.PluginInterface.UiBuilder.Draw += windowSystem.Draw;
         // 機甲行動技能範圍（P1）：PctDrawList 只能在 ImGui frame 內用，必須掛 UiBuilder.Draw。
         Svc.PluginInterface.UiBuilder.Draw += MechaAoeOverlay.Draw;
+        // 機甲行動右鍵選單：純顯示項目，出現條件收在宇宙區域內（見 MechaContextMenu）。
+        MechaContextMenu.Enable();
         Svc.PluginInterface.UiBuilder.OpenMainUi += () =>
         {
             mainWindow.IsOpen = true;
@@ -168,6 +170,7 @@ public sealed partial class ICE : IDalamudPlugin
         GenericHelpers.Safe(() => Svc.Framework.Update -= Tick);
         GenericHelpers.Safe(() => Svc.PluginInterface.UiBuilder.Draw -= windowSystem.Draw);
         GenericHelpers.Safe(() => Svc.PluginInterface.UiBuilder.Draw -= MechaAoeOverlay.Draw);
+        GenericHelpers.Safe(MechaContextMenu.Disable);
         GenericHelpers.Safe(TextAdvancedManager.UnlockTA);
         GenericHelpers.Safe(YesAlreadyManager.Unlock);
         GenericHelpers.Safe(EzIpcFailureLog.Disable);
