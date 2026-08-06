@@ -206,7 +206,8 @@ internal static class MechaContextMenu
 
         sb.AppendLine($"  Objectives: markers={MechaObjectiveTracker.MarkerCount} " +
                       $"confirmed={MechaObjectiveTracker.ConfirmedCount} " +
-                      $"source={(MechaObjectiveTracker.SourceNote.Length == 0 ? "vector" : MechaObjectiveTracker.SourceNote)} " +
+                      $"source={MechaObjectiveTracker.Source} " +
+                      $"useVector={C.MechaObjectiveUseMarkerVector} " +
                       $"pins={MechaObjectiveTracker.PinnedCount}");
         foreach (var m in MechaObjectiveTracker.Markers)
         {

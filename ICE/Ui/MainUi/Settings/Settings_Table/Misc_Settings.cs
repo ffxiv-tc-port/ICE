@@ -1,4 +1,6 @@
 ﻿using Dalamud.Interface;
+using Dalamud.Interface.Colors;
+using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using ECommons.GameHelpers;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
@@ -283,6 +285,43 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     {
                         C.ShowMechaObjectiveNames = showObjectiveNames;
                         C.Save();
+                    }
+
+                    // 🔴🔴 部署閘門下的選用路徑。這是這一組設定裡唯一一個「開了可能讓遊戲
+                    //      直接關閉」的開關，所以警告不藏 tooltip —— 打開之後在列下面用紅字講。
+                    bool useVector = C.MechaObjectiveUseMarkerVector;
+                    if (ImGui.Checkbox("Use the game's own marker list".Loc() + "###ICEMechaObjectiveUseMarkerVector", ref useVector))
+                    {
+                        C.MechaObjectiveUseMarkerVector = useVector;
+                        C.Save();
+                    }
+                    ImGui.SameLine();
+                    ImGui.TextColored(ImGuiColors.DalamudRed, "!");
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.SetTooltip(("Off (default, recommended): ICE scans every marker slot. It never follows a " +
+                                          "game pointer it cannot verify first, so this can never crash - but the list " +
+                                          "may include leftovers from an earlier stage. Those are drawn faded, with a " +
+                                          "'?' next to them.\n\n" +
+                                          "On: ICE reads the list the game itself keeps of which markers are live. " +
+                                          "That list is exact and never stale.\n" +
+                                          "The catch is that the list lives in the game's heap, and there is no way for " +
+                                          "ICE to check that memory is still valid before reading it. If that assumption " +
+                                          "ever stops holding, the failure is an access violation, which cannot be " +
+                                          "caught - the game closes on the spot.\n\n" +
+                                          "Only turn this on if stale markers are actually getting in your way.").Loc());
+                    }
+
+                    if (useVector)
+                    {
+                        ImGui.Indent();
+                        ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + 360f * ImGuiHelpers.GlobalScale);
+                        ImGui.TextColored(ImGuiColors.DalamudRed,
+                            ("This reads game memory that ICE cannot verify beforehand. If the assumption behind it " +
+                             "ever breaks, the game closes immediately and nothing can catch it. " +
+                             "Turn it back off unless you are specifically fighting stale markers.").Loc());
+                        ImGui.PopTextWrapPos();
+                        ImGui.Unindent();
                     }
 
                     ImGui.Unindent();

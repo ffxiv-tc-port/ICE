@@ -433,15 +433,36 @@ namespace ICE.Ui
                     ImGui.SetTooltip("Objects you marked yourself from the right-click menu.".Loc());
             }
 
-            if (MechaObjectiveTracker.SourceNote.Length > 0)
+            // 標記來源。⚠️ 三種來源的可信度不同，UI 上必須分得開：
+            //   Scan（預設）    → 灰色「~」：正常狀態，但清單可能含舊標記。刻意不用警告色。
+            //   VectorRejected  → 黃色「*」：使用者開了精準模式而它失敗了，這才是異常。
+            //   Vector          → 不畫任何東西。
+            switch (MechaObjectiveTracker.Source)
             {
-                ImGui.SameLine();
-                ImGui.TextColored(ImGuiColors.DalamudYellow, "*");
-                if (ImGui.IsItemHovered())
-                {
-                    ImGui.SetTooltip(("The marker list failed its shape check, so ICE fell back to scanning " +
-                                      "all marker slots. Positions may include stale entries.").Loc());
-                }
+                case MechaMarkerSource.Scan:
+                    ImGui.SameLine();
+                    ImGui.TextColored(ImGuiColors.DalamudGrey3, "~");
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.SetTooltip(("Markers come from scanning every marker slot. That never dereferences a " +
+                                          "game pointer, so it cannot crash - but the list can still contain " +
+                                          "leftovers from an earlier stage.\n" +
+                                          "Those are drawn with a faded ring and a '?' next to them.\n" +
+                                          "The exact list exists but reading it needs an opt-in that can crash the " +
+                                          "game; see 'Use the game's own marker list' in the settings.").Loc());
+                    }
+                    break;
+
+                case MechaMarkerSource.VectorRejected:
+                    ImGui.SameLine();
+                    ImGui.TextColored(ImGuiColors.DalamudYellow, "*");
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.SetTooltip(("You enabled the game's own marker list, but it failed its shape check " +
+                                          "this pass, so ICE fell back to scanning all marker slots.\n" +
+                                          "The fallback is safe, but positions may include stale entries.").Loc());
+                    }
+                    break;
             }
 
             return true;

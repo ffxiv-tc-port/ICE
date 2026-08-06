@@ -29,10 +29,12 @@ internal static class MechaAoeOverlay
     // 目的指示（ABGR）。⚠️ 顯示風格以 NecroLens 為基準：**有方向、有外框、不疊顏色**——
     // 所以底下全部是描邊與線段，一個 Filled 都沒有（唯一的例外是中心那顆小圓點）。
     // 顏色也刻意跟目標點位的綠／紅錯開，免得兩套疊在一起分不出誰是誰。
-    private const uint ObjectiveConfirmedColor = 0xFF32C8FF;   // 金：ObjectTable 已確認
+    private const uint ObjectiveConfirmedColor = 0xFF32C8FF;   // 金（實）：來源可信 ＋ ObjectTable 已確認
+    private const uint ObjectiveStaleRiskColor = 0x9032C8FF;   // 金（淡）：同上，但來源是逐格掃描，可能是舊標記
     private const uint ObjectiveUnconfirmedColor = 0xB0A0A0A0; // 灰：只有座標，沒對上物件
     private const uint ObjectivePinColor = 0xFFFFC040;         // 淺藍：使用者自己釘的
     private const uint ObjectiveTextColor = 0xE0FFFFFF;
+    private const uint ObjectiveStaleTextColor = 0xB0C0E0FF;   // 過期風險的標籤，跟一般標籤分得開
 
     /// <summary>
     /// 每個技能「打得到幾個 / 現在蓋到幾個」。<see cref="Ui.MechaOpsWindow"/> 讀這一份。
@@ -182,11 +184,17 @@ internal static class MechaAoeOverlay
 
         foreach (var o in objectives)
         {
+            // 三態 ＋ 一個「來源可不可信」的維度：
+            //   淺藍          ＝ 使用者自己釘的（來源就是他本人，不可能過期）
+            //   金（實）粗框  ＝ ObjectTable 已確認，而且標記來自遊戲的有效清單
+            //   金（淡）中框  ＝ ObjectTable 已確認，但標記是逐格掃描來的 → 可能是舊的
+            //   灰   細框     ＝ 連 ObjectTable 都沒對上（預設不會走到這裡）
             var color = o.IsPin ? ObjectivePinColor
-                : o.Confirmed ? ObjectiveConfirmedColor
-                : ObjectiveUnconfirmedColor;
+                : !o.Confirmed ? ObjectiveUnconfirmedColor
+                : o.StaleRisk ? ObjectiveStaleRiskColor
+                : ObjectiveConfirmedColor;
 
-            var thickness = o.Confirmed ? 3f : 1.5f;
+            var thickness = !o.Confirmed ? 1.5f : o.StaleRisk ? 2f : 3f;
             var radius = MathF.Max(o.Radius, 1.5f);
 
             // 外框：描邊，不填色。
@@ -200,13 +208,39 @@ internal static class MechaAoeOverlay
             if (C.ShowMechaObjectiveDirection)
                 DrawDirectionArrow(drawList, origin, o.Position, radius, color);
 
-            if (C.ShowMechaObjectiveNames)
-            {
-                var dist = Vector3.Distance(origin, o.Position);
-                var label = o.Confirmed ? $"{o.Label}  {dist:F0}m" : $"{MechaPrivacy.Unknown}  {dist:F0}m";
-                drawList.AddText(o.Position, ObjectiveTextColor, label, 1f);
-            }
+            DrawObjectiveLabel(drawList, o, origin);
         }
+    }
+
+    /// <summary>
+    /// 目的指示的標籤。
+    ///
+    /// 🔑 <b>「不確定」本身一定要在畫面上看得見</b>（使用者的 UI 判準：tooltip 藏的是
+    /// 「為什麼」，不是「有沒有問題」）。所以：
+    ///  - 沒對上 ObjectTable、或標記可能是上一階段留下的 → 一律附上「?」，
+    ///    而且 <b>就算使用者把名稱關掉也照畫</b>（只是縮到只剩「?」）。
+    ///  - 兩者都沒問題時才尊重 <c>ShowMechaObjectiveNames</c>，該關就整個不畫。
+    /// 只靠外框深淺區分是不夠的——淡一點的金色在明亮地形上很容易看不出來。
+    /// </summary>
+    private static void DrawObjectiveLabel(PctDrawList drawList, in MechaObjective o, Vector3 origin)
+    {
+        var uncertain = !o.Confirmed || o.StaleRisk;
+        if (!uncertain && !C.ShowMechaObjectiveNames)
+            return;
+
+        var color = uncertain ? ObjectiveStaleTextColor : ObjectiveTextColor;
+
+        if (!C.ShowMechaObjectiveNames)
+        {
+            // 名稱關著，但不確定性還是得說出來。
+            drawList.AddText(o.Position, color, MechaPrivacy.Unknown, 1f);
+            return;
+        }
+
+        var dist = Vector3.Distance(origin, o.Position);
+        var name = o.Confirmed ? o.Label : MechaPrivacy.Unknown;
+        var suffix = uncertain ? "  " + MechaPrivacy.Unknown : "";
+        drawList.AddText(o.Position, color, $"{name}  {dist:F0}m{suffix}", 1f);
     }
 
     /// <summary>

@@ -144,6 +144,19 @@ namespace ICE.Config
         // 在目的指示旁邊標名稱與距離。
         public bool ShowMechaObjectiveNames { get; set; } = true;
 
+        // 🔴🔴 部署閘門：預設 false。
+        // 開啟＝改用 WKSMechaEvent.MapMarkerPtrs（一個 std::vector）來決定「哪些標記
+        // 現在真的有效」。準確度較高，不會畫到上一階段留下的舊標記。
+        // 代價是必須**解參考那個 vector 的後備儲存區**，而它在遊戲的堆積上——
+        // First/Last 兩個欄位本身在已驗證的範圍內（讀它們沒有風險），但我們
+        // **沒有任何辦法驗證 First 指向的那塊記憶體是不是還活著**。
+        // 形狀檢查（null 對稱／差值是 8 的倍數／筆數 ≤ 30／對齊）是啟發式，不是範圍驗證。
+        // 假設不成立的失敗形式是 AccessViolationException——那是 corrupted-state
+        // exception，try/catch 與 HookSafety.ExecuteSafe 都攔不到，會直接把遊戲帶走。
+        // 關著時走「掃 30 格純量」的路徑：一個指標都不解，最壞只是多畫到過期的標記，
+        // 而「這個標記可能已過期」在疊加層與狀態視窗上都標示得出來。
+        public bool MechaObjectiveUseMarkerVector { get; set; } = false;
+
         // ---- 右鍵選單（Utilities/MechaOps/MechaContextMenu.cs）----
         // 只在宇宙區域出現，且全部是純顯示項目（釘選標示／複製診斷）。
         public bool ShowMechaContextMenu { get; set; } = true;

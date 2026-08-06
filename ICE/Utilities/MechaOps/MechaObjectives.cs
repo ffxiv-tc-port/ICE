@@ -52,6 +52,11 @@ internal readonly record struct MechaObjectiveMarker(
 /// <param name="ObjectId">對上的物件 id；<c>0</c> ＝ 這一幀在 ObjectTable 裡找不到對應物件。</param>
 /// <param name="Position">要畫在哪。對上物件時是**物件當下的位置**，否則是標記自己的座標。</param>
 /// <param name="Label">已經過 <see cref="MechaPrivacy"/> 處理的顯示名稱。</param>
+/// <param name="StaleRisk">
+/// 這一筆的來源是「掃 30 格」而不是遊戲自己的有效標記清單，所以**可能是上一階段留下的舊標記**。
+/// 🔑 這是 PalacePal 式兩態標示的第二態：繪製端一定要讓它在畫面上看得出來
+/// （淡色外框 ＋ 一律附帶「?」），不能只寫在 tooltip 裡。
+/// </param>
 internal readonly record struct MechaObjective(
     MechaObjectiveMarker Marker,
     ulong ObjectId,
@@ -59,13 +64,38 @@ internal readonly record struct MechaObjective(
     float Radius,
     string Label,
     ObjectKind Kind,
-    float MatchDistance)
+    float MatchDistance,
+    bool StaleRisk)
 {
     /// <summary>ObjectTable 有對上。這是「已確認」與「只是個座標」的分界。</summary>
     public bool Confirmed => ObjectId != 0;
 
     /// <summary>這一筆是使用者從右鍵選單釘的，不是遊戲給的標記（<c>Slot &lt; 0</c>）。</summary>
     public bool IsPin => Marker.Slot < 0;
+}
+
+/// <summary>
+/// 這一輪的標記是從哪裡來的。⚠️ 三個值代表**三種不同的可信度**，不要合併。
+/// </summary>
+internal enum MechaMarkerSource
+{
+    /// <summary>
+    /// 掃 30 格 <c>_mapMarkers</c> 的純量（**預設**）。一個指標都不解，所以絕不會崩，
+    /// 但清單裡可能混有上一階段留下、遊戲還沒清掉的舊標記。
+    /// </summary>
+    Scan,
+
+    /// <summary>
+    /// 走 <c>MapMarkerPtrs</c>，也就是遊戲自己維護的有效標記清單。清單是準的，
+    /// 但需要解參考堆積上的後備儲存區（見 <c>C.MechaObjectiveUseMarkerVector</c>）。
+    /// </summary>
+    Vector,
+
+    /// <summary>
+    /// 使用者開了 vector 模式，但這一輪的形狀檢查沒過，已自動退回掃描。
+    /// ⚠️ 這是**異常**，跟預設的 <see cref="Scan"/> 不是同一件事，UI 要分開標示。
+    /// </summary>
+    VectorRejected,
 }
 
 /// <summary>
@@ -109,22 +139,36 @@ internal readonly record struct MechaObjective(
 /// </code>
 /// ─────────────────────────────────────────────────────────────────────
 ///
-/// 🔴 <b>安全設計</b>（就算上面的證明日後失效也不會把遊戲帶走）：
+/// 🔴🔴 <b>部署閘門的處置（2026-08-06）</b>
+///
+/// 上面那些偏移雖然離線證明過，<b>但 <c>MapMarkerPtrs</c> 的後備儲存區在遊戲堆積上，
+/// 我們沒有辦法對它做真正的範圍驗證</b>——只能做形狀啟發式。依艦隊紅線
+/// 「未證實假設 ＋ 原生指標 ＝ 部署閘門，要先改成『假設不成立也不會崩』才准出貨」，
+/// <b>預設路徑改成完全不解參考的「掃 30 格純量」</b>，vector 那條路移到
+/// <c>C.MechaObjectiveUseMarkerVector</c>（預設 <c>false</c>）後面。
+///
+/// 為什麼不做「真正的驗證」：唯一能判斷那塊堆積還活不活的方法是去 probe 行程記憶體
+/// （<c>VirtualQuery</c> 之類），那既踩到「不對執行中的遊戲做記憶體探測」的紅線，
+/// 又有 TOCTOU（查完到讀之間仍可能被釋放），而且就算頁面可讀也證明不了那是同一個
+/// vector。所以這個假設**離線與執行期都無法證實**，只能不預設走它。
+///
+/// 🔴 <b>安全設計</b>（預設路徑上完全沒有未驗證的解參考）：
 ///
 ///  1. 進到這裡的 <c>WKSMechaEvent*</c> 已經通過 <c>MechaOpsMonitor.IsInsideEventArray</c>
 ///     的範圍驗證，也就是它一定落在模組自有配置 <c>_events</c> 的某一格開頭。
 ///     <c>_mapMarkers</c> 跨越 ev+0x3928..ev+0x5098，整段都在那一格（0x5130）之內，
 ///     所以**讀它跟讀已經出貨的 +0x5104 進度欄位是同一個安全等級**。
-///  2. <c>MapMarkerPtrs</c>（StdVector）的三個指標欄位本身也在驗證過的範圍內，
-///     **讀**它們是安全的；真正需要小心的是**解參考** <c>First[i]</c>。
-///     所以先過 <see cref="TryReadVectorShape"/> 的形狀閘門（null 對稱、Last≥First、
-///     差值是 8 的倍數、筆數 ≤ 30、對齊），才允許解參考。
-///  3. 解出來的每一個元素指標，再過一次 <see cref="IsInsideMarkerArray"/>
-///     （落在 <c>_mapMarkers</c> 內 ＋ 對齊到格位開頭）才准讀。任何一個沒過就
-///     **整批放棄**並退回 (4)，絕不放寬條件。
-///  4. 形狀閘門沒過時退回「掃 30 格 <c>_mapMarkers</c>」——那塊記憶體是 (1) 保證過的，
-///     一個指標都不用解，用純量做有效性判斷。所以「vector 的假設不成立」的退化行為是
-///     **少幾個或多幾個標記**，不是崩潰。
+///  2. <b>預設路徑</b>＝<see cref="ScanAllSlots"/>：掃那 30 格的純量，
+///     <b>一個指標都不解</b>。代價是可能讀到上一階段留下的舊標記——這件事被記在
+///     <see cref="MechaObjective.StaleRisk"/> 上，繪製端一定會標示出來。
+///  3. 就算在預設路徑，<c>MapMarkerPtrs.First/Last</c> 仍然會被**讀**（那兩個欄位
+///     在已驗證範圍內，讀是安全的）：兩者都是 null 或長度為 0 時，那是遊戲給的
+///     **權威「現在沒有標記」**，直接發布空清單。這一步不解任何指標，卻消掉了
+///     「事件結束後把舊標記整批復活」這個最主要的過期來源。
+///  4. <b>選用路徑</b>（<c>MechaObjectiveUseMarkerVector</c>）才會解參考 <c>First[i]</c>，
+///     而且解出來的每一個元素指標還要再過一次 <see cref="IsInsideMarkerArray"/>
+///     （落在 <c>_mapMarkers</c> 內 ＋ 對齊到格位開頭）才准讀；任何一個沒過就整批放棄、
+///     退回 (2) 並在 UI 標成異常。
 ///  5. 全程不碰三個帶指標的欄位：<c>WKSMechaEventMapMarker.Name</c>（Utf8String）、
 ///     <c>MapMarkerData.TooltipString</c>、<c>WKSMechaEvent.CurrentStateHandler</c>。
 ///
@@ -164,8 +208,15 @@ internal static unsafe class MechaObjectiveTracker
     /// <summary>其中有幾個在 ObjectTable 裡對上了實體物件。<c>-1</c> ＝ 未知。</summary>
     public static int ConfirmedCount { get; private set; } = -1;
 
-    /// <summary>取樣走的是哪條路，空字串＝正常走 vector。給 tooltip 與 log 用。</summary>
-    public static string SourceNote { get; private set; } = "";
+    /// <summary>
+    /// 這一輪的標記是從哪裡來的。預設是 <see cref="MechaMarkerSource.Scan"/>——
+    /// ⚠️ 那**不是**故障，是部署閘門下的正常路徑；只有
+    /// <see cref="MechaMarkerSource.VectorRejected"/> 才是異常。
+    /// </summary>
+    public static MechaMarkerSource Source { get; private set; } = MechaMarkerSource.Scan;
+
+    /// <summary>掃描來源的標記可能是上一階段留下的。繪製端據此決定兩態樣式。</summary>
+    private static bool SourceHasStaleRisk => Source != MechaMarkerSource.Vector;
 
     private static string lastDiagSignature = "";
 
@@ -192,27 +243,37 @@ internal static unsafe class MechaObjectiveTracker
             }
 
             var found = new List<MechaObjectiveMarker>();
+
+            // 🔑 形狀判定一律先做，**因為它只讀 First/Last 這兩個純量、不解任何指標**。
+            //    在預設路徑上它唯一的用途就是下面那個「權威的空」判斷。
             var shape = ReadVectorShape(ev, out var first, out var count);
 
             if (shape == VectorShape.Empty)
             {
                 // 🔑 空 vector 是**權威答案**：這場事件現在沒有目的指示。
-                //    這裡絕對不能退回掃描——遊戲拆標記時只清 vector，
-                //    30 格 _mapMarkers 裡的舊資料是留著的，掃了會把上一階段的標記復活。
-                SourceNote = "";
+                //    這一步在兩條路徑上都做，而且不解任何指標——
+                //    遊戲拆標記時只清 vector，30 格 _mapMarkers 裡的舊資料是留著的，
+                //    少了這一關，掃描路徑會在事件結束後把上一階段的標記整批復活。
+                Source = MechaMarkerSource.Vector;   // 「沒有」這個答案本身是權威的，不帶過期風險
             }
-            else if (shape == VectorShape.Ok
+            else if (C.MechaObjectiveUseMarkerVector
+                     && shape == VectorShape.Ok
                      && TryReadViaVector(first, count, arrayBase, slotSize, slotCount, found))
             {
-                SourceNote = "";
+                // 🔴 只有使用者明確開啟時才會走到這裡（唯一會解參考堆積指標的路徑）。
+                Source = MechaMarkerSource.Vector;
             }
             else
             {
-                // 退化路徑：不解任何指標，直接掃已經被範圍驗證罩住的 30 格。
-                // 只有在 vector 的形狀真的不對時才會走到這裡。
+                // 預設路徑：不解任何指標，直接掃已經被範圍驗證罩住的 30 格。
                 found.Clear();
                 ScanAllSlots(arrayBase, slotSize, slotCount, found);
-                SourceNote = "scan";
+
+                // ⚠️ 要分清楚「這是預設路徑」與「使用者開了 vector 但它壞了」。
+                //    後者是異常，UI 上要跟前者長得不一樣。
+                Source = C.MechaObjectiveUseMarkerVector
+                    ? MechaMarkerSource.VectorRejected
+                    : MechaMarkerSource.Scan;
             }
 
             markers = found;
@@ -478,6 +539,9 @@ internal static unsafe class MechaObjectiveTracker
         var confirmed = 0;
         seenKeysScratch.Clear();
 
+        // 這一輪的標記是掃描來的還是遊戲的有效清單來的——整批同一個值。
+        var staleRisk = SourceHasStaleRisk;
+
         foreach (var marker in markers)
         {
             if (marker.Hidden)
@@ -515,7 +579,8 @@ internal static unsafe class MechaObjectiveTracker
                 drawRadius,
                 label,
                 match.Kind,
-                match.Distance));
+                match.Distance,
+                staleRisk));
         }
 
         // 使用者手動釘選的物件（右鍵選單）。用同一份快照，不再掃一次表。
@@ -531,7 +596,10 @@ internal static unsafe class MechaObjectiveTracker
                 MathF.Max(snap.HitboxRadius, 1.5f),
                 ResolveLabel(snap.ObjectId, snap.Kind, selfId),
                 snap.Kind,
-                0f));
+                0f,
+                // 釘選是使用者自己剛按的、而且每幀都在 ObjectTable 重查，
+                // 沒有「可能是舊資料」可言。
+                false));
         }
 
         // 清掉已經不存在的標記留下的繫結，免得字典無限成長。
@@ -666,7 +734,7 @@ internal static unsafe class MechaObjectiveTracker
         // ⚠️ 這個方法**每幀**都會被呼叫，所以簽章不能含每幀都在抖的數字。
         //    ConfirmedCount 會隨物件進出而跳動，這裡只分「0 vs 非 0」——
         //    因為要回答的問題是「為什麼什麼都沒畫」，不是「現在剛好幾個」。
-        var sig = $"{MarkerCount}/{(ConfirmedCount > 0 ? "+" : ConfirmedCount)}/{SourceNote}/{pinnedObjectIds.Count}";
+        var sig = $"{MarkerCount}/{(ConfirmedCount > 0 ? "+" : ConfirmedCount)}/{Source}/{pinnedObjectIds.Count}";
         if (sig == lastDiagSignature)
             return;
         if (!EzThrottler.Throttle("MechaObjectiveDiag", 10_000))
@@ -676,8 +744,15 @@ internal static unsafe class MechaObjectiveTracker
         var sb = new StringBuilder();
         sb.Append("目的指示：讀到 ").Append(MarkerCount < 0 ? "?" : MarkerCount.ToString()).Append(" 個標記，")
           .Append(ConfirmedCount < 0 ? "?" : ConfirmedCount.ToString()).Append(" 個在 ObjectTable 對上實體物件");
-        if (SourceNote == "scan")
-            sb.Append("（走的是掃描退化路徑，代表 MapMarkerPtrs 的形狀沒通過閘門）");
+        sb.Append(Source switch
+        {
+            // ⚠️ 預設就是 Scan，所以這裡的措辭刻意不是「錯誤」——但仍然要講清楚代價。
+            MechaMarkerSource.Scan =>
+                "（來源：逐格掃描＝預設的安全路徑，不解任何指標；清單可能含上一階段的舊標記）",
+            MechaMarkerSource.VectorRejected =>
+                "（⚠️ 已開啟 MapMarkerPtrs 模式，但這一輪形狀檢查沒過，已自動退回逐格掃描）",
+            _ => "（來源：MapMarkerPtrs，遊戲自己的有效標記清單）",
+        });
         if (pinnedObjectIds.Count > 0)
             sb.Append("；手動釘選 ").Append(pinnedObjectIds.Count).Append(" 個");
         if (MarkerCount > 0 && ConfirmedCount == 0)
@@ -700,7 +775,7 @@ internal static unsafe class MechaObjectiveTracker
         if (markers.Count > 0)
             markers = [];
         MarkerCount = -1;
-        SourceNote = "";
+        Source = MechaMarkerSource.Scan;
     }
 
     private static void ClearActive()
