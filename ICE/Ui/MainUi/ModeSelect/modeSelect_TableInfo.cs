@@ -1219,35 +1219,9 @@ namespace ICE.Ui.MainUi.ModeSelect
                         ImGui.Text($"{xp.Value}");
                     }
 
-                    if (mission.BronzeScore != 0)
-                    {
-                        ImGui.TableNextRow();
-                        ImGui.TableSetColumnIndex(0);
-                        ImGui.Text("Bronze Requirement".Loc());
-
-                        ImGui.TableNextColumn();
-                        ImGui.Text($"{mission.BronzeScore}");
-                    }
-
-                    if (mission.SilverScore != 0)
-                    {
-                        ImGui.TableNextRow();
-                        ImGui.TableSetColumnIndex(0);
-                        ImGui.Text("Silver Requirement".Loc());
-
-                        ImGui.TableNextColumn();
-                        ImGui.Text($"{mission.SilverScore}");
-                    }
-
-                    if (mission.GoldScore != 0)
-                    {
-                        ImGui.TableNextRow();
-                        ImGui.TableSetColumnIndex(0);
-                        ImGui.Text("Gold Requirement".Loc());
-
-                        ImGui.TableNextColumn();
-                        ImGui.Text($"{mission.GoldScore}");
-                    }
+                    DrawMedalRequirementRow("Bronze Requirement".Loc(), mission.BronzeScore, mission.IsTimeGraded);
+                    DrawMedalRequirementRow("Silver Requirement".Loc(), mission.SilverScore, mission.IsTimeGraded);
+                    DrawMedalRequirementRow("Gold Requirement".Loc(), mission.GoldScore, mission.IsTimeGraded);
 
                     if (mission.MarkerId != 0)
                     {
@@ -1858,6 +1832,47 @@ namespace ICE.Ui.MainUi.ModeSelect
                 ImGui.Text(FontAwesomeIcon.Star.ToIconString());
                 ImGui.PopFont();
                 ImGui.PopStyleColor();
+            }
+        }
+
+        /// <summary>
+        /// 任務資訊表裡的一列「銅／銀／金星門檻」。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 <b>時間型任務的門檻不是分數</b>：這一型（<c>MissionAttributes.ScoreTimeRemaining</c>，
+        /// 台服 34 個）的銀／金看的是「交件時剩餘時間要多少以上」，而
+        /// <c>WKSMissionUnit</c> 存的單位是<b>剩餘秒數 × 10</b>。舊碼直接把那個整數印出來，
+        /// 使用者看到的是「15100」而不是「25:10」——那個數字既不是分數也不是秒數，
+        /// 而且沒有任何徵兆顯示它需要換算。<br/><br/>
+        /// 判斷沿用 <see cref="CosmicHelper.CosmicInfo.IsTimeGraded"/>（＝排程器交件邏輯與
+        /// 疊加層在用的同一個旗標），不另立判斷，才不會出現「表格說是分數、交件卻按時間走」
+        /// 的分岔。<br/><br/>
+        /// 📌 離線核對（<c>exd-tc/7.20</c>）：34 個時間型任務的 <c>BronzeScore</c> 全是 0，
+        /// 所以銅星那一列在現行資料下不會出現；仍然走同一條路是為了日後真的有值時
+        /// 不會又印出一個沒換算的數字。
+        /// </remarks>
+        private static void DrawMedalRequirementRow(string label, uint rawValue, bool timeGraded)
+        {
+            if (rawValue == 0)
+                return;
+
+            ImGui.TableNextRow();
+            ImGui.TableSetColumnIndex(0);
+            ImGui.Text(label);
+
+            ImGui.TableNextColumn();
+
+            if (!timeGraded)
+            {
+                ImGui.Text($"{rawValue}");
+                return;
+            }
+
+            ImGui.Text("?? or more remaining".Loc(GameTextUtil.FormatDuration((int)(rawValue / 10))));
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip(("Silver and gold on this mission are judged on how much time is left when you " +
+                                  "turn in, not on a score.\nRaw sheet value: ?? (remaining seconds x 10).").Loc(rawValue));
             }
         }
 
