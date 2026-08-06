@@ -45,6 +45,12 @@ namespace ICE.Ui
         {
             ImGui.Text("Current state: ".Loc() + SchedulerMain.State.ToString());
             var currentMissionId = CosmicHelper.CurrentLunarMission;
+
+            // 沒有進行中的任務就把金星通知的門閂放掉：交件／放棄之後重接**同一個**任務時，
+            // 門閂若還鎖在那個 ID 上，第二趟達標就會靜默地不通知。
+            if (currentMissionId == 0)
+                MedalNotifier.ObserveScore(0, null, null);
+
             if (CosmicHelper.SheetMissionDict.TryGetValue(currentMissionId, out var missionName) && SchedulerMain.State != IceState.AbandonMission)
             {
                 ImGui.Text("Current Mission: [??]".Loc(currentMissionId));
@@ -361,7 +367,7 @@ namespace ICE.Ui
             ImGui.BeginGroup();
             var readable = timeGraded
                 ? DrawTimeGradedLine(sheet, silver, gold)
-                : DrawScoreGradedLine(sheet, silver, gold);
+                : DrawScoreGradedLine(missionId, sheet, silver, gold);
             ImGui.EndGroup();
 
             // 「起疑才查」的明細放 tooltip：面板原文、資料表數字。
@@ -400,9 +406,18 @@ namespace ICE.Ui
         }
 
         /// <summary>
-        /// 評價型任務那一行：<c>評價 1,820　✓ 銀星 1,200　✗ 金星 2,400</c>。
+        /// 評價型任務那一行：<c>評價 1,820　✓ 銀星 1,200　✗ 金星 2,400　距金星還差 580</c>。
         /// </summary>
-        private static bool DrawScoreGradedLine(CosmicHelper.CosmicInfo? sheet,
+        /// <remarks>
+        /// 尾巴那個「距金星還差 ??」<b>只有在目前評價與金星門檻兩邊都讀得到、而且還沒達標時才畫</b>：<br/>
+        /// • 已達金星就不畫（畫「還差 0」等於在講廢話，還白白撐寬版面）。<br/>
+        /// • 🔴 任一邊是 null 就不畫。拿 <c>current ?? 0</c> 去算差距會畫出「還差一整個門檻」——
+        ///   一個看起來完全合理、卻是憑空捏造的數字。這一行的「不知道」由前面的
+        ///   <c>評價 ?</c>（黃字）負責表達，不要在後面再補一個假數字。<br/><br/>
+        /// 同一組數字順便餵給 <see cref="MedalNotifier"/> 做「剛跨過金星」的一次性通知——
+        /// 這裡本來就每幀讀一次面板，<b>不是新開的輪詢</b>，而且那邊純通知、不改任何行為。
+        /// </remarks>
+        private static bool DrawScoreGradedLine(uint missionId, CosmicHelper.CosmicInfo? sheet,
             MissionObjectiveReader.MedalCondition silver,
             MissionObjectiveReader.MedalCondition gold)
         {
@@ -418,11 +433,28 @@ namespace ICE.Ui
             var silverThreshold = panelSilver ?? PositiveOrNull(sheet?.SilverScore);
             var goldThreshold = panelGold ?? PositiveOrNull(sheet?.GoldScore);
 
-            ImGui.TextUnformatted("Rating: ??".Loc(
-                current is uint c ? c.ToString("N0", CultureInfo.InvariantCulture) : UnknownMark));
+            // 🔴 讀不到分數時畫「評價 ?」而且是黃字（跟 DrawMedalTag 的第三態同色）——
+            //    「不知道」本身要在列上看得見，不能只有一個不起眼的問號，更不能畫成 0。
+            if (current is uint c)
+            {
+                ImGui.TextUnformatted("Rating: ??".Loc(c.ToString("N0", CultureInfo.InvariantCulture)));
+            }
+            else
+            {
+                ImGui.TextColored(ImGuiColors.DalamudYellow, "Rating: ??".Loc(UnknownMark));
+            }
 
             DrawMedalTag("Silver".Loc(), ScoreOrRaw(silverThreshold, silver), Reached(current, silverThreshold));
             DrawMedalTag("Gold".Loc(), ScoreOrRaw(goldThreshold, gold), Reached(current, goldThreshold));
+
+            if (current is uint cur && goldThreshold is uint goldTarget && cur < goldTarget)
+            {
+                ImGui.SameLine(0, 10);
+                ImGui.TextColored(ImGuiColors.DalamudGrey3,
+                    "?? to gold".Loc((goldTarget - cur).ToString("N0", CultureInfo.InvariantCulture)));
+            }
+
+            MedalNotifier.ObserveScore(missionId, current, goldThreshold);
 
             return current != null;
         }
