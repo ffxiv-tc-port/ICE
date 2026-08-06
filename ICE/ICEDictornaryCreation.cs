@@ -73,7 +73,12 @@ public sealed partial class ICE
             var wksToDo = ToDoSheet.GetRow(toDoValue);
             uint missionText = wksToDo.WKSMissionText.Value.RowId;
             var marker = MarkerSheet.GetRow(wksToDo.Unknown13);
-            uint territoryId = 1237; 
+            // ⚠️ 這個 545 是**國際服的邊界，直接寫死在原始碼裡**，而且它比其他寫死的表嚴重：
+            //    算出來的 territoryId 會原封不動存進 SheetMissionDict.TerritoryId，
+            //    是排程器（傳送、導航、釣點/採集點查表）真的會拿去用的值，不是純顯示。
+            //    台服沒有第二顆星的資料可以驗證這個分界，所以**這裡刻意不動它**；
+            //    改成在載入時把分配結果印一行 Information 出來 —— 見 ReportMissionTerritorySplit()。
+            uint territoryId = 1237;
             if (keyId < 545)
             {
                 territoryId = 1237;
@@ -697,7 +702,48 @@ public sealed partial class ICE
                 "[資料盤點]");
         }
 
+        ReportMissionTerritorySplit();
         ReportRouteCoverage();
+    }
+
+    /// <summary>
+    /// 把 <see cref="DictionaryCreation"/> 裡那個寫死的 <c>keyId &lt; 545</c> 分界
+    /// 在實機 log 上變成看得見的數字：任務各被分到哪個 territory、各幾筆。
+    /// </summary>
+    /// <remarks>
+    /// ⚠️ 那個 545 是<b>國際服的邊界</b>，而它產出的 <c>TerritoryId</c> 會原封不動存進
+    /// <c>SheetMissionDict</c>，是排程器真的會用的值（傳送、導航、釣點與採集點查表都吃它）——
+    /// 所以它比那些只影響顯示的寫死表嚴重得多。<br/><br/>
+    /// 📌 <b>台服 7.20 離線量測</b>（<c>exd-tc/7.20</c>）：<c>TerritoryType</c> 的 row <b>1291 整列是空的</b>，
+    /// 也就是台服目前<b>根本沒有</b>這個區域（row 1237 = <c>PlaceName</c> 5219「渴望灣」）。
+    /// 同時 <c>WKSMissionUnit</c> 的 545 以後全部是空名字，在上面的建表迴圈就被 <c>continue</c> 掉了，
+    /// 所以台服這一行的 1291 <b>應該是 0 筆</b>。<br/><br/>
+    /// 🔑 <b>為什麼兩個數字都印、而且 0 也要印</b>：只印 1291 的話，「0」既可能是真的 0，
+    /// 也可能是這個統計自己壞了；把 1237 的筆數一起印出來，就有了「已知會命中」的校準基準。
+    /// 同理，1291 就算是 0 也要出現在字面上 —— 「沒印出來」跟「是 0」在 log 上分不出來。<br/><br/>
+    /// 🔑 <b>第二顆星開放當天就看這一行</b>：1291 從 0 變成非 0 才算正常。
+    /// 若台服實際的 territory 不是 1291，這些任務會被導去一個不存在的區域，
+    /// 屆時要改的是 <see cref="DictionaryCreation"/> 裡那個分界，不是這個函式。
+    /// </remarks>
+    private static void ReportMissionTerritorySplit()
+    {
+        var byTerritory = new Dictionary<uint, int>();
+        foreach (var info in SheetMissionDict.Values)
+            byTerritory[info.TerritoryId] = byTerritory.GetValueOrDefault(info.TerritoryId) + 1;
+
+        // ⚠️ 這兩個一定要列出來，即使是 0。理由見上面的 remarks。
+        uint[] known = [1237, 1291];
+        var parts = known.Select(id => $"{id} {byTerritory.GetValueOrDefault(id)} 筆").ToList();
+        parts.AddRange(byTerritory.Where(x => !known.Contains(x.Key))
+                                  .OrderBy(x => x.Key)
+                                  .Select(x => $"{x.Key} {x.Value} 筆（預期外）"));
+
+        IceLogging.Info(
+            $"任務表建立完成，共 {SheetMissionDict.Count} 筆；依區域分配："
+            + string.Join("、", parts)
+            + "。分界是原始碼寫死的 keyId>=545（沿用自國際服），"
+            + "台服目前第二顆星尚未開放，1291 應為 0 筆。",
+            "[資料盤點]");
     }
 
     /// <summary>
