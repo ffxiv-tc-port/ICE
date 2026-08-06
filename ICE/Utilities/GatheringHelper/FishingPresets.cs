@@ -1044,8 +1044,15 @@ public static partial class GatheringUtil
             {
                 "AH6_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",
             },
-            AmountRequired = 0,
-            UniqueFish = false,
+            // 2026-08-06 使用者實機回報「釣了一種就中斷」後修正：**這個任務要 5 種**。
+            //    先前給的是「至少一條目標魚在身上」這個權宜規則（表上查不到數量），
+            //    所以釣到第一種就判達標。5 這個數字有兩個獨立來源互相印證：
+            //      ① 使用者實測原話「任務要求5種」；
+            //      ② 上面那串 preset 的 ListOfFish 正好列 5 筆（45847~45851）。
+            //    45851（Weeping Minnow）在 preset 裡是 Enabled=false —— 那是「沒有專屬提鉤
+            //    規則」不是「不會咬」，同釣點照樣釣得到，要算進 5 種裡；先前排除它是誤判。
+            AmountRequired = 5,
+            UniqueFish = true,
             Baits = new Dictionary<string, List<uint>>()
             {
             },
@@ -1089,6 +1096,10 @@ public static partial class GatheringUtil
                 ["Silvermoon Tilapia"] = new List<uint>()
                 {
                     45850,
+                },
+                ["Weeping Minnow"] = new List<uint>()
+                {
+                    45851,
                 },
             },
         },
