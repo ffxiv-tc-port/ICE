@@ -11,8 +11,8 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
     {
         public static void Draw()
         {
-            ImGui.Checkbox("Force OOM Main", ref SchedulerMain.DebugOOMMain);
-            ImGui.Checkbox("Force OOM Sub", ref SchedulerMain.DebugOOMSub);
+            ImGui.Checkbox("Force OOM Main".Loc(), ref SchedulerMain.DebugOOMMain);
+            ImGui.Checkbox("Force OOM Sub".Loc(), ref SchedulerMain.DebugOOMSub);
             // ImGui.Checkbox("Legacy Failsafe WKSRecipe Select", ref C.FailsafeRecipeSelect);
 
             var missionMap = new List<(string name, Func<byte> get, Action<byte> set)>
@@ -27,7 +27,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 .OrderBy(m => m.Priority)
                 .ToList();
 
-            if (ImGui.Button("Get Sinus Forecast"))
+            if (ImGui.Button("Get Sinus Forecast".Loc()))
             {
                 List<WeatherForecast> forecast = WeatherForecastHandler.GetTerritoryForecast(1237);
                 Func<WeatherForecast, string> formatTime = (forecast) => WeatherForecastHandler.FormatForecastTime(forecast.Time);
@@ -49,13 +49,13 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
             using (ImRaii.Disabled(!PlayerHelper.IsInCosmicZone()))
             {
-                if (ImGui.Button("Refresh Forecast"))
+                if (ImGui.Button("Refresh Forecast".Loc()))
                 {
                     WeatherForecastHandler.GetForecast();
                 }
             }
             bool gatherDebug = C.ShowDebugGatherInfo;
-            if (ImGui.Checkbox("Show Gather Debug Info", ref gatherDebug))
+            if (ImGui.Checkbox("Show Gather Debug Info".Loc(), ref gatherDebug))
             {
                 C.ShowDebugGatherInfo = gatherDebug;
                 C.Save();

@@ -126,7 +126,7 @@ namespace ICE.Ui
                     break;
 
                 default:
-                    ImGui.Text("Hehe");
+                    ImGui.Text("No content for this tab yet.".Loc());
                     break;
             }
         }

@@ -233,8 +233,8 @@ namespace ICE.Ui.MainUi.ModeSelect
                 ImGui.TableSetupColumn("Enabled".Loc()); // 0
                 ImGui.TableSetupColumn("Job".Loc());
                 ImGui.TableSetupColumn("Manual".Loc());
-                ImGui.TableSetupColumn("ID");
-                ImGui.TableSetupColumn("✓");
+                ImGui.TableSetupColumn("ID".Loc());
+                ImGui.TableSetupColumn("✓".Loc());
                 ImGui.TableSetupColumn("Mission Name".Loc());
                 ImGui.TableSetupColumn("Cosmo".Loc());
                 ImGui.TableSetupColumn("Lunar".Loc());
@@ -244,11 +244,11 @@ namespace ICE.Ui.MainUi.ModeSelect
                 // Xp Columns Here
                 float padding = 10f;
                 float xpWidth = ImGui.CalcTextSize("III").X + padding;
-                ImGui.TableSetupColumn("I"); // 10
-                ImGui.TableSetupColumn("II");
-                ImGui.TableSetupColumn("III");
-                ImGui.TableSetupColumn("IV");
-                ImGui.TableSetupColumn("V"); // 14
+                ImGui.TableSetupColumn("I".Loc()); // 10
+                ImGui.TableSetupColumn("II".Loc());
+                ImGui.TableSetupColumn("III".Loc());
+                ImGui.TableSetupColumn("IV".Loc());
+                ImGui.TableSetupColumn("V".Loc()); // 14
 
                 ImGui.TableSetupColumn("Turnin Mode".Loc()); // 15
                 ImGui.TableSetupColumn("Gathering Profile".Loc());
@@ -368,7 +368,7 @@ namespace ICE.Ui.MainUi.ModeSelect
                 #region ID
 
                 ImGui.TableSetColumnIndex(columnIndexCount);
-                ImGui.TableHeader("ID");
+                ImGui.TableHeader("ID".Loc());
                 if (ImGui.IsItemHovered())
                 {
                     ImGui.BeginTooltip();
@@ -382,7 +382,7 @@ namespace ICE.Ui.MainUi.ModeSelect
                 #region Completed
 
                 ImGui.TableSetColumnIndex(columnIndexCount);
-                ImGui.TableHeader("✓");
+                ImGui.TableHeader("✓".Loc());
                 if (ImGui.IsItemHovered())
                 {
                     ImGui.BeginTooltip();

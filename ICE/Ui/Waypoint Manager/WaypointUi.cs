@@ -34,10 +34,10 @@ public static class WaypointUi
         var paths = _pathManager.ListAllPaths();
         if (paths.Count == 0)
         {
-            ImGui.Text("No path files found.");
-            ImGui.InputText("New Path Name", ref _newFileName, 64);
+            ImGui.Text("No path files found.".Loc());
+            ImGui.InputText("New Path Name".Loc(), ref _newFileName, 64);
             ImGui.SameLine();
-            if (ImGui.Button("Create New Path"))
+            if (ImGui.Button("Create New Path".Loc()))
             {
                 _currentPathName = _newFileName;
                 _currentPathFile = new PathFile { PathName = _currentPathName };
@@ -50,7 +50,7 @@ public static class WaypointUi
         if (_selectedPathIndex >= paths.Count)
             _selectedPathIndex = 0;
 
-        if (ImGui.BeginCombo("Path File", _selectedPathIndex >= 0 ? paths[_selectedPathIndex] : "Select..."))
+        if (ImGui.BeginCombo("Path File".Loc(), _selectedPathIndex >= 0 ? paths[_selectedPathIndex] : "Select...".Loc()))
         {
             for (int i = 0; i < paths.Count; i++)
             {
@@ -67,14 +67,14 @@ public static class WaypointUi
             ImGui.EndCombo();
         }
         ImGui.SameLine();
-        if (ImGui.Button("Delete"))
+        if (ImGui.Button("Delete".Loc()))
         {
             _pathManager.Delete(_currentPathName);
         }
 
-        ImGui.InputText("New Path Name", ref _newFileName, 64);
+        ImGui.InputText("New Path Name".Loc(), ref _newFileName, 64);
         ImGui.SameLine();
-        if (ImGui.Button("Create New Path"))
+        if (ImGui.Button("Create New Path".Loc()))
         {
             _currentPathName = _newFileName;
             _currentPathFile = new PathFile { PathName = _currentPathName };
@@ -85,11 +85,11 @@ public static class WaypointUi
 
     private static void DrawWaypointList()
     {
-        ImGui.Text($"Waypoints in {_currentPathFile!.PathName}");
+        ImGui.Text("Waypoints in ??".Loc(_currentPathFile!.PathName));
 
         if (_currentPathFile.Waypoints.Count > 0)
         {
-            if (ImGui.Button("Test Route"))
+            if (ImGui.Button("Test Route".Loc()))
             {
                 Vector3[] waypoints = _currentPathFile.Waypoints.Select(wp => wp.ToVector3()).ToArray();
 
@@ -108,7 +108,7 @@ public static class WaypointUi
             ImGui.Text($"[{i}] X:{wp.X:0.0} Y:{wp.Y:0.0} Z:{wp.Z:0.0}");
             ImGui.SameLine();
             bool jump = wp.Jump;
-            if (ImGui.Checkbox("Jump", ref jump))
+            if (ImGui.Checkbox("Jump".Loc(), ref jump))
             {
                 wp.Jump = jump;
                 _currentPathFile.Waypoints[i] = wp; // write back
@@ -141,9 +141,9 @@ public static class WaypointUi
     private static void DrawAddWaypointSection()
     {
         ImGui.Separator();
-        ImGui.Text("Add New Waypoint:");
+        ImGui.Text("Add New Waypoint:".Loc());
 
-        if (ImGui.Button("Add Current POS"))
+        if (ImGui.Button("Add Current POS".Loc()))
         {
             _newWaypoint.X = Player.Position.X;
             _newWaypoint.Y = Player.Position.Y;
@@ -156,27 +156,27 @@ public static class WaypointUi
         ImGui.SetNextItemWidth(75);
         ImGui.InputFloat("X", ref _newWaypoint.X);
         ImGui.SameLine();
-        if (ImGui.Button("Set X"))
+        if (ImGui.Button("Set X".Loc()))
         {
             _newWaypoint.X = Player.Position.X;
         }
         ImGui.SetNextItemWidth(75);
         ImGui.InputFloat("Y", ref _newWaypoint.Y);
         ImGui.SameLine();
-        if (ImGui.Button("Set Y"))
+        if (ImGui.Button("Set Y".Loc()))
         {
             _newWaypoint.Y = Player.Position.Y;
         }
         ImGui.SetNextItemWidth(75);
         ImGui.InputFloat("Z", ref _newWaypoint.Z);
         ImGui.SameLine();
-        if (ImGui.Button("Set Z"))
+        if (ImGui.Button("Set Z".Loc()))
         {
             _newWaypoint.Z = Player.Position.Z;
         }
-        ImGui.Checkbox("Jump", ref _newJumpFlag);
+        ImGui.Checkbox("Jump".Loc(), ref _newJumpFlag);
 
-        if (ImGui.Button("Add Waypoint"))
+        if (ImGui.Button("Add Waypoint".Loc()))
         {
             _currentPathFile!.Waypoints.Add(WaypointUtil.FromVector3(_newWaypoint, _newJumpFlag));
             _newWaypoint = Vector3.Zero;
@@ -187,7 +187,7 @@ public static class WaypointUi
     private static void DrawSaveSection()
     {
         ImGui.Separator();
-        if (ImGui.Button("Save Path File"))
+        if (ImGui.Button("Save Path File".Loc()))
         {
             _pathManager.Save(_currentPathFile!);
         }
