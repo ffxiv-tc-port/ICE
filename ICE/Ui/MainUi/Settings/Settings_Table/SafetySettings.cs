@@ -87,6 +87,39 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     }
                 }
             }
+
+            // 「剩餘材料算不到金星就收手」。破壞性動作，所以預設是「關閉」，而且中間留了
+            // 「只提示」這一檔 —— 判定依賴的計分模型只能靠實機才驗得完，先讓使用者用
+            // 「只提示」對一個晚上的記錄檔，確認判斷準了再交給它真的收手。
+            var goldUnreachable = (int)C.CraftGoldUnreachable;
+            string[] goldUnreachableOptions =
+            [
+                "Off (keep crafting until materials run out)".Loc(),
+                "Notify only".Loc(),
+                "Stop the mission".Loc(),
+            ];
+            ImGui.SetNextItemWidth(320f);
+            if (ImGui.Combo("When gold is no longer possible".Loc() + "###ICECraftGoldUnreachable",
+                            ref goldUnreachable, goldUnreachableOptions, goldUnreachableOptions.Length))
+            {
+                C.CraftGoldUnreachable = (GoldUnreachableAction)goldUnreachable;
+                C.Save();
+            }
+            ImGuiEx.HelpMarker(
+                ("Crafting missions hand you a fixed, limited amount of materials. Once a few crafts have come out " +
+                "poorly the gold star can already be out of reach, and the plugin will still keep crafting until the " +
+                "materials are gone.\n" +
+                "This estimates the best score still reachable: current rating + (crafts you can still afford) x " +
+                "(the highest rating a single item can be worth, which is the gold threshold divided by the number of " +
+                "items the mission asks for).\n" +
+                "It only applies while the only thing you are still waiting for is gold, i.e. 'Auto turnin' or " +
+                "'Turnin at gold' is on for that mission.\n" +
+                "Anything it cannot work out (rating not readable, teleporting, critical or time-graded missions) " +
+                "counts as 'still possible' and nothing happens.\n" +
+                "'Stop the mission' hands over to the same routine the plugin already uses when materials run out: " +
+                "it tries to report first and only abandons if that is not possible.").Loc()
+            );
+
             bool jumpIfStuck = C.JumpIfStuck;
             if (ImGui.Checkbox("Jump if stuck during nav movement".Loc() + "###ICEJumpIfStuck", ref jumpIfStuck))
             {

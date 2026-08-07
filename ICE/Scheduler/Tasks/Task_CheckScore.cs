@@ -365,6 +365,15 @@ namespace ICE.Scheduler.Tasks
                     if (SchedulerMain.CurrentMissionUnavailable(tag, out var mission))
                         return true;
 
+                    // 每一件成品實際貢獻了多少評價 —— 這是「還有沒有機會拿到金星」唯一的地面真值，
+                    // 也是使用者事後判斷「剛剛那次收手是不是誤判」的依據。只在數字變動時印一行。
+                    CraftGoldFeasibility.Observe(Id, mission, missionInfo.CurrentScore, tag);
+
+                    // 「剩餘材料已經追不上金星」的處置（預設關閉）。判定不出來時一律當成還有機會，
+                    // 詳見 CraftGoldFeasibility 的說明。
+                    if (CraftGoldFeasibility.HandleUnreachableGold(Id, mission, missionInfo.CurrentScore, tag))
+                        return true;
+
                     bool shouldTurnin = false;
 
                     if (mission.Attributes.HasFlag(MissionAttributes.Critical))

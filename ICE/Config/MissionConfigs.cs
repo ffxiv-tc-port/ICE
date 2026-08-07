@@ -217,6 +217,18 @@ namespace ICE.Config
         public bool ShowSinusMissions { get; set; } = true;
         public bool ShowPhaennaMissions { get; set; } = true;
         public bool RemoveAfterGold { get; set; } = false;
+
+        /// <summary>
+        /// 製作任務算出「剩下的材料已經不可能拿到金星」之後要怎麼處置。預設 <c>Off</c>＝維持現行行為。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 這是<b>破壞性</b>動作，所以預設關閉，而且只有在「這一輪除了金星以外不會交件」
+        /// （<c>AutoTurnin</c> 或 <c>TurninGold</c>）時才會生效 —— 使用者本來就接受銀／銅星的話，
+        /// 「拿不到金星」根本不是放棄的理由。判定本身見
+        /// <see cref="ICE.Utilities.Cosmic_Helper.CraftGoldFeasibility"/>。
+        /// </remarks>
+        public GoldUnreachableAction CraftGoldUnreachable { get; set; } = GoldUnreachableAction.Off;
+
         public bool ShowExtraMissionInfo { get; set; } = true;
         public Dictionary<uint, uint> ScoreKeeper { get; set; } = new();
 
