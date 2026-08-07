@@ -810,6 +810,9 @@ namespace ICE.Scheduler.Tasks
 
                 if (step == 0)
                 {
+                    // 狀態 3911 ＝「強化洞察」，由任務指令槽上的 Action 41307「極致強化洞察」賦予
+                    // （所以下面按的是 GeneralAction 27，不是 41307）。對照表在
+                    // GatheringUtil.GathCollectableBuffs["CollectorsHigh"]。
                     if (!PlayerHelper.HasStatusId(3911) && GatheringUtil.CollectStandardCharges() > 0)
                     {
                         if (EzThrottler.Throttle("Using special buff", 100))
