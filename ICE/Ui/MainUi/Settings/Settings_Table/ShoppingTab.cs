@@ -3,13 +3,18 @@ using Dalamud.Interface.Utility.Raii;
 using Dalamud.Utility;
 using ECommons;
 using ICE.Config;
+using ICE.Utilities.Cosmic_Helper;
 using Lumina.Excel.Sheets;
+using System.Collections.Generic;
 
 namespace ICE.Ui.MainUi.Settings.Settings_Table
 {
     internal class ShoppingTab
     {
         private static string ItemSearch = string.Empty;
+
+        // 已回報過的無效採購項目，避免在繪製路徑上每幀重複寫 log。
+        private static readonly HashSet<uint> ReportedBadShoppingItems = [];
 
         public static unsafe void Draw()
         {
@@ -119,8 +124,21 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 for (int i = 0; i < C.CosmoShoppingOrder.Count; i++)
                 {
                     uint itemId = C.CosmoShoppingOrder[i];
-                    var setting = C.CosmoShopping[itemId];
-                    var itemInfo = Svc.Data.GetExcelSheet<Item>().GetRow(itemId);
+
+                    // CosmoShoppingOrder／CosmoShopping 都來自設定檔（使用者可編輯、也可能是別的版本
+                    // 或別的服留下來的）。兩者可能不同步，道具 id 也可能不存在於台服的 Item 表。
+                    // 字典索引子擲 KeyNotFoundException、GetRow() 擲 ArgumentOutOfRangeException，
+                    // 而這裡在 ImGui 繪製路徑上 —— 擲一次就會讓 UiBuilder 把 Draw/OpenConfigUi
+                    // 設為 null，整個 ICE 介面到重開遊戲前都不會回來。
+                    // 同一張表在本檔上方的商店清單已經用 TryGetRow，這裡沿用同一套寫法。
+                    if (!C.CosmoShopping.TryGetValue(itemId, out var setting) ||
+                        !Svc.Data.GetExcelSheet<Item>().TryGetRow(itemId, out var itemInfo))
+                    {
+                        if (ReportedBadShoppingItems.Add(itemId))
+                            IceLogging.Info($"採購清單：略過項目 {itemId}（設定檔沒有對應設定，或台服 Item 表查無此列）。", "[ShoppingTab]");
+
+                        continue;
+                    }
 
                     ImGui.TableNextRow();
 
