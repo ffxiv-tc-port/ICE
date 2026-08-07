@@ -116,8 +116,10 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 "'Turnin at gold' is on for that mission.\n" +
                 "Anything it cannot work out (rating not readable, teleporting, critical or time-graded missions) " +
                 "counts as 'still possible' and nothing happens.\n" +
-                "'Stop the mission' hands over to the same routine the plugin already uses when materials run out: " +
-                "it tries to report first and only abandons if that is not possible.").Loc()
+                "'Stop the mission' hands over to the routine the plugin already uses when materials run out. " +
+                "Be aware of what that routine actually does: it clicks 'Report results' once and then abandons on " +
+                "the next tick if the mission is still running, so a silver or bronze you had already earned can " +
+                "still be thrown away.").Loc()
             );
 
             bool jumpIfStuck = C.JumpIfStuck;

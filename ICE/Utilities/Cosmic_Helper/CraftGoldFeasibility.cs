@@ -293,7 +293,8 @@ internal static class CraftGoldFeasibility
 
         IceLogging.Info(
             $"任務 {MissionChain.DescribeMission(missionId)} 已經不可能拿到金星，依設定收手：{detail}。"
-            + "接下來走既有的收尾流程（會先試著回報，回報不成才真的放棄）。"
+            + "接下來走既有的收尾流程 —— ⚠️ 那條流程只會按一次「回報成果」，下一個 tick 任務還在就直接放棄，"
+            + "所以已經到手的銀星／銅星有可能一起丟掉。"
             + "如果你認為這是誤判，請把這一行連同上面的「製作計分觀測」一起回報。", handle);
 
         SchedulerMain.State = IceState.AbandonMission;
