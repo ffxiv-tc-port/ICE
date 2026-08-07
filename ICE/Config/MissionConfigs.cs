@@ -35,6 +35,13 @@ namespace ICE.Config
         // 可接的全都拿過金星），CheckReroll 就會無限重骰、卡在原地不會有任何提示。
         public int MaxConsecutiveRerolls { get; set; } = 10;
 
+        // 重骰達到上限（＝目前職業的候選池空了）時，先照「職業優先度」JobPrio 找下一個
+        // 還有未金星任務的職業換過去再試，全部都試過才停止。預設關閉＝維持現行行為（直接停止）。
+        // ⚠️ 自動換職業會真的動到裝備（EquipGearset），是明顯的行為改變，所以不預設開啟。
+        // ⚠️ 只在標準任務流程生效：宇宙工具經驗模式與臨時任務連刷各自有獨立的候選池，
+        //    根本走不到重骰上限這個判斷點（臨時任務連刷本來就自己會照 JobPrio 換職業）。
+        public bool AutoSwitchJobWhenPoolEmpty { get; set; } = false;
+
         #endregion
 
         #region Main Window

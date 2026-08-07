@@ -33,6 +33,20 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 "missions from the pool.").Loc()
             );
 
+            bool autoSwitchJob = C.AutoSwitchJobWhenPoolEmpty;
+            if (ImGui.Checkbox("Switch class instead of stopping".Loc() + "###ICEAutoSwitchJob", ref autoSwitchJob))
+            {
+                C.AutoSwitchJobWhenPoolEmpty = autoSwitchJob;
+                C.Save();
+            }
+            ImGuiEx.HelpMarker(
+                ("When the reroll limit above is reached, look for the next class in your class priority order \n" +
+                "that still has missions without a gold star and switch to it, instead of stopping right away. \n" +
+                "Stopping is still what happens once every class has been tried.\n" +
+                "It only switches to a class you own a gear set for whose main hand weapon is actually on you - \n" +
+                "anything else is skipped with a line in the log.\n" +
+                "This equips gear, so it is off by default.").Loc());
+
             if (ImGui.Checkbox("Ignore non-Cosmic prompts".Loc() + "###ICEIgnoreNonCosmicPrompts", ref rejectUnknownYesNo))
             {
                 C.RejectUnknownYesno = rejectUnknownYesNo;
