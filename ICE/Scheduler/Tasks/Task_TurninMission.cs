@@ -275,9 +275,28 @@ namespace ICE.Scheduler.Tasks
             if (C.RemoveAfterGold && isGold)
             {
                 if (C.MissionConfig.TryGetValue(PreviousMissionId, out var goldConfig))
-                    goldConfig.Enabled = false;
+                {
+                    // 🔴 連續任務的前置不能因為「自己拿到金星了」就停用：後續任務不是永久解鎖的，
+                    //    要重跑前置才會再出現（同一個 GoldCheck 底下那段「沒金星就重新啟用所有前置」
+                    //    就是上游對這個機制的認定）。停掉前置＝整條後續鏈再也接不到，
+                    //    而且完全沒有提示，使用者只能自己回頭核對整張任務表。
+                    //    台服 7.20 共有 88 條這種邊、最長三層（見 MissionChain 的資料統計）。
+                    if (MissionChain.ShouldKeepEnabledForChain(PreviousMissionId, out var keepReason))
+                    {
+                        IceLogging.Info(
+                            $"保留任務 {MissionChain.DescribeMission(PreviousMissionId)}（不套用「取得金星後自動停用」）：{keepReason}。"
+                            + "它是連續任務的前置，停用它會讓後續任務再也接不到。",
+                            "[Gold Check Task]");
+                    }
+                    else
+                    {
+                        goldConfig.Enabled = false;
+                    }
+                }
                 else
+                {
                     IceLogging.Info($"任務 {PreviousMissionId} 在設定檔裡沒有對應的設定，跳過「達金後停用」。", "[Gold Check Task]");
+                }
             }
             if (C.RemoveAfterGold && !isGold)
             {
@@ -293,6 +312,11 @@ namespace ICE.Scheduler.Tasks
                     C.Save();
                 }
             }
+
+            // 收拾先前版本已經造成的損害：前置被停用、鏈上卻還有使用者啟用中且尚未金星的任務。
+            // 條件很緊（見 MissionChain.RepairSequentialPrerequisites 的說明），
+            // 而且每一筆改動都會留一行 Information。
+            MissionChain.RepairSequentialPrerequisites("[Gold Check Task]");
 
             IceLogging.Info("Gold Check is complete, and checking to see what state we need to be in post cleanup");
             if (Mission_Settings.StopAfterCurrent)
