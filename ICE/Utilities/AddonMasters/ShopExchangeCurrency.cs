@@ -18,23 +18,49 @@ namespace ICE.Utilities.AddonMasters;
 ///
 /// 「複製第三方程式碼未來會分岔」的顧慮在這裡不成立 —— 上游已經刪掉它，沒有上游可以分岔。
 ///
-/// 📌 已知缺陷（沿用原樣，未修）：AtkValues 的索引 84/85/454/1064 全是寫死的，而且
-/// 沒有對 <c>AtkValuesCount</c> 做邊界檢查。遊戲改版後這些索引會靜默指到錯的地方。
-/// 要修的話得先確認台服當前的 AtkValue 佈局。
+/// 📌 AtkValue 的索引 4／84／85／454／1064 全是寫死的（來源是上游 ECommons，照國際服寫的）。
+/// 2026-08-07 補上邊界檢查：<c>Addon->AtkValues[i]</c> 是**沒有任何邊界檢查的原始指標索引**，
+/// 遊戲改版或台服佈局不同時，<c>NumEntries</c> 會讀到垃圾值，接著
+/// <c>for (i &lt; NumEntries) AtkValues[1064 + i]</c> 就會一路讀到配置外 —— 那是 AVE，
+/// <c>try/catch</c> 攔不到。現在超出 <see cref="AtkUnitBase.AtkValuesCount"/> 一律當「讀不到」，
+/// 並把 <see cref="AtkValueCount"/> 開出來讓診斷 log 能定錨真正的佈局。
 /// </summary>
 public unsafe class ShopExchangeCurrency : AddonMasterBase<AtkUnitBase>
 {
     public ShopExchangeCurrency(nint addon) : base(addon) { }
     public ShopExchangeCurrency(void* addon) : base(addon) { }
 
-    public uint CurrencyAmount => Addon->AtkValues[84].UInt;
-    public uint NumEntries => Addon->AtkValues[4].UInt;
+    // 寫死的 AtkValue 佈局（上游值）。改動前請先用偵錯視窗的「宇宙商店」分頁對照實機。
+    private const int IdxNumEntries = 4;
+    private const int IdxCurrencyAmount = 84;
+    private const int IdxCurrencyIcon = 85;
+    private const int IdxCostStart = 454;
+    private const int IdxItemIdStart = 1064;
+
+    /// <summary>這個 addon 目前實際有幾個 AtkValue。診斷用：寫死的索引有沒有超界一看就知道。</summary>
+    public int AtkValueCount => Addon == null ? 0 : Addon->AtkValuesCount;
+
+    /// <summary>有邊界檢查的 AtkValue 讀取。超界／指標為空一律回 false，呼叫端自己決定退化行為。</summary>
+    private bool TryGetUInt(int index, out uint value)
+    {
+        value = 0;
+        if (Addon == null || Addon->AtkValues == null)
+            return false;
+        if (index < 0 || index >= Addon->AtkValuesCount)
+            return false;
+        value = Addon->AtkValues[index].UInt;
+        return true;
+    }
+
+    public uint CurrencyAmount => TryGetUInt(IdxCurrencyAmount, out var v) ? v : 0;
+    public uint NumEntries => TryGetUInt(IdxNumEntries, out var v) ? v : 0;
 
     public uint CurrencyId
     {
         get
         {
-            var iconId = Addon->AtkValues[85].UInt;
+            if (!TryGetUInt(IdxCurrencyIcon, out var iconId) || iconId == 0)
+                return 0;
             // 註：這裡是依 Icon 欄位（非主鍵）過濾，線性掃描是必要的，不能換成 GetRow。
             var row = Svc.Data.GetExcelSheet<Item>().Where(x => x.Icon == iconId).FirstOrDefault().RowId;
             return row != 0 ? row : 0;
@@ -70,14 +96,19 @@ public unsafe class ShopExchangeCurrency : AddonMasterBase<AtkUnitBase>
         get
         {
             var ret = new List<ShopItemInfo>();
-            for (int i = 0; i < NumEntries; i++)
+            var count = NumEntries;
+            for (int i = 0; i < count; i++)
             {
-                var itemId = Addon->AtkValues[1064 + (i * 1)].UInt;
+                // 讀不到（＝索引已經超出這個 addon 的 AtkValue 數量）就停手，不要繼續往外讀。
+                if (!TryGetUInt(IdxItemIdStart + i, out var itemId))
+                    break;
 
                 if (itemId == 0)
                     continue;
 
-                var costAmount = Addon->AtkValues[454 + (i * 1)].UInt;
+                if (!TryGetUInt(IdxCostStart + i, out var costAmount))
+                    break;
+
                 ret.Add(new ShopItemInfo(this, i)
                 {
                     ItemId = itemId,
