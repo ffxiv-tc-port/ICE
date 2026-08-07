@@ -62,6 +62,19 @@ internal static class GatherRouteCustomization
 
         ImGui.Dummy(new Vector2(0, 5));
 
+        var pickClosest = C.GatherPickClosestNode;
+        if (ImGui.Checkbox("Always head for the closest available node".Loc(), ref pickClosest))
+        {
+            C.GatherPickClosestNode = pickClosest;
+            C.Save();
+        }
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip(("On: after finishing a node, pick whichever node on the route is closest to you " +
+                              "and can still be gathered. Off: walk the route in the order the file lists them, " +
+                              "which is how it worked before - turn this off if you see the character moving back and forth.").Loc());
+
+        ImGui.Dummy(new Vector2(0, 5));
+
         DrawSummary();
         DrawErrors();
         DrawMessage();

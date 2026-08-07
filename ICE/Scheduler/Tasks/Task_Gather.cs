@@ -94,7 +94,16 @@ namespace ICE.Scheduler.Tasks
                 var closestDistance = gatherInfo.Where(x => Player.DistanceTo(x.Position) < 5).FirstOrDefault();
                 if (closestDistance == null)
                 {
-                    // We're currently to far from any node. going to rely on the index to tell us where we should be
+                    // 離所有採集點都還很遠。原本這裡只做索引邊界檢查，等於沿用上一輪留下來的索引 ——
+                    // 那個索引跟「玩家現在站在哪」完全無關，人被傳送或走遠之後就會往回跑。
+                    if (C.GatherPickClosestNode &&
+                        TrySelectClosestNode(gatherInfo, excludeNodeId: 0, "[Check Gather Locations]", out var reselected))
+                    {
+                        Mission_Settings.nodeCounter = reselected;
+                        return true;
+                    }
+
+                    // going to rely on the index to tell us where we should be
                     if (Mission_Settings.nodeCounter >= gatherInfo.Count)
                     {
                         // resetting it back to 0 because we're outside the normal index array
@@ -121,6 +130,19 @@ namespace ICE.Scheduler.Tasks
                     }
                     else
                     {
+                        // 🔴 這裡就是使用者回報的「明明有更近的採集點卻跑去遠的」的真正來源。
+                        //    腳下這個採集點剛採完（或還沒重生），原本無條件 nodeCounter++ 跳到
+                        //    「路線檔裡的下一個」—— 那是<b>檔案順序</b>，跟距離毫無關係。
+                        //    路線是環狀的（PathandCheckNode 會遞增並回繞），從哪一個點接下去都合法，
+                        //    所以改成挑最近而且還採得到的那一個。
+                        //    ⚠️ 一定要把腳下這個點排除掉，否則「全部都不可採」時會選回自己＝原地打轉。
+                        if (C.GatherPickClosestNode &&
+                            TrySelectClosestNode(gatherInfo, excludeNodeId: nodeId, "[Check Gather Locations]", out var nextNode))
+                        {
+                            Mission_Settings.nodeCounter = nextNode;
+                            return true;
+                        }
+
                         // Node is not targetable, increment to next node
                         Mission_Settings.nodeCounter++;
 
@@ -138,6 +160,85 @@ namespace ICE.Scheduler.Tasks
         }
 
         /// <summary>
+        /// 從路線裡挑出「離玩家最近、而且現在還採得到」的採集點索引。
+        /// </summary>
+        /// <param name="route">呼叫端必須先保證非空。</param>
+        /// <param name="excludeNodeId">要排除的採集點 id（0＝不排除）。腳下那個剛採完的點要從這裡排掉。</param>
+        /// <param name="index">挑到的索引；回傳 <c>false</c> 時為 -1。</param>
+        /// <returns>挑得到就 <c>true</c>。<b>挑不到一律回 false 讓呼叫端沿用原本的行為</b>，不自己亂猜。</returns>
+        /// <remarks>
+        /// 兩個順位，刻意分開：
+        /// <list type="number">
+        /// <item>已經在 ObjectTable 裡而且<b>現在就可以採</b>的點 —— 用實際物件座標算距離（最準）。</item>
+        /// <item>還沒載入 ObjectTable 的點 —— 用路線檔的<b>靜態座標</b>算距離。
+        /// 🔑 這一順位刻意<b>排除「已載入但不可採」</b>的點：那些是剛採完或還沒重生的，
+        /// 選它們等於原地打轉。而「已載入且可採」已經被第一順位收走了，
+        /// 所以「沒載入」與「已載入且可採」在這裡是同一件事的兩面。</item>
+        /// </list>
+        /// ⚠️ ObjectTable 的物件只在這一次呼叫（同一幀）內使用，<b>不存起來跨幀用</b>。
+        /// <para>
+        /// 📌 出處：兩段式挑點的作法與三個呼叫點的位置，取自另一個台服移植版
+        /// <c>4liang0121/Ices-Cosmic-Exploration</c> 的 <c>api13-tw</c> 分支
+        /// （commit <c>1f2028c</c>）裡的 <c>Task_Gather.SelectClosestTargetableNode</c>。
+        /// 該專案與本專案同為 GPL-3.0，授權相容。
+        /// 本實作依我們這一版的既有結構重寫（回傳 bool ＋ 排除腳下的點 ＋ Information 級 log），
+        /// 並非逐字複製。
+        /// </para>
+        /// </remarks>
+        private static bool TrySelectClosestNode(List<GathNodeInfo> route, uint excludeNodeId, string handle, out int index)
+        {
+            // 第一順位：載入了而且現在可以採 —— 用實際物件座標。
+            var live = route.Select((node, i) => new
+                            {
+                                Index = i,
+                                Node = node,
+                                Obj = Svc.Objects.FirstOrDefault(o => o.ObjectKind == ObjectKind.GatheringPoint
+                                                                  && o.IsTargetable
+                                                                  && o.DataId == node.NodeId)
+                            })
+                            .Where(x => x.Node.NodeId != excludeNodeId && x.Obj != null)
+                            .OrderBy(x => Player.DistanceTo(x.Obj!.Position))
+                            .FirstOrDefault();
+
+            if (live != null)
+            {
+                index = live.Index;
+                IceLogging.Info($"挑最近的採集點：選索引 {index}（採集點 {live.Node.NodeId}，" +
+                                $"距離 {Player.DistanceTo(live.Obj!.Position):N1}，已載入且可採）。", handle);
+                return true;
+            }
+
+            // 第二順位：還沒載入的點（離太遠所以不在 ObjectTable 裡）—— 用路線檔的靜態座標。
+            var unloaded = route.Select((node, i) => new
+                                {
+                                    Index = i,
+                                    Node = node,
+                                    Loaded = Svc.Objects.Any(o => o.ObjectKind == ObjectKind.GatheringPoint
+                                                               && o.DataId == node.NodeId)
+                                })
+                                .Where(x => x.Node.NodeId != excludeNodeId && !x.Loaded)
+                                .OrderBy(x => Player.DistanceTo(x.Node.Position))
+                                .FirstOrDefault();
+
+            if (unloaded != null)
+            {
+                index = unloaded.Index;
+                IceLogging.Info($"挑最近的採集點：可採的點都不在 ObjectTable 裡，改用路線檔座標挑最近 —— " +
+                                $"選索引 {index}（採集點 {unloaded.Node.NodeId}，" +
+                                $"距離 {Player.DistanceTo(unloaded.Node.Position):N1}，尚未載入）。", handle);
+                return true;
+            }
+
+            // 路線上每一個點都已載入而且都不可採（整條路線剛被採光）。
+            // 這裡回 false 而不是硬挑一個，讓呼叫端沿用原本的行為 —— 硬挑最近的
+            // 只會選回腳下那個剛採完的點，那是原地打轉而不是前進。
+            index = -1;
+            IceLogging.Info($"挑最近的採集點：這條路線上 {route.Count} 個點目前都採不到，" +
+                            "沿用原本的挑點方式。", handle);
+            return false;
+        }
+
+        /// <summary>
         /// 換到新的任務旗標時，決定「從路線上的哪一個採集點開始跑」。
         /// </summary>
         /// <remarks>
@@ -149,13 +250,19 @@ namespace ICE.Scheduler.Tasks
         /// 跟「離玩家最近」完全無關。使用者看到的就是「明明旁邊有採集點，它卻跑去遠的那個」。<br/>
         /// 第二層陷阱：「篩選全空」與「最近的剛好就是索引 0」<b>回傳值一模一樣</b>，
         /// 事後看 log 也分不出來 —— 典型的「把不知道當成一個具體值」。<br/>
-        /// 現在：ObjectTable 沒有任何命中時，退回用<b>路線檔自己的靜態座標</b>挑最近
-        /// （那是 YAML 裡的資料，不需要物件載入），並且兩條路徑各寫一行 Information，
-        /// 使用者的 log 可以直接證明走了哪一條、選了第幾個點、距離多遠。
+        /// 現在：先交給 <see cref="TrySelectClosestNode"/>（它會優先挑「可採」的點）；
+        /// 它挑不到時才退回下面原本的兩段：ObjectTable 有命中就用實際座標，
+        /// 都沒命中就用<b>路線檔自己的靜態座標</b>挑最近（那是 YAML 裡的資料，不需要物件載入）。
+        /// 每一條路徑都各寫一行 Information，使用者的 log 可以直接證明走了哪一條、
+        /// 選了第幾個點、距離多遠。
         /// </remarks>
         /// <param name="route">呼叫端必須先保證非空。</param>
         private static int PickStartNodeIndex(List<GathNodeInfo> route, string handle)
         {
+            // 新的挑點邏輯優先；它挑不到時原封不動走下面原本的兩段退路。
+            if (C.GatherPickClosestNode && TrySelectClosestNode(route, excludeNodeId: 0, handle, out var picked))
+                return picked;
+
             // ⚠️ ObjectTable 的物件只在這一次呼叫（同一幀）內使用，不存起來跨幀用。
             var live = route.Select((node, index) => new
                             {

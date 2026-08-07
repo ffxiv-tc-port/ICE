@@ -251,6 +251,19 @@ namespace ICE.Config
         public bool UseGatheringFood { get; set; } = false;
         public uint GatheringFood { get; set; } = 0;
 
+        /// <summary>
+        /// 採集時是否每次都重新挑「離玩家最近而且還採得到」的採集點。
+        /// 關掉就退回舊行為：照路線檔裡的先後順序一個接一個走。
+        /// </summary>
+        /// <remarks>
+        /// 預設 <c>true</c>：這是在修一個使用者實測回報的問題（「明明有更近的採集點卻跑去遠的」），
+        /// 預設關掉等於升級後什麼都沒變。這是<b>新增的鍵</b>，既有使用者的設定檔裡沒有它，
+        /// 反序列化不會覆蓋欄位初始值，所以新預設對既有使用者一樣生效。
+        /// 留這個開關是因為選點順序改變會連帶改變走位，實機萬一出現非預期的來回移動，
+        /// 使用者可以自己關掉退回舊行為，不必等我們出新版。
+        /// </remarks>
+        public bool GatherPickClosestNode { get; set; } = true;
+
         #region Cordial Settings
 
         public bool AutoCordial { get; set; } = false;
