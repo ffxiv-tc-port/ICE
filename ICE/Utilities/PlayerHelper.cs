@@ -127,6 +127,9 @@ public class PlayerHelper
     private static readonly Dictionary<uint, (long Tick, ItemUnlockState State)> UnlockStateCache = new();
     private const long UnlockStateCacheMs = 1000;
 
+    // 查詢整個爆掉過一次就不再問（見 GetItemUnlockState 裡的 catch）。
+    private static bool UnlockQueryUnavailable;
+
     /// <summary>
     /// 查一件道具的「已學會／已登錄」狀態。
     /// </summary>
@@ -137,13 +140,35 @@ public class PlayerHelper
     /// </remarks>
     public static ItemUnlockState GetItemUnlockState(uint itemID)
     {
+        if (UnlockQueryUnavailable)
+            return ItemUnlockState.Unknown;
+
         itemID = itemID >= 1_000_000 ? itemID - 1_000_000 : itemID;
 
         var now = Environment.TickCount64;
         if (UnlockStateCache.TryGetValue(itemID, out var cached) && now - cached.Tick < UnlockStateCacheMs)
             return cached.State;
 
-        var state = QueryItemUnlockState(itemID);
+        ItemUnlockState state;
+        try
+        {
+            state = QueryItemUnlockState(itemID);
+        }
+        catch (Exception e)
+        {
+            // 🔴 這個 try/catch 只擋一種東西：特徵碼沒解析出來時 FFXIVClientStructs 的
+            //    [MemberFunction] 是**擲 InvalidOperationException**（ThrowNullAddress），
+            //    不是回 null。而這條路徑會被採購清單在 ImGui 繪製路徑上呼叫 ——
+            //    繪製路徑擲一次例外，整個 ICE 介面到重開遊戲前都不會回來。
+            //    ⚠️ 它擋不到 AccessViolationException（corrupted-state exception，
+            //    在 .NET Core 上 catch 不到）；那一類只能靠上面的判空。
+            //    📌 台服 7.20 執行檔離線驗過兩支特徵碼都唯一命中
+            //    （ExdModule.GetItemRowById、UIState.IsItemActionUnlocked），
+            //    所以這裡預期永遠不會觸發；真的觸發就代表台服改版動到它們了。
+            UnlockQueryUnavailable = true;
+            IceLogging.Info($"查不到道具的學會狀態，「已學會就不買」不會生效：{e.Message}", "[PlayerHelper]");
+            return ItemUnlockState.Unknown;
+        }
 
         // Unknown 不進快取：登入前問一次就把整局釘死在「不知道」會很難查。
         if (state == ItemUnlockState.Unknown)
