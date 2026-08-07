@@ -139,14 +139,34 @@ namespace ICE.Scheduler.Tasks
                 }
                 else if(GenericHelpers.TryGetAddonMaster<WKSMissionInfomation>("WKSMissionInfomation", out var addon) && addon.IsAddonReady)
                 {
+                    // ⚠️ 這個 if 原本沒有大括號、下一行還是空行 —— 看起來像在 gate 下面的
+                    //    Report/Abandon，實際上只 gate 到「漁夫先收竿」那一整塊。補上大括號是為了
+                    //    讓讀的人看到真正的範圍，行為刻意維持完全一樣。
+                    //
+                    // 🔴 為什麼不把 Report/Abandon 也包進來（節流器的名字看起來就是那個意思）：
+                    //    包進來會讓「放棄任務」永遠不會發生。EzThrottler 的語意是「首次必放行，
+                    //    之後要 now > deadline 才放行並重設」，而下面那組是
+                    //      if (Throttle("Attempt to turnin", 500)) Report();
+                    //      else if (Throttle("Telling it to abandon the mission", 500)) Abandon();
+                    //    —— 現在是第一個 tick 走 Report，下一個 tick「Attempt to turnin」還沒到期，
+                    //    才會落到 else 去 Abandon。外面再包一層 1000ms 的話，每次外層放行時
+                    //    「Attempt to turnin」的 500ms 早就過了，於是每次都走 Report，
+                    //    else 那一支永遠碰不到。
+                    //
+                    // ⚠️ 為什麼也不直接把這個 Throttle 刪掉（讓漁夫判斷變成每個 tick 都檢查，
+                    //    跟 Task_TurninMission 裡一模一樣的那個區塊一致）：那會讓「還在釣魚時」
+                    //    完全不能回報／放棄，只能等 StopFishing() 生效。萬一收竿沒生效，這串任務
+                    //    用的是 Utils.TaskConfig（30 分鐘、abortOnTimeout: false），失敗形式會是
+                    //    「安靜地卡住半小時」。要改成那樣得先有實機證據。
                     if (EzThrottler.Throttle("Trying To Turnin/Abandon", 1000))
-
-                    if (Player.JobId == 18 && Svc.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.Gathering])
                     {
-                        if (EzThrottler.Throttle("Stop fishing so we can turn in this mission!", 2000))
-                            Task_DualClass.StopFishing();
+                        if (Player.JobId == 18 && Svc.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.Gathering])
+                        {
+                            if (EzThrottler.Throttle("Stop fishing so we can turn in this mission!", 2000))
+                                Task_DualClass.StopFishing();
 
-                        return false;
+                            return false;
+                        }
                     }
 
                     if (EzThrottler.Throttle("Attempt to turnin", 500))
