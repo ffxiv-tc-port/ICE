@@ -21,6 +21,7 @@ namespace ICE.Scheduler.Tasks
         public static void Enqueue()
         {
             ResetStepWait();
+            ResetVisitState();
             P.TaskManager.EnqueueMulti
                 (
                     new(PathToCreditVendor, "Pathing to the credit vendor"),
@@ -83,6 +84,186 @@ namespace ICE.Scheduler.Tasks
                 open.Add(GenericHelpers.IsAddonReady(addon) ? name : $"{name}(未就緒)");
             }
             return open.Count == 0 ? "（沒有任何相關視窗）" : string.Join(", ", open);
+        }
+
+        #endregion
+
+        #region 已學會的道具
+
+        // 這一趟採購裡被放棄的道具。沒有這個集合的話，被「已經學會」確認框擋下來之後，
+        // 下一輪 TryPurchaseItem 會再挑同一件 → 再送出 → 再被擋，變成無聲的無限迴圈
+        // （BuyItems 是用 Utils.TaskConfig 排的：30 分鐘、逾時不中止）。
+        private static readonly HashSet<uint> DeclinedThisVisit = [];
+
+        // 這一趟已經記過 log 的確認框文字，避免同一段字每 500ms 洗一次。
+        private static readonly HashSet<string> ReportedPrompts = [];
+
+        // 連續按了幾次「否」都關不掉確認框。用來把「按鈕點不動」換成看得見的訊息。
+        private static int DeclineAttempts;
+
+        private static void ResetVisitState()
+        {
+            DeclinedThisVisit.Clear();
+            ReportedPrompts.Clear();
+            DeclineAttempts = 0;
+        }
+
+        /// <summary>
+        /// 遊戲自己的「你已經學會這個了」確認框，拿來當比對基準的 Addon 列。
+        /// </summary>
+        /// <remarks>
+        /// 台服 7.20 的 <c>Addon</c> 表逐列核對過（<c>exd-tc/7.20/Addon.csv</c>）：<br/>
+        /// 4937「確定要購買嗎？／目前已經學會了該道具對應的技能。」（一般商店）<br/>
+        /// 11501「確定要交換嗎？／目前已經學會了該道具對應的內容。」<b>← 兌換商店走這條</b><br/>
+        /// 11506「確定要領取嗎？／目前已經學會了該道具對應的內容。」<br/>
+        /// ⚠️ 不寫死中文字串：用遊戲自己的表就自動跟著客戶端語言走。<br/>
+        /// ⚠️ 這一族的鄰居（2436／11502／11503「無法穿戴」、11510「漁師等級不足」）
+        /// 開頭同樣是「確定要購買／交換嗎？」，所以比對必須用**整列**文字，
+        /// 只比第一句會把它們一起擋掉。
+        /// </remarks>
+        private static readonly uint[] AlreadyLearnedAddonRows = [4937, 11501, 11506];
+
+        private static string[] AlreadyLearnedMarkersCache;
+
+        /// <summary>
+        /// 比對基準：整列 Addon 文字去掉所有空白之後的樣子。
+        /// </summary>
+        /// <remarks>
+        /// ⚠️ 為什麼要去掉空白：這些 Addon 列中間有換行，而執行期讀到的確認框文字裡那個換行
+        /// 到底是 <c>\r</c>、<c>\n</c>、還是被 <c>GetText()</c> 當成非文字 payload 整個丟掉，
+        /// **離線證明不了**。兩邊都去掉空白之後三種情況都對得上。<br/>
+        /// 📌 這是 AutoRetainer <c>GcHandin/GCContinuation</c> 用在同一族確認框
+        /// （Addon 2436／11502）上的同一套做法，不是新發明的。
+        /// </remarks>
+        private static string[] AlreadyLearnedMarkers
+        {
+            get
+            {
+                if (AlreadyLearnedMarkersCache != null)
+                    return AlreadyLearnedMarkersCache;
+
+                var markers = new List<string>();
+                var sheet = Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.Addon>();
+                if (sheet != null)
+                {
+                    foreach (var rowId in AlreadyLearnedAddonRows)
+                    {
+                        // 🔴 GetRow 查無此列會擲 ArgumentOutOfRangeException。
+                        if (!sheet.TryGetRow(rowId, out var row))
+                            continue;
+
+                        var text = StripWhitespace(row.Text.GetText());
+
+                        // 太短的字串拿去做「包含」比對必然誤判（例如整列只剩「確定要購買嗎？」）。
+                        // 寧可少一筆基準，也不要多擋掉正常的購買確認。
+                        if (text.Length < 12)
+                            continue;
+
+                        markers.Add(text);
+                    }
+                }
+
+                AlreadyLearnedMarkersCache = [.. markers];
+
+                IceLogging.Info(
+                    AlreadyLearnedMarkersCache.Length == 0
+                        ? $"遊戲資料裡讀不到可用的「已經學會」提示文字（Addon {string.Join("／", AlreadyLearnedAddonRows)}），「尊重遊戲的『已經學會』提示」這個選項不會有任何作用。"
+                        : $"「已經學會」確認框的比對基準共 {AlreadyLearnedMarkersCache.Length} 筆：{string.Join(" / ", AlreadyLearnedMarkersCache)}",
+                    Handle);
+
+                return AlreadyLearnedMarkersCache;
+            }
+        }
+
+        /// <summary>設定畫面用：這台客戶端的遊戲資料到底有沒有可以比對的提示文字。</summary>
+        public static bool AlreadyLearnedPromptDetectable => AlreadyLearnedMarkers.Length > 0;
+
+        private static string StripWhitespace(string s)
+        {
+            if (string.IsNullOrEmpty(s))
+                return string.Empty;
+
+            var sb = new StringBuilder(s.Length);
+            foreach (var c in s)
+            {
+                // char.IsWhiteSpace 一併涵蓋全形空白（U+3000）與不斷行空白（U+00A0），
+                // ECommons 的 Cleanup() 只處理半形四種。
+                if (char.IsWhiteSpace(c))
+                    continue;
+                sb.Append(c);
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// 安全地讀 SelectYesno 的提示文字。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 ECommons 的 <c>SelectYesno.Text</c> 是 <c>ReadSeString(&amp;Addon-&gt;PromptText-&gt;NodeText)</c>，
+        /// <c>PromptText</c> 為 null 時會從 null 加偏移再去讀 —— 那是 AVE，<c>try/catch</c> 攔不到。
+        /// 這條路徑每 500ms 會走一次，所以自己補判空。
+        /// </remarks>
+        private static unsafe string SafePromptText(SelectYesno master)
+        {
+            var addon = master.Addon;
+            if (addon == null)
+                return string.Empty;
+
+            var prompt = addon->PromptText;
+            if (prompt == null)
+                return string.Empty;
+
+            return GenericHelpers.ReadSeString(&prompt->NodeText).GetText();
+        }
+
+        private static bool IsAlreadyLearnedPrompt(SelectYesno master, out string promptText)
+        {
+            promptText = SafePromptText(master);
+
+            var markers = AlreadyLearnedMarkers;
+            if (markers.Length == 0 || string.IsNullOrWhiteSpace(promptText))
+                return false;
+
+            var normalized = StripWhitespace(promptText);
+            foreach (var marker in markers)
+            {
+                if (normalized.Contains(marker, StringComparison.Ordinal))
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 這一趟採購要不要跳過這件道具。
+        /// </summary>
+        /// <remarks>
+        /// 兩個來源：<br/>
+        /// ① 逐項的「已學會就不買」（<c>SkipIfUnlocked</c>）—— 樂譜／演技教材學會之後
+        /// 就從背包消失，<c>KeepAmount</c> 永遠達不到，配上 <c>KeepBuying</c> 會一路買到點數見底。<br/>
+        /// ② 這一趟已經被遊戲的「已經學會」確認框擋下來的道具。<br/>
+        /// 🔴 只有**確定**已學會才跳過。問不到答案（<c>Unknown</c>）一律當作沒學會 ——
+        /// 這裡誤判的代價是「該買的沒買」，而且完全靜默。
+        /// </remarks>
+        private static bool ShouldSkipItem(uint itemId, CosmoShoppingList item, bool log)
+        {
+            // ⚠️ 這裡刻意再看一次 C.HeedAlreadyLearnedPrompt，而不是只看集合裡有沒有：
+            //    DeclinedThisVisit 只在 Enqueue() 清空，而 Enqueue() 又要先過
+            //    CanPurchaseAnyItem() —— 兩邊都擋住的話，使用者把開關關掉之後
+            //    這件道具會永遠解不開（要重載外掛才會恢復），而且完全沒有提示。
+            if (C.HeedAlreadyLearnedPrompt && DeclinedThisVisit.Contains(itemId))
+                return true;
+
+            if (!item.SkipIfUnlocked)
+                return false;
+
+            if (PlayerHelper.GetItemUnlockState(itemId) != PlayerHelper.ItemUnlockState.Unlocked)
+                return false;
+
+            if (log && EzThrottler.Throttle($"ICE: cosmo shop already unlocked {itemId}", 60000))
+                IceLogging.Info($"道具 {itemId} 的內容已經學會了，依這一項的「已學會就不買」設定跳過。", Handle);
+
+            return true;
         }
 
         #endregion
@@ -355,6 +536,46 @@ namespace ICE.Scheduler.Tasks
             {
                 if (EzThrottler.Throttle("Buy Item", 500))
                 {
+                    // 🔴 上游對**任何** SelectYesno 一律按下確定，所以遊戲的「你已經學會這個了」
+                    //    提示完全擋不住重複購買。開了設定才走這一段；預設關＝行為與上游相同。
+                    if (C.HeedAlreadyLearnedPrompt)
+                    {
+                        var learned = IsAlreadyLearnedPrompt(YesNo, out var promptText);
+
+                        // 沒比對到的確認框文字也記一次（同一段字只記一次）。
+                        // 這個選項唯一會失效的方式就是「台服實際跳出來的字跟 Addon 表對不上」，
+                        // 而那件事離線證明不了 —— 這一行是事後唯一能定錨它的東西。
+                        if (!learned && !string.IsNullOrWhiteSpace(promptText) && ReportedPrompts.Add(promptText))
+                            IceLogging.Info($"購物確認框（不符合「已經學會」的比對基準，照常按下確定）：「{promptText}」", Handle);
+
+                        if (learned)
+                        {
+                            if (ItemId != 0)
+                                DeclinedThisVisit.Add(ItemId);
+
+                            DeclineAttempts++;
+                            if (DeclineAttempts == 1)
+                                IceLogging.Info($"遊戲提示已經學會過這件道具（「{promptText}」），放棄購買道具 {ItemId}，這一趟採購不再挑它。", Handle);
+
+                            // 「否」按鈕點不動時（ClickButtonIfEnabled 對停用的按鈕是空操作）
+                            // 這裡會每 500ms 重來一次。BuyItems 是用 Utils.TaskConfig 排的
+                            // （30 分鐘、逾時不中止），沒有這個上限就是三十分鐘的無聲迴圈。
+                            if (DeclineAttempts > 20)
+                            {
+                                IceLogging.Info($"連續 {DeclineAttempts} 次都關不掉「已經學會」的確認框，中止這次購物並回到狀態判斷。", Handle);
+                                SchedulerMain.AbortToStateCheck();
+                                return true;
+                            }
+
+                            YesNo.No();
+                            BuyAmount = 0;
+                            KeepAmount = 0;
+                            ItemId = 0;
+                            return false;
+                        }
+                    }
+
+                    DeclineAttempts = 0;
                     YesNo.Yes();
                     if (BuyAmount != 0)
                     {
@@ -430,7 +651,17 @@ namespace ICE.Scheduler.Tasks
                     continue;
                 PlayerHelper.GetItemCount(itemId, out var have);
                 var inShop = items.Any(x => x.ItemId == itemId);
-                wanted.Add($"{itemId}{(inShop ? "" : "(商店沒有)")}[持有 {have}/保留 {setting.KeepAmount}/指定買 {setting.BuyAmount}{(setting.KeepBuying ? "/一直買" : "")}]");
+
+                // 學會狀態一律報出來（不管有沒有開逐項開關）：樂譜這類道具學會之後就從背包消失，
+                // 只看「持有 0／保留 5」完全看不出「它其實已經學會了、再買也只是拿去賣」。
+                var unlock = PlayerHelper.GetItemUnlockState(itemId) switch
+                {
+                    PlayerHelper.ItemUnlockState.Unlocked => "/已學會",
+                    PlayerHelper.ItemUnlockState.Unknown => "/學會狀態不明",
+                    _ => "",
+                };
+
+                wanted.Add($"{itemId}{(inShop ? "" : "(商店沒有)")}[持有 {have}/保留 {setting.KeepAmount}/指定買 {setting.BuyAmount}{(setting.KeepBuying ? "/一直買" : "")}{(setting.SkipIfUnlocked ? "/學會就不買" : "")}{unlock}{(DeclinedThisVisit.Contains(itemId) ? "/這趟已放棄" : "")}]");
             }
 
             IceLogging.Info(
@@ -449,6 +680,9 @@ namespace ICE.Scheduler.Tasks
             foreach (var itemId in C.CosmoShoppingOrder)
             {
                 if (!C.CosmoShopping.TryGetValue(itemId, out var item))
+                    continue;
+
+                if (ShouldSkipItem(itemId, item, log: true))
                     continue;
 
                 int targetAmount = getTargetAmount(item, itemId);
@@ -521,6 +755,10 @@ namespace ICE.Scheduler.Tasks
             foreach (var itemId in C.CosmoShoppingOrder)
             {
                 if (!C.CosmoShopping.TryGetValue(itemId, out var item))
+                    continue;
+
+                // ⚠️ 這裡不記 log：CanPurchaseAnyItem 也被採購設定分頁在繪製路徑上每幀呼叫。
+                if (ShouldSkipItem(itemId, item, log: false))
                     continue;
 
                 int targetAmount = getTargetAmount(item, itemId);

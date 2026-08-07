@@ -4,6 +4,7 @@ using Dalamud.Game.ClientState.Objects.Types;
 using ECommons.GameHelpers;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
+using FFXIVClientStructs.FFXIV.Component.Exd;
 using ICE.Utilities.Cosmic_Helper;
 using Lumina.Excel.Sheets;
 using System.Collections.Generic;
@@ -99,6 +100,91 @@ public class PlayerHelper
             return false;
         }
     }
+    #region 道具的「已學會／已登錄」狀態
+
+    /// <summary>
+    /// 一件道具對應的內容有沒有被學會／登錄過。
+    /// </summary>
+    /// <remarks>
+    /// ⚠️ <c>Unknown = 0</c> 是刻意的：這個列舉會被 <c>default</c> 取到，
+    /// 而「不知道」是唯一不會造成破壞性判斷的預設值。
+    /// </remarks>
+    public enum ItemUnlockState : byte
+    {
+        /// <summary>問不到答案（還沒登入、EXD 還沒載入、或遊戲回了未定義的值）。</summary>
+        Unknown = 0,
+        /// <summary>已經學會／已經登錄。</summary>
+        Unlocked = 1,
+        /// <summary>還沒學會，但學得起來。</summary>
+        NotUnlocked = 2,
+        /// <summary>這件道具根本沒有「學會」這回事（素材、魔晶石之類）。</summary>
+        NotApplicable = 3,
+    }
+
+    // ItemUnlockState 的短期快取。查詢本身會進遊戲的 EXD 模組，而呼叫端
+    // （採購清單 UI）在繪製路徑上每幀都會問一次，所以壓成每秒最多一次。
+    // 只存列舉值，不存任何原生指標。
+    private static readonly Dictionary<uint, (long Tick, ItemUnlockState State)> UnlockStateCache = new();
+    private const long UnlockStateCacheMs = 1000;
+
+    /// <summary>
+    /// 查一件道具的「已學會／已登錄」狀態。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 呼叫端只能把 <see cref="ItemUnlockState.Unlocked"/> 當成「確定已學會」。
+    /// 其餘四種（含 <see cref="ItemUnlockState.Unknown"/>）都必須維持原本的行為 ——
+    /// 「不確定就不買」在使用者眼裡跟外掛壞掉沒兩樣，而且是靜默的。
+    /// </remarks>
+    public static ItemUnlockState GetItemUnlockState(uint itemID)
+    {
+        itemID = itemID >= 1_000_000 ? itemID - 1_000_000 : itemID;
+
+        var now = Environment.TickCount64;
+        if (UnlockStateCache.TryGetValue(itemID, out var cached) && now - cached.Tick < UnlockStateCacheMs)
+            return cached.State;
+
+        var state = QueryItemUnlockState(itemID);
+
+        // Unknown 不進快取：登入前問一次就把整局釘死在「不知道」會很難查。
+        if (state == ItemUnlockState.Unknown)
+            UnlockStateCache.Remove(itemID);
+        else
+            UnlockStateCache[itemID] = (now, state);
+
+        return state;
+    }
+
+    /// <remarks>
+    /// 📌 <c>UIState.IsItemActionUnlocked</c> 的回傳值對照表來自 FFXIVClientStructs 的
+    /// **散文註解**（1 已學會／2 還沒學會／3 資料未載入／4 沒有學會狀態），不是被驗證過的
+    /// 欄位偏移。所以這裡只信「1 ＝ 已學會」這一格：其他值全部走「不擋購買」那條路，
+    /// 註解就算錯了也只會退回現行行為，不會多買也不會少買錯東西。
+    /// </remarks>
+    private static unsafe ItemUnlockState QueryItemUnlockState(uint itemID)
+    {
+        if (!Player.Available)
+            return ItemUnlockState.Unknown;
+
+        var uiState = UIState.Instance();
+        if (uiState == null)
+            return ItemUnlockState.Unknown;
+
+        // GetItemRowById 查無此列會回 null（不擲例外）。null 解參考是 AVE，try/catch 攔不到。
+        var itemRow = ExdModule.GetItemRowById(itemID);
+        if (itemRow == null)
+            return ItemUnlockState.Unknown;
+
+        return uiState->IsItemActionUnlocked(itemRow) switch
+        {
+            1 => ItemUnlockState.Unlocked,
+            2 => ItemUnlockState.NotUnlocked,
+            4 => ItemUnlockState.NotApplicable,
+            _ => ItemUnlockState.Unknown,
+        };
+    }
+
+    #endregion
+
     public static bool HasFoodRunning()
     {
         if (!C.UseGatheringFood || C.GatheringFood == 0)

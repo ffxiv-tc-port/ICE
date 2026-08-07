@@ -348,6 +348,18 @@ namespace ICE.Config
         public bool BuyItems { get; set; } = false;
         public int CosmoBuyAtAmount { get; set; } = 10000;
 
+        /// <summary>
+        /// 遇到遊戲自己的「目前已經學會了該道具對應的內容」確認框時要不要放棄該件。
+        /// 預設關閉＝維持上游行為（對任何 SelectYesno 一律按下確定）。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 刻意不預設開啟：兌換商店賣的樂譜／演技教材是**可交易**的
+        /// （台服 Item 表核對過：48211／48213／47985 的 <c>IsUntradable</c> 都是 False），
+        /// 有人就是要買已經學會的來賣。要只擋特定幾件請改用逐項的
+        /// <see cref="CosmoShoppingList.SkipIfUnlocked"/>。
+        /// </remarks>
+        public bool HeedAlreadyLearnedPrompt { get; set; } = false;
+
         #endregion
 
         public Dictionary<uint, MissionSettings> MissionConfig { get; set; } = new();
@@ -541,6 +553,21 @@ namespace ICE.Config
         public int KeepAmount { get; set; } = 0;
         public int BuyAmount { get; set; } = 0;
         public bool KeepBuying { get; set; } = false;
+
+        /// <summary>
+        /// 這件道具「已經學會／已經登錄」之後就不要再買。預設關閉＝維持上游行為。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 為什麼需要這個：樂譜（管弦樂琴樂譜，ItemAction 2235）與演技教材
+        /// （ItemAction 2709）這類道具**學會之後就從背包消失**，所以
+        /// <see cref="KeepAmount"/> 永遠達不到；再配上 <see cref="KeepBuying"/>
+        /// 就會一路買到宇宙信用點數見底。<br/>
+        /// ⚠️ 但**不能**無條件改成「已學會就不買」—— 這些道具是可交易的，
+        /// 有人買來就是要賣掉。所以做成逐項開關而不是全域行為。<br/>
+        /// 判定來源是 <c>UIState.IsItemActionUnlocked</c>；只有回報「確定已學會」
+        /// 才會擋，問不到答案時一律照舊購買。
+        /// </remarks>
+        public bool SkipIfUnlocked { get; set; } = false;
     }
 
     public class MissionCommand
