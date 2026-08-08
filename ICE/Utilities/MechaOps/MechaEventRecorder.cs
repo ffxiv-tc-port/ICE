@@ -349,6 +349,9 @@ internal static class MechaEventRecorder
             "START-CFG"
             + $";overlay={C.ShowMechaAoeOverlay};targets={C.ShowMechaTargets};objectives={C.ShowMechaObjectives}"
             + $";iceRadius={C.MechaTargetRadius:F0};coneDeg={C.MechaConeAngleDeg:F0};useHitbox={C.MechaCoverageUseHitbox}"
+            // ⚠️ drillLen 是可校準的形狀參數（見 MechaActionShapes.ApplyCalibration）——
+            //    下一輪拿 log 訂參數時，沒有這一欄就分不出「預測形狀不準」與「使用者調過滑桿」。
+            + $";drillLen={C.MechaDrillLength:F1}"
             + $";targetableOnly={C.MechaTargetsTargetableOnly};hideNoise={C.MechaTargetsHideSceneryAndNpcs}"
             + $";includePlayers={C.MechaTargetsIncludePlayers};requireObjectTable={C.MechaObjectiveRequireObjectTable}"
             + $";matchRadius={C.MechaObjectiveMatchRadius:F1};useMarkerVector={C.MechaObjectiveUseMarkerVector}"
