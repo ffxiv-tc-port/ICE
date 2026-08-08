@@ -182,6 +182,25 @@ internal static unsafe class PlayerHandlers
         if (!P.overlayWindow.IsOpen && PlayerHelper.IsInCosmicZone() && PlayerHelper.UsingSupportedJob() && C.ShowOverlay)
             P.overlayWindow.IsOpen = true;
 
+        // 🔴🔴 機甲行動狀態視窗以前**從來沒有被打開過**。
+        //    `P.mechaOpsWindow` 在 ICE.OnPluginLoad 有 `new()`（所以有進 windowSystem），
+        //    但整個 repo 裡沒有任何一行寫過它的 `IsOpen`，而 Dalamud 的
+        //    `Window.DrawInternal` 是**先看 IsOpen 才看 DrawConditions()**
+        //    （Dalamud/Interface/Windowing/Window.cs：IsOpen 檢查在 L395、
+        //     DrawConditions 在 L432）⇒ 那個視窗的 Draw() 一次都沒跑過。
+        //    後果是掛在它底下的四個設定（顯示技能冷卻／proc 提示／事件狀態／事件進度）
+        //    使用者勾了完全沒有反應——這正是他回報的「這些好像沒功能」。
+        //
+        // 🔑 修法**照抄上面 overlayWindow 那一行的既有慣例**：每個 tick 補開，
+        //    真正的開關是設定而不是視窗的 X 鈕。
+        // ⚠️ 這裡刻意**不要求** UsingSupportedJob()：機甲行動的協助員用的是宇宙工具，
+        //    不見得掛在 ICE 認得的那幾個生產職上，要求職業會把協助員整個擋掉。
+        // ⚠️ 條件只放到「總開關 + 在宇宙區域」為止；要不要真的畫、畫哪幾段，
+        //    仍然完全由 MechaOpsWindow.DrawConditions() 決定（它本來就寫好了）。
+        //    所以總開關 ShowMechaAoeOverlay 預設關的使用者，行為與先前完全相同。
+        if (!P.mechaOpsWindow.IsOpen && PlayerHelper.IsInCosmicZone() && C.ShowMechaAoeOverlay)
+            P.mechaOpsWindow.IsOpen = true;
+
         if (C.MoonSprint 
          && PlayerHelper.IsInCosmicZone() 
          && !PlayerHelper.HasStatusId(stellarSprintID) 
