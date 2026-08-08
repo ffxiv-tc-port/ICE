@@ -78,6 +78,58 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 C.Save();
             }
 
+            // ---- 疊加層各區塊（2026-08-08 使用者要求：「預報和成果 也能加開關嗎?」）----
+            // ⚠️ 三個都預設開＝現行版面零改變；這一組解決的是「我不想看這一塊」。
+            //    刻意縮排在「顯示疊加層」底下：它們全都只在疊加層開著時才有意義。
+            using (ImRaii.Disabled(!showOverlay))
+            {
+                ImGui.Indent();
+
+                bool showWeather = C.ShowOverlayWeather;
+                if (ImGui.Checkbox("Show Weather Forecast".Loc() + "###ICEShowOverlayWeather", ref showWeather))
+                {
+                    C.ShowOverlayWeather = showWeather;
+                    C.Save();
+                }
+                ImGui.SameLine();
+                ImGui.TextDisabled("?");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("The weather line on the overlay: what it is now, what comes next, and how long " +
+                                      "until it changes.\nOn by default - turning it off only hides the line.").Loc());
+                }
+
+                bool showTimed = C.ShowOverlayTimedMissions;
+                if (ImGui.Checkbox("Show Timed Missions".Loc() + "###ICEShowOverlayTimedMissions", ref showTimed))
+                {
+                    C.ShowOverlayTimedMissions = showTimed;
+                    C.Save();
+                }
+                ImGui.SameLine();
+                ImGui.TextDisabled("?");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("The job icons for the missions available this hour and the next one.\n" +
+                                      "On by default - turning it off only hides the line.").Loc());
+                }
+
+                bool showJobScore = C.ShowOverlayJobScore;
+                if (ImGui.Checkbox("Show Job Score Bars".Loc() + "###ICEShowOverlayJobScore", ref showJobScore))
+                {
+                    C.ShowOverlayJobScore = showJobScore;
+                    C.Save();
+                }
+                ImGui.SameLine();
+                ImGui.TextDisabled("?");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("The relic tool score bar for the job of your current mission.\n" +
+                                      "This is a different line from 'Show Total Score' above, which is the combined one.\n" +
+                                      "On by default - turning it off only hides the bars.").Loc());
+                }
+
+                ImGui.Unindent();
+            }
         }
 
         /// <summary>

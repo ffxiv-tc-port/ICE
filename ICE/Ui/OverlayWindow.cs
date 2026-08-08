@@ -97,90 +97,99 @@ namespace ICE.Ui
             ImGui.Separator();
             ImGuiHelpers.ScaledDummy(2);
 
-            (string currentWeather, uint currentWeatherId, string nextWeather, uint nextWeatherId, string nextWeatherTime) = WeatherForecastHandler.GetNextWeather();
+            // ⚠️ 區塊開關放在**查資料之前**：關掉的意思是「這一塊我不想看」，
+            //    沒必要為了不畫的東西去算一次天氣預報。
+            if (C.ShowOverlayWeather)
+            {
+                (string currentWeather, uint currentWeatherId, string nextWeather, uint nextWeatherId, string nextWeatherTime) = WeatherForecastHandler.GetNextWeather();
 
-            if (currentWeather != null)
+                if (currentWeather != null)
+                {
+                    ImGui.AlignTextToFramePadding();
+                    ImGui.Text("Weather Forcast:".Loc());
+                    Svc.Texture.TryGetFromGameIcon(currentWeatherId, out var currentWeatherIcon);
+                    ImGui.SameLine(0, 2);
+                    ImGui.Image(currentWeatherIcon.GetWrapOrEmpty().Handle, new Vector2(23, 23));
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.BeginTooltip();
+                        ImGui.Text($"{currentWeather}");
+                        ImGui.EndTooltip();
+                    }
+                    ImGui.SameLine(0, 2);
+                    ImGui.AlignTextToFramePadding();
+                    ImGuiEx.Icon(FontAwesomeIcon.LongArrowAltRight);
+                    Svc.Texture.TryGetFromGameIcon(nextWeatherId, out var nextWeatherIcon);
+                    ImGui.SameLine(0, 2);
+                    ImGui.Image(nextWeatherIcon.GetWrapOrEmpty().Handle, new Vector2(23, 23));
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.BeginTooltip();
+                        ImGui.Text($"{nextWeather}");
+                        ImGui.EndTooltip();
+                    }
+                    ImGui.SameLine(0, 2);
+                    ImGui.AlignTextToFramePadding();
+                    ImGui.Text("Next in: ??".Loc(nextWeatherTime));
+                }
+            }
+
+            if (C.ShowOverlayTimedMissions)
             {
                 ImGui.AlignTextToFramePadding();
-                ImGui.Text("Weather Forcast:".Loc());
-                Svc.Texture.TryGetFromGameIcon(currentWeatherId, out var currentWeatherIcon);
-                ImGui.SameLine(0, 2);
-                ImGui.Image(currentWeatherIcon.GetWrapOrEmpty().Handle, new Vector2(23, 23));
-                if (ImGui.IsItemHovered())
+                ImGui.Text("Timed Mission(s): ".Loc());
+                // GetMissionsForHour() 已經濾掉「這個客戶端查不到資料」的任務
+                //（見 PlayerHandlers.KnownMissionsOnly），所以下面的 TryGetValue 正常情況不會落空。
+                var (currentList, nextList) = PlayerHandlers.GetMissionsForHour();
+                foreach (var mission in currentList)
                 {
-                    ImGui.BeginTooltip();
-                    ImGui.Text($"{currentWeather}");
-                    ImGui.EndTooltip();
+                    if (CosmicHelper.JobIconDict.TryGetValue(mission.ClassId, out var jobIcon))
+                    {
+                        ImGui.SameLine(0, 2);
+                        var imageSize = new Vector2(23, 23);
+                        ImGui.Image(jobIcon.GetWrapOrEmpty().Handle, imageSize);
+                        if (ImGui.IsItemHovered())
+                        {
+                            ImGui.BeginTooltip();
+                            ImGui.Text($"[{mission.MissionId}]");
+                            ImGui.SameLine(0, 2);
+                            // ⚠️ 來源是寫死的 PhaennaMapV2/SinusMapV2，跟 SheetMissionDict 沒有共同保證。
+                            //    PhaennaMapV2 的任務 ID 是 574..1004 —— 台服 WKSMissionUnit **有這些列，
+                            //    但整列是空的**（第二顆星 Phaenna 的預留列），所以建不進 SheetMissionDict。
+                            //    上游那條路徑目前走不到只是因為台服沒有 territory 1291。
+                            ImGui.Text(CosmicHelper.SheetMissionDict.TryGetValue(mission.MissionId, out var timedEntry) ? GameTextUtil.StripGameIcons(timedEntry.Name) : "???");
+                            ImGui.EndTooltip();
+                        }
+                    }
                 }
                 ImGui.SameLine(0, 2);
                 ImGui.AlignTextToFramePadding();
                 ImGuiEx.Icon(FontAwesomeIcon.LongArrowAltRight);
-                Svc.Texture.TryGetFromGameIcon(nextWeatherId, out var nextWeatherIcon);
-                ImGui.SameLine(0, 2);
-                ImGui.Image(nextWeatherIcon.GetWrapOrEmpty().Handle, new Vector2(23, 23));
-                if (ImGui.IsItemHovered())
+                ImGui.SameLine();
+                foreach (var mission in nextList)
                 {
-                    ImGui.BeginTooltip();
-                    ImGui.Text($"{nextWeather}");
-                    ImGui.EndTooltip();
+                    if (CosmicHelper.JobIconDict.TryGetValue(mission.ClassId, out var jobIcon))
+                    {
+                        ImGui.SameLine(0, 2);
+                        var imageSize = new Vector2(23, 23);
+                        ImGui.Image(jobIcon.GetWrapOrEmpty().Handle, imageSize);
+                        if (ImGui.IsItemHovered())
+                        {
+                            ImGui.BeginTooltip();
+                            ImGui.Text($"[{mission.MissionId}]");
+                            ImGui.SameLine(0, 2);
+                            // ⚠️ 來源是寫死的 PhaennaMapV2/SinusMapV2，跟 SheetMissionDict 沒有共同保證。
+                            //    PhaennaMapV2 的任務 ID 是 574..1004 —— 台服 WKSMissionUnit **有這些列，
+                            //    但整列是空的**（第二顆星 Phaenna 的預留列），所以建不進 SheetMissionDict。
+                            //    上游那條路徑目前走不到只是因為台服沒有 territory 1291。
+                            ImGui.Text(CosmicHelper.SheetMissionDict.TryGetValue(mission.MissionId, out var timedEntry) ? GameTextUtil.StripGameIcons(timedEntry.Name) : "???");
+                            ImGui.EndTooltip();
+                        }
+                    }
                 }
-                ImGui.SameLine(0, 2);
-                ImGui.AlignTextToFramePadding();
-                ImGui.Text("Next in: ??".Loc(nextWeatherTime));
             }
 
-            ImGui.AlignTextToFramePadding();
-            ImGui.Text("Timed Mission(s): ".Loc());
-            // GetMissionsForHour() 已經濾掉「這個客戶端查不到資料」的任務
-            //（見 PlayerHandlers.KnownMissionsOnly），所以下面的 TryGetValue 正常情況不會落空。
-            var (currentList, nextList) = PlayerHandlers.GetMissionsForHour();
-            foreach (var mission in currentList)
-            {
-                if (CosmicHelper.JobIconDict.TryGetValue(mission.ClassId, out var jobIcon))
-                {
-                    ImGui.SameLine(0, 2);
-                    var imageSize = new Vector2(23, 23);
-                    ImGui.Image(jobIcon.GetWrapOrEmpty().Handle, imageSize);
-                    if (ImGui.IsItemHovered())
-                    {
-                        ImGui.BeginTooltip();
-                        ImGui.Text($"[{mission.MissionId}]");
-                        ImGui.SameLine(0, 2);
-                        // ⚠️ 來源是寫死的 PhaennaMapV2/SinusMapV2，跟 SheetMissionDict 沒有共同保證。
-                        //    PhaennaMapV2 的任務 ID 是 574..1004 —— 台服 WKSMissionUnit **有這些列，
-                        //    但整列是空的**（第二顆星 Phaenna 的預留列），所以建不進 SheetMissionDict。
-                        //    上游那條路徑目前走不到只是因為台服沒有 territory 1291。
-                        ImGui.Text(CosmicHelper.SheetMissionDict.TryGetValue(mission.MissionId, out var timedEntry) ? GameTextUtil.StripGameIcons(timedEntry.Name) : "???");
-                        ImGui.EndTooltip();
-                    }
-                }
-            }
-            ImGui.SameLine(0, 2);
-            ImGui.AlignTextToFramePadding();
-            ImGuiEx.Icon(FontAwesomeIcon.LongArrowAltRight);
-            ImGui.SameLine();
-            foreach (var mission in nextList)
-            {
-                if (CosmicHelper.JobIconDict.TryGetValue(mission.ClassId, out var jobIcon))
-                {
-                    ImGui.SameLine(0, 2);
-                    var imageSize = new Vector2(23, 23);
-                    ImGui.Image(jobIcon.GetWrapOrEmpty().Handle, imageSize);
-                    if (ImGui.IsItemHovered())
-                    {
-                        ImGui.BeginTooltip();
-                        ImGui.Text($"[{mission.MissionId}]");
-                        ImGui.SameLine(0, 2);
-                        // ⚠️ 來源是寫死的 PhaennaMapV2/SinusMapV2，跟 SheetMissionDict 沒有共同保證。
-                        //    PhaennaMapV2 的任務 ID 是 574..1004 —— 台服 WKSMissionUnit **有這些列，
-                        //    但整列是空的**（第二顆星 Phaenna 的預留列），所以建不進 SheetMissionDict。
-                        //    上游那條路徑目前走不到只是因為台服沒有 territory 1291。
-                        ImGui.Text(CosmicHelper.SheetMissionDict.TryGetValue(mission.MissionId, out var timedEntry) ? GameTextUtil.StripGameIcons(timedEntry.Name) : "???");
-                        ImGui.EndTooltip();
-                    }
-                }
-            }
-            if (PlayerHelper.UsingSupportedJob())
+            if (C.ShowOverlayJobScore && PlayerHelper.UsingSupportedJob())
             {
                 if (CosmicHelper.CurrentLunarMission != 0)
                 {

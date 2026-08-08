@@ -94,6 +94,24 @@ namespace ICE.Config
         public bool ShowTotalScore { get; set; } = true;
         public bool ShowExpBars { get; set; } = true;
 
+        // ---- 疊加層各區塊的顯示開關（2026-08-08 使用者要求：「預報和成果 也能加開關嗎?」）----
+        // 🔑 三個**全部預設開**＝現行版面零改變。這一組要解決的是「我不想看這一塊」，
+        //    不是要改預設長相；預設值一改就變成「未經同意動了所有人的畫面」。
+        // ⚠️ 關掉的是**畫**，不是算：資料本來就是每幀現查的，不存在「關掉省了什麼」的副作用；
+        //    反過來說也不會因為關掉而讓別的功能少拿到東西。
+
+        /// <summary>疊加層的「天氣預報」那一列（目前天氣 → 下一個天氣 → 還有多久）。</summary>
+        public bool ShowOverlayWeather { get; set; } = true;
+
+        /// <summary>疊加層的「時間限定任務」那一列（這個小時／下個小時的職業圖示）。</summary>
+        public bool ShowOverlayTimedMissions { get; set; } = true;
+
+        /// <summary>
+        /// 疊加層的職業成果進度條（目前任務對應職業的宇宙工具經驗條）。
+        /// ⚠️ 跟 <see cref="ShowTotalScore"/>（總成果那一條）是兩件事，各自有開關。
+        /// </summary>
+        public bool ShowOverlayJobScore { get; set; } = true;
+
         // 機甲行動技能範圍標示（Utilities/MechaOps）。預設關閉。
         public bool ShowMechaAoeOverlay { get; set; } = false;
 
