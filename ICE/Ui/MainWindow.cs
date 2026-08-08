@@ -111,6 +111,23 @@ namespace ICE.Ui
                     helpSelect_AllSettings.Draw();
                     break;
 
+                // ── UI 重構第二批新增的路由 ──────────────────────────────
+                // 這三個 case 呼叫的是原本就住在 Misc 設定頁裡的那幾節，**內容一個字都沒改**，
+                // 只是各自獨立成一頁。對應的節已經從 Misc_Settings.Draw() 移除，
+                // 所以是「搬家」不是「複製」—— 同一組設定不會同時出現在兩個地方。
+                case "setting_MechaOps":
+                    Misc_Settings.DrawMechaOpsPage();
+                    break;
+                case "setting_Display":
+                    Misc_Settings.DrawDisplayPage();
+                    break;
+                case "setting_Safety":
+                    Misc_Settings.DrawSafetyPage();
+                    break;
+                case "setting_Interface":
+                    InterfaceSettings.Draw();
+                    break;
+
 
                 // Hub Activities
                 case "hubActivities_CreditShopping":

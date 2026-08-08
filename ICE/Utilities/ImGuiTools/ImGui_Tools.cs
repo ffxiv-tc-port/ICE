@@ -25,8 +25,16 @@ public static partial class ImGui_Tools
     // This is just a simple way of keeping track of all of them, so I can easily reference what state they're in
     public static Dictionary<string, bool> CategoryStates = new();
 
-    // My Custom Header, Uses FontAwesomeIcon and a 
-    public static bool DrawCategoryHeader_AutoSize(string label, FontAwesomeIcon? icon = null, IDalamudTextureWrap? imageTexture = null)
+    // My Custom Header, Uses FontAwesomeIcon and a
+    //
+    // ⚠️ id 是 2026-08-08 UI 重構時加的**選填**參數，省略時完全等同以前的行為
+    //    （key 就是 label 本身），所以既有呼叫端一個都不用改。
+    //    加它的原因：CategoryStates 原本拿「已在地化的 label」當 key ——
+    //    兩個分類只要翻成同一個字串就會**共用展開狀態**，失敗形式是靜默的
+    //    （兩塊一起收合，看起來像 ImGui 壞掉）。新側欄分類一律傳明確、不翻譯的 id。
+    // 📌 CategoryStates 只活在記憶體、不寫進設定檔，所以換 key 沒有遷移問題，
+    //    最多是當次 session 的展開狀態回到預設（收合）。
+    public static bool DrawCategoryHeader_AutoSize(string label, FontAwesomeIcon? icon = null, IDalamudTextureWrap? imageTexture = null, string? id = null)
     {
         float scale = ImGuiHelpers.GlobalScale;
 
@@ -40,7 +48,7 @@ public static partial class ImGui_Tools
         // A: If it doesn't already exist, add it and just make it false (This makes it to where it's not expanded by default)
         //    - Could absolutely change that to true if I want to make it shown on inital creation
         // B: Returns the state in a form to where if that's true, then I could display the elements below it properly
-        string categoryId = label;
+        string categoryId = id ?? label;
         if (!CategoryStates.ContainsKey(categoryId))
             CategoryStates[categoryId] = false;
 

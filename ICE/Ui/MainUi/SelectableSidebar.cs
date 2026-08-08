@@ -54,35 +54,73 @@ namespace ICE.Ui.MainUi
                     ImGui.Dummy(new Vector2(0, 10));
                 }
 
-                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Cosmic Helper".Loc(), icon: FontAwesomeIcon.ListAlt))
+                // ── 新側欄骨架（2026-08-08 UI 重構第二批）────────────────────────
+                // 一級項按「使用者在想什麼」分組，不再按「這段碼住在哪個檔」分組。
+                // ⚠️ 每個分類都傳明確的 id（第 4 個具名參數），不要讓已在地化的 label 當 key。
+                // ⚠️ 每個 DrawSelectableWithIcon 的第三個參數必須在 MainWindow.MainBody() 的
+                //    switch 裡有對應的 case —— 打錯**不會編譯失敗**，只會變成一片空白頁。
+                //    這一批新增/更動的 id 全部走過一遍了。
+                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Missions".Loc(), icon: FontAwesomeIcon.ListAlt, id: "cat_Missions"))
                 {
+                    // ⚠️ 這兩項刻意「沒有」合併成單一入口：它們不是同一頁的兩個名字，
+                    //    而是切換 C.ShowCompletionWindow 的**唯二**開關（見 MainBody 的兩個 case）。
+                    //    併成一項會讓使用者再也無法在兩種顯示模式之間切換 —— 那是功能損失，
+                    //    不是版面整理。真要併成一項，得先決定那個模式切換改放哪裡。
                     DrawSelectableWithIcon(FontAwesomeIcon.List, "Standard".Loc(), "modeSelect_Standard");
                     DrawSelectableWithIcon(FontAwesomeIcon.Trophy, "Completion".Loc(), "modeSelect_Completion");
-                }
-                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Settings".Loc(), icon: FontAwesomeIcon.Cog))
-                {
-                    if (C.Show_StopWhen)
-                        DrawSelectableWithIcon(FontAwesomeIcon.Stop, "Stop When...".Loc(), "setting_StopWhen");
-                    if (C.Show_GatheringProfile)
-                        DrawSelectableWithIcon(FontAwesomeIcon.Leaf, "Gathering Profile".Loc(), "setting_GatheringProfile");
                     if (C.Show_MissionPriority)
                         DrawSelectableWithIcon(FontAwesomeIcon.SortAmountUp, "Mission Priority".Loc(), "setting_MissionPriority");
-                    if (C.Show_MiscSettings)
-                        DrawSelectableWithIcon(FontAwesomeIcon.UserCog, "Misc Settings".Loc(), "setting_Misc");
+                }
+                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Gathering".Loc(), icon: FontAwesomeIcon.Leaf, id: "cat_Gathering"))
+                {
+                    if (C.Show_GatheringProfile)
+                        DrawSelectableWithIcon(FontAwesomeIcon.Leaf, "Gathering Profile".Loc(), "setting_GatheringProfile");
 
                     // 刻意不加 C.Show_* 開關：這一頁的重點就是「讓使用者知道採集路線可以自己改」，
                     // 藏在偵錯視窗底下等於沒有。
                     DrawSelectableWithIcon(FontAwesomeIcon.MapSigns, "Gathering Routes".Loc(), "setting_GatherRoutes");
-
-                    DrawSelectableWithIcon(FontAwesomeIcon.Cog, "All Settings".Loc(), "helpSelect_AllSettings");
                 }
                 if (C.Show_HubActivities)
                 {
-                    if (ImGui_Tools.DrawCategoryHeader_AutoSize("Hub Activities".Loc(), icon: FontAwesomeIcon.Home))
+                    if (ImGui_Tools.DrawCategoryHeader_AutoSize("Hub Activities".Loc(), icon: FontAwesomeIcon.Home, id: "cat_HubActivities"))
                     {
                         DrawSelectableWithImage(65112, "Credit Shopping".Loc(), "hubActivities_CreditShopping");
                         DrawSelectableWithImage(65127, "Gambling Settings".Loc(), "hubActivites_GambaSetting");
                     }
+                }
+                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Mecha Ops".Loc(), icon: FontAwesomeIcon.Robot, id: "cat_MechaOps"))
+                {
+                    DrawSelectableWithIcon(FontAwesomeIcon.Robot, "Mecha Skill Ranges".Loc(), "setting_MechaOps");
+                }
+                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Display & Overlay".Loc(), icon: FontAwesomeIcon.WindowMaximize, id: "cat_Display"))
+                {
+                    DrawSelectableWithIcon(FontAwesomeIcon.WindowMaximize, "Overlay Window".Loc(), "setting_Display");
+                }
+                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Automation & Safety".Loc(), icon: FontAwesomeIcon.ShieldAlt, id: "cat_Automation"))
+                {
+                    if (C.Show_StopWhen)
+                        DrawSelectableWithIcon(FontAwesomeIcon.Stop, "Stop When...".Loc(), "setting_StopWhen");
+                    DrawSelectableWithIcon(FontAwesomeIcon.ExclamationTriangle, "Safety Settings".Loc(), "setting_Safety");
+
+                    // ⚠️ 「其他設定」這一項在重構計畫的一級項清單裡**沒有**被列到，但不能拿掉：
+                    //    Misc 設定頁被拆走 3 節（疊加層／機甲／安全）之後還剩 5 節
+                    //    （自動使用道具／自動修理／時間紀錄／坐騎選擇／任務後指令，
+                    //     加上 B3 才會搬走的顯示分頁開關），這幾節在新結構裡沒有指定去處。
+                    //    拿掉入口＝它們直接變成使用者摸不到的死頁，所以先掛在這裡。
+                    //    放這一類是因為剩下的內容以自動化為主（自動使用／自動修理／任務後指令）。
+                    //    等它們各自有家之後再把這一項移走。
+                    // 📌 刻意不另外開一個「Other Settings」分類：那個字串與 "Misc Settings"
+                    //    的中文翻譯**都是「其他設定」**，會變成父項與子項同名，看起來像畫錯了。
+                    if (C.Show_MiscSettings)
+                        DrawSelectableWithIcon(FontAwesomeIcon.UserCog, "Misc Settings".Loc(), "setting_Misc");
+                }
+                // 🔴 「介面」是唯一不受任何 C.Show_* 影響的分頁，而且必須保持如此：
+                //    分頁顯示/隱藏的開關本身住在這一頁（B3 從 Misc ⑦ 搬進來）。
+                //    如果它自己也能被藏起來，使用者就沒有任何辦法把藏掉的東西叫回來 ——
+                //    那是個把自己鎖在門外、只能去改設定檔才救得回來的狀態。
+                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Interface".Loc(), icon: FontAwesomeIcon.SlidersH, id: "cat_Interface"))
+                {
+                    DrawSelectableWithIcon(FontAwesomeIcon.WindowRestore, "Show / Hide Tabs".Loc(), "setting_Interface");
                 }
                 var currentJob = C.SelectedJob;
                 if (ImGui_Tools.DrawCategoryHeader_AutoSize("Moon Selection".Loc(), FontAwesomeIcon.Moon))
@@ -193,7 +231,7 @@ namespace ICE.Ui.MainUi
                         ImGui.TextWrapped("You have to be in a cosmic area for us to view this info. Blame square for not making it always accesable".Loc());
                     }
                 }
-                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Help".Loc(), icon: FontAwesomeIcon.QuestionCircle))
+                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Help & Diagnostics".Loc(), icon: FontAwesomeIcon.QuestionCircle, id: "cat_Help"))
                 {
                     DrawSelectableWithIcon(FontAwesomeIcon.Question, "Requirements".Loc(), "helpSelect_Requirements");
                     DrawSelectableWithIcon(FontAwesomeIcon.Book, "Ice Logs".Loc(), "helpSelect_Logs");

@@ -123,7 +123,11 @@ public sealed partial class ICE : IDalamudPlugin
         Svc.PluginInterface.UiBuilder.OpenConfigUi += () =>
         {
             mainWindow.IsOpen = true;
-            SelectableSidebar.currentSelection = "helpSelect_AllSettings";
+            // 🔴 這個字串必須是 MainWindow.MainBody() 那個 switch 裡真的存在的 case ——
+            //    打錯不會編譯失敗，只會讓「外掛清單的齒輪鈕」開出一片空白頁。
+            //    選「介面」是因為它是唯一保證不會被 C.Show_* 藏起來的分頁，
+            //    所以無論使用者把什麼藏掉了，這個入口都一定落在看得到東西的地方。
+            SelectableSidebar.currentSelection = "setting_Interface";
         };
         DictionaryCreation();
         // 要放在 DictionaryCreation() 之後：它依賴 ExcelHelper 的 sheet 已經取好。
@@ -208,7 +212,8 @@ public sealed partial class ICE : IDalamudPlugin
         else if (firstArg.ToLower() == "s" || firstArg.ToLower() == "settings")
         {
             mainWindow.IsOpen = true;
-            SelectableSidebar.currentSelection = "helpSelect_AllSettings";
+            // 🔴 同上：必須對得上 MainBody() 的 case，打錯是空白頁不是編譯錯誤。
+            SelectableSidebar.currentSelection = "setting_Interface";
             return;
         }
         else if (firstArg.ToLower() == "clear")

@@ -14,14 +14,15 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 {
     internal class Misc_Settings
     {
+        // ⚠️ 2026-08-08 UI 重構第二批：原本這一頁是九節連在一起的長捲軸。
+        //    其中三節搬去新側欄各自獨立成頁（見下面三個 Draw*Page），這裡就不再畫它們 ——
+        //    是**搬家不是複製**，同一組設定不會同時出現在兩個地方。
+        //    搬走的：疊加層 → DrawDisplayPage()／機甲技能範圍 → DrawMechaOpsPage()／
+        //            安全設定 → DrawSafetyPage()。
+        //    留下的五節（＋B3 才會搬走的顯示分頁開關）在新結構裡還沒有各自的家，
+        //    所以側欄的「其他設定」入口必須留著，否則它們會變成使用者摸不到的死頁。
         public static void Draw()
         {
-            OverlaySettings();
-            Separator();
-
-            MechaAoeSettings();
-            Separator();
-
             AutoUse();
             Separator();
 
@@ -38,8 +39,26 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             Separator();
 
             PostMissionCommands();
-            Separator();
+        }
 
+        // ── 新側欄的三個獨立頁入口（UI 重構第二批）──────────────────────────
+        // 只是把原本 Draw() 裡的呼叫原封搬過來，節的內容逐字未改。
+        // 尾端的 Separator() 拿掉了：那是「同一頁裡分隔上下兩節」用的，
+        // 獨立成頁之後底下沒有東西，留著只會多一條沒有意義的橫線。
+
+        internal static void DrawMechaOpsPage()
+        {
+            MechaAoeSettings();
+        }
+
+        internal static void DrawDisplayPage()
+        {
+            OverlaySettings();
+        }
+
+        internal static void DrawSafetyPage()
+        {
+            // 這兩行標題原本就在 Draw() 裡包著 SafetySettings.Draw()，一起搬過來。
             ImGuiEx.IconWithText(FontAwesomeIcon.ExclamationTriangle, "Safety Settings".Loc());
             ImGui.Dummy(new Vector2(0, 5));
             SafetySettings.Draw();
