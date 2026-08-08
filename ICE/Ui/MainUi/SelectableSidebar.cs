@@ -70,11 +70,15 @@ namespace ICE.Ui.MainUi
                     DrawSelectableWithIcon(FontAwesomeIcon.Trophy, "Completion".Loc(), "modeSelect_Completion");
                     if (C.Show_MissionPriority)
                         DrawSelectableWithIcon(FontAwesomeIcon.SortAmountUp, "Mission Priority".Loc(), "setting_MissionPriority");
+                    else
+                        DrawHiddenNotice(1);
                 }
                 if (ImGui_Tools.DrawCategoryHeader_AutoSize("Gathering".Loc(), icon: FontAwesomeIcon.Leaf, id: "cat_Gathering"))
                 {
                     if (C.Show_GatheringProfile)
                         DrawSelectableWithIcon(FontAwesomeIcon.Leaf, "Gathering Profile".Loc(), "setting_GatheringProfile");
+                    else
+                        DrawHiddenNotice(1);
 
                     // 刻意不加 C.Show_* 開關：這一頁的重點就是「讓使用者知道採集路線可以自己改」，
                     // 藏在偵錯視窗底下等於沒有。
@@ -87,6 +91,12 @@ namespace ICE.Ui.MainUi
                         DrawSelectableWithImage(65112, "Credit Shopping".Loc(), "hubActivities_CreditShopping");
                         DrawSelectableWithImage(65127, "Gambling Settings".Loc(), "hubActivites_GambaSetting");
                     }
+                }
+                else
+                {
+                    // ⚠️ 這一個 Show_* 藏的是**整個分類**（連標題一起），不是分類底下的某一項，
+                    //    所以提示要畫在分類原本的位置、外面，不能塞進 header 的 if 裡。
+                    DrawHiddenNotice(1);
                 }
                 if (ImGui_Tools.DrawCategoryHeader_AutoSize("Mecha Ops".Loc(), icon: FontAwesomeIcon.Robot, id: "cat_MechaOps"))
                 {
@@ -113,6 +123,9 @@ namespace ICE.Ui.MainUi
                     //    的中文翻譯**都是「其他設定」**，會變成父項與子項同名，看起來像畫錯了。
                     if (C.Show_MiscSettings)
                         DrawSelectableWithIcon(FontAwesomeIcon.UserCog, "Misc Settings".Loc(), "setting_Misc");
+
+                    // 這一類底下有兩項各自可被藏：停止條件與其他設定。合起來數，只畫一行。
+                    DrawHiddenNotice((C.Show_StopWhen ? 0 : 1) + (C.Show_MiscSettings ? 0 : 1));
                 }
                 // 🔴 「介面」是唯一不受任何 C.Show_* 影響的分頁，而且必須保持如此：
                 //    分頁顯示/隱藏的開關本身住在這一頁（B3 從 Misc ⑦ 搬進來）。
@@ -278,6 +291,28 @@ namespace ICE.Ui.MainUi
                 C.ShowPhaennaMissions = true;
                 C.Save();
             }
+        }
+
+        // 灰字提示：這個位置本來有東西，被「介面」分頁的開關藏起來了。
+        //
+        // 🔑 為什麼要留這一行：藏起來的項目如果完全不留痕跡，使用者看到的是
+        //    「功能不見了」，分不出是自己關的、還是外掛壞了。
+        //    「不知道」本身要在列上看得見 —— tooltip 藏的是「為什麼」，不是「有沒有問題」。
+        // 📌 用 TextWrapped ＋ TextDisabled 色而不是 TextDisabled()：側欄只有 200px 寬，
+        //    單行的話中文會被裁掉。
+        private static void DrawHiddenNotice(int hiddenCount)
+        {
+            if (hiddenCount <= 0)
+                return;
+
+            float scale = ImGuiHelpers.GlobalScale;
+            ImGui.SetCursorPosX(ImGui.GetCursorPosX() + 16 * scale);
+            ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetColorU32(ImGuiCol.TextDisabled));
+            ImGui.PushTextWrapPos(ImGui.GetContentRegionAvail().X);
+            ImGui.TextWrapped("?? hidden - turn back on in Interface".Loc(hiddenCount));
+            ImGui.PopTextWrapPos();
+            ImGui.PopStyleColor();
+            ImGui.Dummy(new Vector2(0, 2 * scale));
         }
 
         private static void DrawSelectableWithIcon(FontAwesomeIcon icon, string label, string id)

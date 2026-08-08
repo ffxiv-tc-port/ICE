@@ -8,7 +8,6 @@ using ICE.Sounds;
 using ICE.Ui.MainUi;
 using ICE.Ui.MainUi.HelpFolder;
 using ICE.Ui.MainUi.ModeSelect;
-using ICE.Ui.MainUi.Settings;
 using ICE.Ui.MainUi.Settings.Settings_Table;
 using ICE.Ui.SettingTabs;
 using ICE.Utilities.Cosmic;
@@ -107,9 +106,10 @@ namespace ICE.Ui
                 case "setting_GatherRoutes":
                     GatherRouteCustomization.Draw();
                     break;
-                case "helpSelect_AllSettings":
-                    helpSelect_AllSettings.Draw();
-                    break;
+                // 📌 舊的 "helpSelect_AllSettings"（把六個設定頁塞進一列按鈕的「全部設定」頁）
+                //    已於 UI 重構第三批整頁移除，六個目的地在新側欄各自都有入口。
+                //    它自帶的 DrawCategoryTab / settingsTabs 是那一頁專用的，一併消失；
+                //    ⚠️ modeSelect_Standard 用的 EndCategoryButtonRow 是 ImGui_Tools 裡的**另一個**同名方法，不受影響。
 
                 // ── UI 重構第二批新增的路由 ──────────────────────────────
                 // 這三個 case 呼叫的是原本就住在 Misc 設定頁裡的那幾節，**內容一個字都沒改**，

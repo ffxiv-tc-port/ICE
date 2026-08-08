@@ -35,9 +35,6 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             MountSelection();
             Separator();
 
-            ShowSystemButtons();
-            Separator();
-
             PostMissionCommands();
         }
 
@@ -1035,46 +1032,10 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             }
         }
 
-        private static void ShowSystemButtons()
-        {
-            ImGuiEx.IconWithText(FontAwesomeIcon.WindowRestore, "Show / Hide Tabs".Loc());
-            ImGui.Dummy(new(0, 5));
-
-            bool showStopWhen = C.Show_StopWhen;
-            if (ImGui.Checkbox("Show Stop When... Tab".Loc() + "###ICEShowStopWhenTab", ref showStopWhen))
-            {
-                C.Show_StopWhen = showStopWhen;
-                C.Save();
-            }
-
-            bool showGProfile = C.Show_GatheringProfile;
-            if (ImGui.Checkbox("Show Gathering Profile Tab".Loc() + "###ICEShowGatheringProfileTab", ref showGProfile))
-            {
-                C.Show_GatheringProfile = showGProfile;
-                C.Save();
-            }
-
-            bool showMissionPrio = C.Show_MissionPriority;
-            if (ImGui.Checkbox("Show Mission Priority Tab".Loc() + "###ICEShowMissionPriorityTab", ref showMissionPrio))
-            {
-                C.Show_MissionPriority = showMissionPrio;
-                C.Save();
-            }
-
-            bool showMisc = C.Show_MiscSettings;
-            if (ImGui.Checkbox("Show Misc Settings Tab".Loc() + "###ICEShowMiscSettingsTab", ref showMisc))
-            {
-                C.Show_MiscSettings = showMisc;
-                C.Save();
-            }
-
-            bool showHubActivities = C.Show_HubActivities;
-            if (ImGui.Checkbox("Show Hub Activities Section".Loc() + "###ICEShowHubActivitiesSection", ref showHubActivities))
-            {
-                C.Show_HubActivities = showHubActivities;
-                C.Save();
-            }
-        }
+        // 📌 原本這裡有 ShowSystemButtons()（顯示／隱藏分頁的五個開關）。
+        //    UI 重構第三批整段搬到 InterfaceSettings.Draw()，因為那些開關要跟
+        //    「哪些分頁被藏起來了」的提示放在同一頁，而且「介面」是永遠藏不掉的分頁。
+        //    是搬家不是複製 —— 這裡不再畫它們。
         private static void PostMissionCommands()
         {
             ImGuiEx.IconWithText(FontAwesomeIcon.Play, "Post Mission Commands".Loc());
