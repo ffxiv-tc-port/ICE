@@ -884,7 +884,7 @@ internal static class MechaEventRecorder
 
         // 排序：任務目標優先，其次由近到遠。截斷時保留最有價值的那一批。
         var ordered = sweep
-            .Select(e => (Entry: e, Tier: TierOf(e.ObjectId, e.BaseId)))
+            .Select(e => (Entry: e, Tier: TierOf(e.ObjectId, e.BaseId, e.Kind)))
             .OrderByDescending(x => (int)x.Tier)
             .ThenBy(x => x.Entry.Distance)
             .ToList();
@@ -900,7 +900,7 @@ internal static class MechaEventRecorder
                 $"OBJ #{seq};oid=0x{e.ObjectId:X};did={e.BaseId};kind={e.Kind};name={e.Name}"
                 + $";pos={Fmt(e.Position)};dist={e.Distance:F2};hitbox={e.HitboxRadius:F2}"
                 + $";targetable={e.Targetable};hp={(e.Hp < 0 ? "-" : e.Hp + "/" + e.MaxHp)}"
-                + $";tier={tier};tierWhy={TierWhy(e.ObjectId, e.BaseId)}"
+                + $";tier={tier};tierWhy={TierWhy(e.ObjectId, e.BaseId, e.Kind)}"
                 + $";iceListed={listed.Contains(e.ObjectId)};iceFilter={IceFilterReason(e, tier)}");
         }
 
@@ -1064,10 +1064,10 @@ internal static class MechaEventRecorder
                 };
                 tracks[e.ObjectId] = track;
 
-                var tier0 = TierOf(e.ObjectId, e.BaseId);
+                var tier0 = TierOf(e.ObjectId, e.BaseId, e.Kind);
                 EmitBulk(
                     $"SPAWN;{TimeFields()};oid=0x{e.ObjectId:X};did={e.BaseId};kind={e.Kind};name={e.Name}"
-                    + $";pos={Fmt(e.Position)};dist={e.Distance:F2};tier={tier0};tierWhy={TierWhy(e.ObjectId, e.BaseId)}");
+                    + $";pos={Fmt(e.Position)};dist={e.Distance:F2};tier={tier0};tierWhy={TierWhy(e.ObjectId, e.BaseId, e.Kind)}");
             }
 
             // 名字可能一開始是空的、之後才查得到（EObjName 是延遲建表的）。
@@ -1080,7 +1080,7 @@ internal static class MechaEventRecorder
             track.SeenSnapshots++;
             track.EverIceListed |= listed.Contains(e.ObjectId);
 
-            var tier = TierOf(e.ObjectId, e.BaseId);
+            var tier = TierOf(e.ObjectId, e.BaseId, e.Kind);
             if (tier > track.BestTier)
                 track.BestTier = tier;
         }
@@ -1118,13 +1118,18 @@ internal static class MechaEventRecorder
     //  ICE 現行判定的重算（只寫進 log，不影響任何顯示）
     // ────────────────────────────────────────────────────────────────────
 
-    private static MechaTargetTier TierOf(ulong objectId, uint baseId)
+    /// <summary>
+    /// ⚠️ 這裡的三層順序必須跟 <see cref="MechaOpsMonitor.SampleTargets"/> <b>逐字對應</b>——
+    /// 這是「重算」不是攔截，兩邊漂掉 log 就會說謊。
+    /// </summary>
+    private static MechaTargetTier TierOf(ulong objectId, uint baseId, ObjectKind kind)
         => MechaObjectiveTracker.ConfirmedObjectIds.Contains(objectId) ? MechaTargetTier.Objective
         : MechaObjectiveTracker.IsObjectiveBaseId(baseId) ? MechaTargetTier.Likely
+        : MechaObjectiveTracker.IsRoleTargetByKind(baseId, kind) ? MechaTargetTier.Likely
         : MechaTargetTier.Other;
 
     /// <summary>分級是<b>怎麼</b>來的。同樣一個 <c>Likely</c>，來自遊戲標記與來自資料表推論的可信度差很多。</summary>
-    private static string TierWhy(ulong objectId, uint baseId)
+    private static string TierWhy(ulong objectId, uint baseId, ObjectKind kind)
     {
         if (MechaObjectiveTracker.ConfirmedObjectIds.Contains(objectId))
             return "confirmed-marker";
@@ -1138,6 +1143,15 @@ internal static class MechaEventRecorder
             if (MechaObjectNames.ObjectIdsForRole(rowId, role).Contains(baseId))
                 return "sheet-whitelist";
         }
+
+        // 家族內靠 ObjectKind 補上的那一層（見 MechaObjectiveTracker.IsRoleTargetByKind）。
+        if (MechaObjectiveTracker.IsRoleTargetByKind(baseId, kind))
+            return "kind-role";
+
+        // 🔑 家族成員但不屬於我這個身份（例如協助員看到的巨型目標）。
+        //    它仍然會被列出來（雜訊過濾豁免），但分級就是 Other——這兩件事不一樣，要分得出來。
+        if (MechaObjectNames.IsKnownEventObjectId(baseId))
+            return "family-other-role";
 
         return "-";
     }

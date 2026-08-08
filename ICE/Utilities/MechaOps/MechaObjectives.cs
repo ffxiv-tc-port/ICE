@@ -283,6 +283,35 @@ internal static unsafe class MechaObjectiveTracker
         return MechaObjectNames.ObjectIdsForRole(rowId, role).Contains(baseId);
     }
 
+    /// <summary>
+    /// ③ 第三條線索：<b>機甲事件家族內</b>，用實體的 <see cref="ObjectKind"/> 判它是不是
+    /// 「我這個身份」的目標（<c>CardStand</c>＝協助員的 per-player 目標、
+    /// <c>EventObj</c>＝駕駛員目標，證據見 <see cref="MechaObjectNames.RoleByObjectKind"/>）。
+    ///
+    /// 🔑 排在 <see cref="IsObjectiveBaseId"/> 之後、而且<b>只准把分級往上調</b>：
+    /// 群組表是遊戲自己的資料、還分得出是哪一場事件，本來就比「kind 的相關性」可信。
+    /// 這一條要補的是群組表<b>沒收到</b>的新 DataId——那時候前兩條都給不出答案，
+    /// 而目標會掉進雜訊規則裡消失（這正是 2026-08-08 兩場錄製都踩到的那個坑）。
+    ///
+    /// ⚠️ 兩道前置缺一不可：判不出身份就不用它（<see cref="MechaRole.Unknown"/>），
+    /// 不在家族白名單裡的 <c>DataId</c> 也不用它——否則場景裡每一個 <c>EventObj</c>
+    /// 都會被判成駕駛員目標。
+    /// </summary>
+    public static bool IsRoleTargetByKind(uint baseId, ObjectKind kind)
+    {
+        if (baseId == 0)
+            return false;
+
+        var role = MechaOpsMonitor.Role;
+        if (role == MechaRole.Unknown)
+            return false;
+
+        if (!MechaObjectNames.IsKnownEventObjectId(baseId))
+            return false;
+
+        return MechaObjectNames.RoleByObjectKind(kind) == role;
+    }
+
     // ---- 診斷（給狀態視窗與 Information 級 log 用）----
 
     /// <summary>上一輪取樣讀到幾個有效標記。<c>-1</c> ＝ 這一輪根本沒讀到（不是 0 個）。</summary>

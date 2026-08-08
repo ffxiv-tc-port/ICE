@@ -1,3 +1,4 @@
+using Dalamud.Game.ClientState.Objects.Enums;
 using ICE.Utilities.Cosmic_Helper;
 using Lumina.Excel.Sheets;
 using System.Collections.Generic;
@@ -130,6 +131,33 @@ internal static class MechaObjectNames
     /// </summary>
     public static bool IsKnownEventObjectId(uint baseId)
         => baseId != 0 && KnownEventObjectIds.Contains(baseId);
+
+    /// <summary>
+    /// 從實體的 <see cref="ObjectKind"/> 推它屬於哪一種身份的目標。
+    /// ⚠️ <b>只對機甲事件家族的 <c>DataId</c> 有意義</b>——呼叫端必須先過
+    /// <see cref="IsKnownEventObjectId"/>，否則場景裡一堆 EventObj 都會被判成駕駛員目標。
+    ///
+    /// 📌 <b>證據</b>（2026-08-08 兩場實機錄製，四個 DataId 全部吻合）：
+    /// <code>
+    ///   2014720 巨型偏屬性水晶 EventObj  → 駕駛員
+    ///   2014722 巨型變異菌床   EventObj  → 駕駛員（對協助員 targetable=False 全程 1317 次）
+    ///   2014721 小型偏屬性水晶 CardStand → 協助員（per-player 生成）
+    ///   2014723 小型變異菌床   CardStand → 協助員（per-player 生成，同時可有多個實例）
+    /// </code>
+    /// 🔑 規律是<b>執行期生成的 per-player 目標會是 <c>CardStand</c>，靜態佈置的巨型目標是
+    /// <c>EventObj</c></b>，跟 <c>WKSMechaEventObject.Unknown3</c> 的 4／3 完全對得起來。
+    ///
+    /// 🔴 <b>但這是觀察到的相關性，不是遊戲資料裡的角色標記</b>，所以它在
+    /// <see cref="ObjectIdsForRole"/>（群組表，權威且分得出是哪一場事件）<b>之後</b>才問，
+    /// 而且<b>只用來把分級往上調、絕不往下調</b>。這樣即使規律在未來的事件不成立，
+    /// 失敗形式也只是「少補一個」，不會把群組表判對的目標踢掉。
+    /// </summary>
+    public static MechaRole RoleByObjectKind(ObjectKind kind) => kind switch
+    {
+        ObjectKind.CardStand => MechaRole.GroundSupport,
+        ObjectKind.EventObj => MechaRole.Pilot,
+        _ => MechaRole.Unknown,
+    };
 
     // ---- 身份相關（2026-08-06 新增，2026-08-08 改為資料表群組驅動）----
 

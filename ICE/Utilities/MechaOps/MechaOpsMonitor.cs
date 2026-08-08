@@ -529,6 +529,12 @@ internal static unsafe class MechaOpsMonitor
 
             var tier = confirmedIds.Contains(obj.GameObjectId) ? MechaTargetTier.Objective
                 : MechaObjectiveTracker.IsObjectiveBaseId(baseId) ? MechaTargetTier.Likely
+                // 🔑 第三條線索：家族內用 ObjectKind 補分級（CardStand＝協助員 per-player 目標、
+                //    EventObj＝駕駛員目標，四個 DataId 兩場實機全吻合，見 RoleByObjectKind）。
+                //    ⚠️ 這是**純加法**：只把 Other 提成 Likely，永遠不會把上面兩層判出來的降級。
+                //    它要補的是「群組表沒把這個 DataId 分給我這個身份」的情況——
+                //    日後新增事件、新的 DataId 還沒進群組表時就靠這條接住。
+                : MechaObjectiveTracker.IsRoleTargetByKind(baseId, kind) ? MechaTargetTier.Likely
                 : MechaTargetTier.Other;
 
             var rawName = GameTextUtil.StripGameIcons(obj.Name.ToString());
