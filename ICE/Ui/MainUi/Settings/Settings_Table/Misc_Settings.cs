@@ -252,6 +252,29 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
         }
 
         /// <summary>
+        /// 「這一列要不要畫」的核取方塊。機甲行動區塊底下的逐列開關都走這一個，
+        /// 免得同一段十行樣板複製七次（複製到第三次就會有一個忘記 <c>C.Save()</c>）。
+        /// </summary>
+        /// <param name="tooltip">需要額外說明時才給；多數列的標題本身就說完了。</param>
+        private static void RowToggle(string label, string id, bool current, Action<bool> setter, string? tooltip = null)
+        {
+            var value = current;
+            if (ImGui.Checkbox(label + "###" + id, ref value))
+            {
+                setter(value);
+                C.Save();
+            }
+
+            if (tooltip == null)
+                return;
+
+            ImGui.SameLine();
+            ImGui.TextDisabled("?");
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(tooltip);
+        }
+
+        /// <summary>
         /// 機甲行動技能範圍標示（Utilities/MechaOps）。純顯示、零自動化。
         /// </summary>
         private static void MechaAoeSettings()
@@ -518,6 +541,12 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                         C.Save();
                     }
 
+                    // 視窗裡那一列（「目的指示 2/5」＋事件名＋你的指示），跟地上的圈分開控制。
+                    RowToggle("Objectives Row In The Status Block".Loc(), "ICEShowMechaRowObjectives",
+                        C.ShowMechaRowObjectives, v => C.ShowMechaRowObjectives = v,
+                        ("Only hides that line in the mecha ops block. The rings drawn in the world are the " +
+                         "'Show Objective Markers' option above and stay as they are.").Loc());
+
                     // 🔴🔴 部署閘門下的選用路徑。這是這一組設定裡唯一一個「開了可能讓遊戲
                     //      直接關閉」的開關，所以警告不藏 tooltip —— 打開之後在列下面用紅字講。
                     bool useVector = C.MechaObjectiveUseMarkerVector;
@@ -613,6 +642,29 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                                       "Display only - it never signs you up and never acts for you.\n" +
                                       "The values are read only after the game's event pointer passes a range check; " +
                                       "if it does not, nothing is shown at all.").Loc());
+                }
+
+                // 進度區塊底下的逐列開關（2026-08-08 使用者要求：「機甲ui的各項 能加開關嗎」）。
+                // ⚠️ 縮排掛在上面那個總開關底下，而且總開關關著時一併 disable——
+                //    否則使用者會在一組「勾了也沒反應」的核取方塊上打轉。
+                using (ImRaii.Disabled(!showEventProgress))
+                {
+                    ImGui.Indent();
+
+                    RowToggle("Event Progress Bar".Loc(), "ICEShowMechaRowEventProgress",
+                        C.ShowMechaRowEventProgress, v => C.ShowMechaRowEventProgress = v);
+                    RowToggle("Personal Progress Bar".Loc(), "ICEShowMechaRowPersonalProgress",
+                        C.ShowMechaRowPersonalProgress, v => C.ShowMechaRowPersonalProgress = v);
+                    RowToggle("Contribution Row".Loc(), "ICEShowMechaRowContribution",
+                        C.ShowMechaRowContribution, v => C.ShowMechaRowContribution = v);
+                    RowToggle("Event Time Remaining".Loc(), "ICEShowMechaRowEventEnd",
+                        C.ShowMechaRowEventEnd, v => C.ShowMechaRowEventEnd = v);
+                    RowToggle("Sign-up Deadline".Loc(), "ICEShowMechaRowSignupEnd",
+                        C.ShowMechaRowSignupEnd, v => C.ShowMechaRowSignupEnd = v);
+                    RowToggle("Teleport Deadline".Loc(), "ICEShowMechaRowTeleportEnd",
+                        C.ShowMechaRowTeleportEnd, v => C.ShowMechaRowTeleportEnd = v);
+
+                    ImGui.Unindent();
                 }
 
                 bool showSchedule = C.ShowMechaSchedule;

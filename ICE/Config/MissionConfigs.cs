@@ -234,6 +234,21 @@ namespace ICE.Config
         // 取樣端會先做指標範圍驗證，驗證不過就什麼都不顯示。
         public bool ShowMechaEventProgress { get; set; } = true;
 
+        // ---- 機甲行動區塊「逐列」開關（2026-08-08 使用者要求：「機甲ui的各項 能加開關嗎」）----
+        // 🔑 全部預設開＝現行版面零改變。上面那個 ShowMechaEventProgress 仍然是整組的總開關，
+        //    這幾個是它底下的細項；總開關關著時這幾個一律不生效（不是「兩個都要開」的意思，
+        //    而是總開關就已經整組不畫了）。
+        // ⚠️ 「目的指示那一列」與世界疊加層上的目的指示圈是**兩件事**：
+        //    前者是這一列文字（ShowMechaRowObjectives），後者是 ShowMechaObjectives。
+        //    把兩者綁在一起的話，想關掉視窗那一行的人會連地上的圈一起弄不見。
+        public bool ShowMechaRowEventProgress { get; set; } = true;
+        public bool ShowMechaRowPersonalProgress { get; set; } = true;
+        public bool ShowMechaRowContribution { get; set; } = true;
+        public bool ShowMechaRowEventEnd { get; set; } = true;
+        public bool ShowMechaRowSignupEnd { get; set; } = true;
+        public bool ShowMechaRowTeleportEnd { get; set; } = true;
+        public bool ShowMechaRowObjectives { get; set; } = true;
+
         // ---- 事件排程（Utilities/MechaOps/MechaSchedule.cs）----
         // 「下次機甲事件：<名稱> HH:mm（N 分後）」。
         // 資料來自 WKSMechaEventModule._events 這個**內嵌**陣列的純量欄位，

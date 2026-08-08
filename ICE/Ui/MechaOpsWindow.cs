@@ -78,7 +78,9 @@ namespace ICE.Ui
 
             // 目的指示只要讀到過標記（或使用者釘了東西）就值得掛著——
             // 協助員沒有機甲技能，這一行是他唯一看得到的東西。
-            if (C.ShowMechaObjectives
+            // ⚠️ 這裡要問到「視窗裡那一列」的開關：只開地上的圈、關掉這一列的人，
+            //    不該因此得到一個空視窗。
+            if (C.ShowMechaObjectives && C.ShowMechaRowObjectives
                 && (MechaObjectiveTracker.MarkerCount > 0 || MechaObjectiveTracker.PinnedCount > 0))
                 return true;
 
@@ -128,7 +130,9 @@ namespace ICE.Ui
                 drewSomething |= DrawEventProgress();
             }
 
-            if (C.ShowMechaObjectives)
+            // ⚠️ 兩個開關都要問：ShowMechaObjectives 是目的指示這整個功能（含地上的圈），
+            //    ShowMechaRowObjectives 只管視窗裡這一列。想關掉這一行的人不該連圈一起失去。
+            if (C.ShowMechaObjectives && C.ShowMechaRowObjectives)
             {
                 if (drewSomething)
                     ImGui.Separator();
@@ -420,23 +424,36 @@ namespace ICE.Ui
             // 卡成一格一格跳，也不必在繪製執行緒上呼叫任何遊戲函式。0 = 拿不到。
             var nowServer = detail.ServerTimeNow;
 
+            // 旗標列（進行中／參加中／報名／傳送）是這一組的抬頭，沒有另外的開關：
+            // 它就是「現在到底能不能報名／傳送」，關掉它等於整組沒有意義。
             DrawEventFlagLine(detail, nowServer);
+
+            // ⚠️ 底下每一列各有一個開關（2026-08-08 使用者要求），全部預設開。
+            //    這裡只影響**畫不畫**，資料照樣取樣——別的功能（錄製、log）不受影響。
 
             // 🔴 兩條進度都可能 Max = 0（事件還沒開始，或欄位語意跟預期不同），
             //    除法一律走 DrawProgressRow 裡的防 0 分支。
-            DrawProgressRow("Event Progress".Loc(), detail.Progress, detail.ProgressMax);
-            DrawProgressRow("Personal".Loc(), detail.PersonalProgress, detail.PersonalProgressMax);
+            if (C.ShowMechaRowEventProgress)
+                DrawProgressRow("Event Progress".Loc(), detail.Progress, detail.ProgressMax);
+            if (C.ShowMechaRowPersonalProgress)
+                DrawProgressRow("Personal".Loc(), detail.PersonalProgress, detail.PersonalProgressMax);
 
-            ImGui.TextUnformatted("Contribution".Loc());
-            ImGui.SameLine();
-            ImGui.TextColored(ImGuiColors.DalamudWhite, detail.Contribution.ToString());
+            if (C.ShowMechaRowContribution)
+            {
+                ImGui.TextUnformatted("Contribution".Loc());
+                ImGui.SameLine();
+                ImGui.TextColored(ImGuiColors.DalamudWhite, detail.Contribution.ToString());
+            }
 
-            DrawDeadline("Event ends in".Loc(), detail.EventEnd, nowServer, "Ended".Loc());
-            DrawDeadline("Sign-up closes in".Loc(), detail.RegistrationEnd, nowServer, "Closed".Loc());
+            if (C.ShowMechaRowEventEnd)
+                DrawDeadline("Event ends in".Loc(), detail.EventEnd, nowServer, "Ended".Loc());
+            if (C.ShowMechaRowSignupEnd)
+                DrawDeadline("Sign-up closes in".Loc(), detail.RegistrationEnd, nowServer, "Closed".Loc());
 
             // 傳送視窗的結束時間就是事件開始時間（遊戲自己的 IsTeleportTimeframeOpen 是這樣判的），
             // 所以協助員也看得到一個真的倒數，不必再猜。
-            DrawDeadline("Teleport closes in".Loc(), detail.EventStart, nowServer, "Closed".Loc());
+            if (C.ShowMechaRowTeleportEnd)
+                DrawDeadline("Teleport closes in".Loc(), detail.EventStart, nowServer, "Closed".Loc());
 
             return true;
         }
