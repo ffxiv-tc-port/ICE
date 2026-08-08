@@ -138,6 +138,11 @@ public static partial class ImGui_Tools
         return isExpanded;
     }
 
+    // 🔴 死碼：零呼叫端（靜態掃描；本 repo 無反射式 UI 探索）。
+    //    ⚠️ grep "DrawCategoryHeader" 會在下面第 152 行附近多命中一次，那是**註解裡的字串**不是呼叫。
+    //    實際在用的是上面的 DrawCategoryHeader_AutoSize。兩者共用同一個 CategoryStates 字典，
+    //    所以若哪天要啟用它，label 撞名會和既有標題共用展開狀態。
+    //    保留不刪（使用者裁決：死碼只要確認真的死，不用刪）。
     public static bool DrawCategoryHeader(string label, FontAwesomeIcon? icon = null)
     {
         // Default coloring here

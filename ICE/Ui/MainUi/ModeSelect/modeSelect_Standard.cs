@@ -19,22 +19,10 @@ namespace ICE.Ui.MainUi.ModeSelect
             // Header at the top
             float scale = ImGuiHelpers.GlobalScale;
 
-            bool autoSelectMoon = C.AutoSelectMoon;
-            if (autoSelectMoon)
-            {
-                if (PlayerHelper.IsInSinusArdorum() && (!C.ShowSinusMissions || C.ShowPhaennaMissions))
-                {
-                    C.ShowSinusMissions = true;
-                    C.ShowPhaennaMissions = false;
-                    C.Save();
-                }
-                else if (PlayerHelper.IsInPhaenna() && (C.ShowSinusMissions || !C.ShowPhaennaMissions))
-                {
-                    C.ShowSinusMissions = false;
-                    C.ShowPhaennaMissions = true;
-                    C.Save();
-                }
-            }
+            // 原本這裡有一份與 SelectableSidebar 完全相同的 15 行自動選星同步碼，
+            // 已抽成 SelectableSidebar.SyncAutoSelect()（含每幀閘門，一幀最多跑一次）。
+            // 📌 副作用是既有行為，不是這次新加的。
+            SelectableSidebar.SyncAutoSelect();
 
             using (var headerChild = ImRaii.Child("##modeSelect_StandardHeader", new Vector2(0, 45 * scale), true, ImGuiWindowFlags.NoScrollbar))
             {

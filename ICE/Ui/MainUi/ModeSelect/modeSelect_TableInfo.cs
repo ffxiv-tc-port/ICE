@@ -15,6 +15,8 @@ namespace ICE.Ui.MainUi.ModeSelect
 {
     internal class modeSelect_TableInfo
     {
+        // 🔴 死碼：只有本檔的 DrawTabButton 讀寫它，而 DrawTabButton 本身零呼叫端。
+        //    保留不刪（使用者裁決：死碼只要確認真的死，不用刪）。
         public static HashSet<string> selectedTabs = new HashSet<string>();
         public static uint selectedMission = 0;
         public static List<string> JokeList = new()
@@ -44,6 +46,8 @@ namespace ICE.Ui.MainUi.ModeSelect
         };
         public static int jokeId = 0;
 
+        // 🔴 死碼：只有 DrawCollapsibleHeader / DrawCollapsibleSection 用到，那兩個都進不來。
+        //    保留不刪（使用者裁決：死碼只要確認真的死，不用刪）。
         public static Dictionary<string, bool> headerStates = new();
 
         public static Dictionary<string, List<Mission>> missionList = new()
@@ -102,6 +106,11 @@ namespace ICE.Ui.MainUi.ModeSelect
             };
         }
 
+        // 🔴 死碼（不可達，但**不是**零呼叫端 —— 差別要說清楚）：
+        //    它有一個呼叫端，就是下面的 DrawCollapsibleSection，而那個才是零呼叫端。
+        //    整叢（DrawCollapsibleHeader → DrawCollapsibleSection → DrawTabButton → selectedTabs/headerStates）
+        //    從外面都進不來。若日後要清，必須整叢一起評估，只看單一方法的呼叫端數會得到錯的答案。
+        //    保留不刪（使用者裁決：死碼只要確認真的死，不用刪）。
         public static void DrawCollapsibleHeader(string id, string label, float spacing = 4f, Vector4? borderColor = null, Vector4? backgroundColor = null)
         {
             const float padding = 6.0f;
@@ -149,6 +158,10 @@ namespace ICE.Ui.MainUi.ModeSelect
             ImGui.SetCursorScreenPos(new Vector2(cursorPos.X, cursorPos.Y + bgHeight + spacing));
         }
 
+        // 🔴 死碼：零呼叫端（靜態掃描；本 repo 無反射式 UI 探索）。
+        //    ⚠️ 它唯一的內容繪製呼叫（MissionInfoV2）本來就已經被註解掉了，
+        //       所以就算接回去也只會畫出一個空的可收合標題。
+        //    保留不刪（使用者裁決：死碼只要確認真的死，不用刪）。
         public static void DrawCollapsibleSection(string id, string label, int enabled, List<Mission> missions)
         {
             DrawCollapsibleHeader(id, $"{label} | Enabled: {enabled}");
@@ -158,6 +171,8 @@ namespace ICE.Ui.MainUi.ModeSelect
             }
         }
 
+        // 🔴 死碼：零呼叫端（靜態掃描；本 repo 無反射式 UI 探索）。selectedTabs 的唯一讀寫者。
+        //    保留不刪（使用者裁決：死碼只要確認真的死，不用刪）。
         public static bool DrawTabButton(string label, string tabIndex)
         {
             if (selectedTabs.Contains(tabIndex))

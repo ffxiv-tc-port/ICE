@@ -4,6 +4,12 @@ using ICE.Utilities.Cosmic_Helper;
 
 namespace ICE.Ui.Waypoint_Manager;
 
+// 🔴 死碼：WPUi() 全 repo 零呼叫端（靜態掃描；本 repo 無反射式 UI 探索 ——
+//    唯一的反射是 IceLogging 的 StackFrame.GetMethod()，與 UI 無關）。
+//    WaypointUtil / PathFile / PathManager 這一串也只有本檔與 WaypointUtil.cs 互相引用，
+//    整叢從外面進不來。
+//    疑似預留功能（自訂路徑點編輯器，可能台服未開放或作者還沒接上），**勿刪**。
+//    保留不刪（使用者裁決：死碼只要確認真的死，不用刪）。
 public static class WaypointUi
 {
     private static readonly PathManager _pathManager = new();

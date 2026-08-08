@@ -96,21 +96,7 @@ namespace ICE.Ui.MainUi
                         C.AutoSelectMoon = autoSelectMoon;
                         C.Save();
                     }
-                    if (autoSelectMoon)
-                    {
-                        if (PlayerHelper.IsInSinusArdorum() && (!C.ShowSinusMissions || C.ShowPhaennaMissions))
-                        {
-                            C.ShowSinusMissions = true;
-                            C.ShowPhaennaMissions = false;
-                            C.Save();
-                        }
-                        else if (PlayerHelper.IsInPhaenna() && (C.ShowSinusMissions || !C.ShowPhaennaMissions))
-                        {
-                            C.ShowSinusMissions = false;
-                            C.ShowPhaennaMissions = true;
-                            C.Save();
-                        }
-                    }
+                    SyncAutoSelect();
                     ImGui.Dummy(new (0, 3));
 
                     float iconSize = 23 * scale;
@@ -214,6 +200,46 @@ namespace ICE.Ui.MainUi
                 }
             }
             ImGui.EndChild();
+        }
+
+        // 自動選星的同步副作用。原本這 15 行在兩個地方各有一份完全相同的副本
+        // （本檔的「Moon Selection」區塊，以及 modeSelect_Standard.Draw() 開頭），
+        // 兩邊都可能在同一幀跑到 —— 條件是「使用者停在 Standard/Completion 頁」
+        // 且「Moon Selection 這個分類是展開的」。
+        //
+        // ⚠️ 這裡刻意「保留兩個呼叫點」而不是改成單一無條件呼叫：
+        //    本檔的副本在 DrawCategoryHeader_AutoSize("Moon Selection") 的 if 裡面，
+        //    而 CategoryStates 預設是 false（未展開）⇒ 分類收合時這份根本不會執行。
+        //    改成無條件呼叫會讓「不在 Standard 頁 ＋ Moon Selection 收合」這個組合
+        //    從「完全不同步」變成「會同步並寫檔」，那是行為改變，不在本批範圍內。
+        //    改用每幀閘門達成「一幀最多跑一次」，可達性與原本逐字相同。
+        //
+        // 📌 副作用（自動改寫 ShowSinusMissions/ShowPhaennaMissions 並 C.Save()）是既有行為，
+        //    不是這次新加的。
+        private static int _autoSelectSyncedFrame = -1;
+
+        public static void SyncAutoSelect()
+        {
+            var frame = ImGui.GetFrameCount();
+            if (_autoSelectSyncedFrame == frame)
+                return;
+            _autoSelectSyncedFrame = frame;
+
+            if (!C.AutoSelectMoon)
+                return;
+
+            if (PlayerHelper.IsInSinusArdorum() && (!C.ShowSinusMissions || C.ShowPhaennaMissions))
+            {
+                C.ShowSinusMissions = true;
+                C.ShowPhaennaMissions = false;
+                C.Save();
+            }
+            else if (PlayerHelper.IsInPhaenna() && (C.ShowSinusMissions || !C.ShowPhaennaMissions))
+            {
+                C.ShowSinusMissions = false;
+                C.ShowPhaennaMissions = true;
+                C.Save();
+            }
         }
 
         private static void DrawSelectableWithIcon(FontAwesomeIcon icon, string label, string id)
@@ -359,6 +385,13 @@ namespace ICE.Ui.MainUi
             return Svc.Texture.GetFromManifestResource(Assembly.GetExecutingAssembly(), greyJobIcon).GetWrapOrEmpty();
         }
 
+        // 🔴 死碼：零呼叫端（靜態掃描；本 repo 無反射式 UI 探索）。
+        //    本檔上面 7 個分類標題全部走 ImGui_Tools.DrawCategoryHeader_AutoSize，沒有一個走這裡。
+        //    ⚠️ 與 ImGui_Tools 那兩個同名/近名方法是三個不同的實作，不要混：
+        //       ImGui_Tools.DrawCategoryHeader_AutoSize＝實際在用的；
+        //       ImGui_Tools.DrawCategoryHeader＝也是死碼；本方法＝死碼，且多一個 badgeCount 參數。
+        //    ⚠️ 它用的是本類別自己的 categoryStates 字典，與 ImGui_Tools.CategoryStates 是**兩個**字典。
+        //    保留不刪（使用者裁決：死碼只要確認真的死，不用刪）。
         public static bool DrawCategoryHeader(string label, FontAwesomeIcon? icon = null, IDalamudTextureWrap? imageTexture = null, int? badgeCount = null)
         {
             var drawList = ImGui.GetWindowDrawList();
