@@ -315,6 +315,10 @@ namespace ICE.Ui
             if (flags == 0)
                 return false;
 
+            // 🔑 整列包成一個 group，這樣原始值可以掛在**整列**的 tooltip 上
+            //    （UI 準則：隨時掃視的放列上、起疑才查的放 tooltip）。
+            ImGui.BeginGroup();
+
             ImGui.TextUnformatted("Mecha Event".Loc());
             ImGui.SameLine();
 
@@ -325,19 +329,30 @@ namespace ICE.Ui
             DrawFlagChip(flags, WKSEventModuleFlag.PilotCutscenePlaying, "Cutscene".Loc());
             DrawFlagChip(flags, WKSEventModuleFlag.IsJoined, "Joined".Loc());
 
-            // 已知位元以外的東西照原樣印出來，方便日後鑑識；正常情況不會出現。
+            // （每個 chip 結尾都已經 SameLine 過了，這裡不用再呼叫一次。）
+            ImGui.NewLine();
+            ImGui.EndGroup();
+
+            // 🔴 2026-08-08 使用者截圖回報：這一列原本還印著 `+0x83` 這種原始位元值。
+            //    那是開發期的殘留——它每一場都會出現（不是異常訊號），對使用者沒有意義，
+            //    卻佔著「隨時掃視」的版面。原始值整批移進 tooltip，列上只留人話狀態。
+            //    ⚠️ 未知位元本身仍然要留得住（日後鑑識用），只是改成起疑才查。
             const WKSEventModuleFlag known =
                 WKSEventModuleFlag.HasCurrentEvent
                 | WKSEventModuleFlag.PilotApplicationSubmitted
                 | WKSEventModuleFlag.PilotApplicationAccepted
                 | WKSEventModuleFlag.PilotCutscenePlaying
                 | WKSEventModuleFlag.IsJoined;
-            // （每個 chip 結尾都已經 SameLine 過了，這裡不用再呼叫一次。）
             var unknown = flags & ~known;
-            if (unknown != 0)
-                ImGui.TextDisabled($"+0x{(uint)unknown:X}");
 
-            ImGui.NewLine();
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip(
+                    "WKSMechaEventModule.Flags = 0x" + ((uint)flags).ToString("X") + "\n" +
+                    "known bits = 0x" + ((uint)(flags & known)).ToString("X") + "\n" +
+                    "other bits = 0x" + ((uint)unknown).ToString("X"));
+            }
+
             return true;
         }
 
@@ -409,6 +424,9 @@ namespace ICE.Ui
         {
             var flags = detail.Flags;
 
+            // 整列包成 group，原始值掛在整列的 tooltip 上（同 DrawEventStatus 的處理）。
+            ImGui.BeginGroup();
+
             DrawEventFlagChip(flags, WKSMechaEventFlag.IsEventActive, "Active".Loc());
             DrawEventFlagChip(flags, WKSMechaEventFlag.IsParticipating, "Participating".Loc());
 
@@ -418,28 +436,28 @@ namespace ICE.Ui
             DrawStaleableFlagChip("Sign-up".Loc(), detail.IsRegistrationOpen(nowServer));
             DrawStaleableFlagChip("Teleport".Loc(), detail.IsTeleportOpen(nowServer));
 
-            // 已知位元以外的東西照原樣印出來，方便日後鑑識；正常情況不會出現。
+            // 🔴 2026-08-08：這一列原本還印著 `+0x??`（未知位元）與 `#1`（事件列號）。
+            //    兩個都是開發期殘留：`#1` 每一場都在，`+0x??` 也不是異常訊號，
+            //    使用者掃視這一列時要看的是「報名開著沒／傳送開著沒」，不是十六進位。
+            //    ⇒ 兩者整批移進整列的 tooltip（原本就掛在 `#1` 上的那一份），列上一個都不留。
             const WKSMechaEventFlag known =
                 WKSMechaEventFlag.IsParticipating
                 | WKSMechaEventFlag.PilotRegistrationOpen
                 | WKSMechaEventFlag.GroundSupportTeleportOpen
                 | WKSMechaEventFlag.IsEventActive;
             var unknown = flags & ~known;
-            if (unknown != 0)
-            {
-                ImGui.TextDisabled($"+0x{(uint)unknown:X}");
-                ImGui.SameLine();
-            }
+
+            ImGui.NewLine();
+            ImGui.EndGroup();
 
             // 校準用的原始值。欄位語意與時間基準雖然已經離線證實，實機的實際內容仍未看過，
             // 使用者只要把游標移上去就能把原始數字回報回來，不必去翻 log。
             // （這裡全是欄位名與數字，不進翻譯表。）
-            ImGui.TextDisabled($"#{detail.DataRowId}");
             if (ImGui.IsItemHovered())
             {
                 ImGui.SetTooltip(
                     $"WKSMechaEventDataRowId = {detail.DataRowId}\n" +
-                    $"Flags = 0x{(uint)detail.Flags:X}\n" +
+                    $"Flags = 0x{(uint)detail.Flags:X} (other bits 0x{(uint)unknown:X})\n" +
                     $"EventStart = {detail.EventStart}\n" +
                     $"EventEnd = {detail.EventEnd}\n" +
                     $"PilotRegistrationStart = {detail.RegistrationStart}\n" +
@@ -452,8 +470,6 @@ namespace ICE.Ui
                     $"{(Environment.TickCount64 - detail.SampledTick) / 1000L}s ago)\n" +
                     $"LocalUtc = {DateTimeOffset.UtcNow.ToUnixTimeSeconds()}");
             }
-
-            ImGui.NewLine();
         }
 
         private static void DrawEventFlagChip(WKSMechaEventFlag flags, WKSMechaEventFlag bit, string label)
