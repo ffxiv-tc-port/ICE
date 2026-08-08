@@ -97,6 +97,15 @@ namespace ICE.Config
         // 機甲行動技能範圍標示（Utilities/MechaOps）。預設關閉。
         public bool ShowMechaAoeOverlay { get; set; } = false;
 
+        // 機甲行動狀態改畫在 ICE 疊加層主視窗的可摺疊區塊裡（比照「宇宙工具經驗值」），
+        // 而不是另外開一個獨立視窗。預設開＝2026-08-08 使用者要求的新版面。
+        //
+        // 🔑 關掉就回到舊的獨立視窗。兩者不會同時出現：獨立視窗的顯示條件會問
+        //    「主視窗是不是真的會畫到它」（見 MechaOpsWindow.MergedIntoOverlay）。
+        // ⚠️ 主視窗自己的開關 ShowOverlay 預設是**關**的——所以沒開主視窗的人
+        //    仍然會拿到獨立視窗，這個合併不會讓任何人的功能憑空消失。
+        public bool ShowMechaInOverlay { get; set; } = true;
+
         // 🔴🔴 下面兩個舊鍵自 2026-08-08（設定版本 12）起**程式不再讀取**。
         //      值已由 ConfigMigrator.MigrateMechaGlobalSlidersToPerSkill 搬進
         //      MechaShapeOverrides[42258].AngleDeg / [42150].Primary，效果值逐一相同。

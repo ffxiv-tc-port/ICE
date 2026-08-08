@@ -278,6 +278,20 @@ namespace ICE.Ui
             ImGui.Separator();
             ImGuiHelpers.ScaledDummy(2);
 
+            // 機甲行動：比照底下「宇宙工具經驗值」做成可摺疊區塊
+            // （2026-08-08 使用者要求「機甲行動 能和宇宙功工具經驗一樣 並到主 ui 上嗎?」）。
+            //
+            // 🔑 預設**展開**而不是像相鄰那塊一樣收合：這一區的主要內容是倒數
+            //    （下次事件幾點、報名還剩多久），收起來等於看不到，要點開才知道就失去意義了。
+            // ⚠️ 沒有內容時連標題都不畫——空標題會讓人以為功能壞了。
+            if (C.ShowMechaInOverlay && MechaOpsWindow.HasContent())
+            {
+                if (ImGui.CollapsingHeader("Mecha Ops".Loc() + "###ICEOverlayMechaOps", ImGuiTreeNodeFlags.DefaultOpen))
+                {
+                    MechaOpsWindow.DrawContent();
+                }
+            }
+
             if (C.ShowExpBars)
             {
                 var currentJobId = Player.JobId;

@@ -223,6 +223,24 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
             using (ImRaii.Disabled(!showMechaAoe))
             {
+                // ---- 版面：併進主視窗 vs 獨立視窗 ----
+                bool mechaInOverlay = C.ShowMechaInOverlay;
+                if (ImGui.Checkbox("Show Mecha Ops In The ICE Overlay".Loc() + "###ICEShowMechaInOverlay", ref mechaInOverlay))
+                {
+                    C.ShowMechaInOverlay = mechaInOverlay;
+                    C.Save();
+                }
+                ImGui.SameLine();
+                ImGui.TextDisabled("?");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("On (default): the mecha ops status becomes a collapsible section inside the ICE " +
+                                      "overlay window, next to the relic tool XP one - one window less to arrange.\n" +
+                                      "Off: it gets its own small window again, which can be pinned and clicked through.\n" +
+                                      "The two are never shown at the same time. If the ICE overlay itself is turned off, " +
+                                      "the separate window takes over automatically, so this never hides mecha ops.").Loc());
+                }
+
                 // 🔑 <b>這裡原本有兩個全域滑桿</b>（宇宙火焰噴射器扇形角度／宇宙鑽頭矩形長度）。
                 //    2026-08-08 收斂進底下「個別技能開關」裡的 per-skill 滑桿——
                 //    同一個維度有兩個地方可調、而且 per-skill 靜默優先，是使用者

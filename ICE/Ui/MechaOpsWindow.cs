@@ -33,7 +33,26 @@ namespace ICE.Ui
             P.windowSystem.RemoveWindow(this);
         }
 
-        public override bool DrawConditions()
+        /// <summary>
+        /// 這一輪機甲區塊的內容<b>已經畫在 ICE 疊加層主視窗裡</b>，所以獨立視窗不要再開一份。
+        ///
+        /// 🔑 <b>為什麼不是直接把獨立視窗刪掉</b>（2026-08-08 使用者要求「併到主 ui 上」）：
+        /// 主視窗自己有一個開關（<c>C.ShowOverlay</c>，而且<b>預設是關的</b>）。
+        /// 無條件刪掉獨立視窗的話，沒開主視窗的人會發現機甲行動整組功能憑空消失，
+        /// 而且完全沒有徵兆。所以判斷式寫成「主視窗真的會畫到它」——
+        /// 主視窗沒開時獨立視窗自動接手，合併不會變成功能消失。
+        /// ⚠️ 兩邊的區域條件（<c>IsInCosmicZone</c>）本來就一樣，所以這裡不必再判一次。
+        /// </summary>
+        private static bool MergedIntoOverlay => C.ShowMechaInOverlay && C.ShowOverlay;
+
+        public override bool DrawConditions() => !MergedIntoOverlay && HasContent();
+
+        /// <summary>
+        /// 這一輪有沒有東西可畫。獨立視窗用它決定要不要開，
+        /// <see cref="OverlayWindow"/> 用它決定要不要畫那個可摺疊標題
+        /// （沒內容還畫一個空標題，只會讓人以為功能壞了）。
+        /// </summary>
+        public static bool HasContent()
         {
             if (!C.ShowMechaAoeOverlay)
                 return false;
@@ -72,7 +91,13 @@ namespace ICE.Ui
             return C.ShowMechaEventProgress && MechaOpsMonitor.EventDetail != null;
         }
 
-        public override void Draw()
+        public override void Draw() => DrawContent();
+
+        /// <summary>
+        /// 機甲行動區塊的內容本體。獨立視窗與 ICE 疊加層主視窗<b>共用這一份</b>——
+        /// 抄一份過去的話兩邊遲早會漂開（其中一邊的新功能悄悄少一行）。
+        /// </summary>
+        public static void DrawContent()
         {
             var drewSomething = false;
 
