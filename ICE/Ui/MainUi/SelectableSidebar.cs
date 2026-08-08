@@ -54,87 +54,46 @@ namespace ICE.Ui.MainUi
                     ImGui.Dummy(new Vector2(0, 10));
                 }
 
-                // ── 新側欄骨架（2026-08-08 UI 重構第二批）────────────────────────
-                // 一級項按「使用者在想什麼」分組，不再按「這段碼住在哪個檔」分組。
-                // ⚠️ 每個分類都傳明確的 id（第 4 個具名參數），不要讓已在地化的 label 當 key。
+                // ── 側欄導覽（2026-08-08 UI 重構第四批：少頁多節）──────────────────
+                // 使用者對第二／三批的反饋是：分類拆了很多種但每個底下只有一兩項，
+                // 整理不出效果；灰字「已隱藏 N 項」又佔位置又點不動。
+                // ⇒ 一級項收斂成 6 個，每一頁自己用 ImGui_Tools.PageSection 分節；
+                //   灰字提示整個拿掉（隱藏就隱藏乾淨），逃生門改成「設定→介面與導覽」永遠可達。
+                //
                 // ⚠️ 每個 DrawSelectableWithIcon 的第三個參數必須在 MainWindow.MainBody() 的
                 //    switch 裡有對應的 case —— 打錯**不會編譯失敗**，只會變成一片空白頁。
-                //    這一批新增/更動的 id 全部走過一遍了。
-                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Missions".Loc(), icon: FontAwesomeIcon.ListAlt, id: "cat_Missions"))
-                {
-                    // ⚠️ 這兩項刻意「沒有」合併成單一入口：它們不是同一頁的兩個名字，
-                    //    而是切換 C.ShowCompletionWindow 的**唯二**開關（見 MainBody 的兩個 case）。
-                    //    併成一項會讓使用者再也無法在兩種顯示模式之間切換 —— 那是功能損失，
-                    //    不是版面整理。真要併成一項，得先決定那個模式切換改放哪裡。
-                    DrawSelectableWithIcon(FontAwesomeIcon.List, "Standard".Loc(), "modeSelect_Standard");
-                    DrawSelectableWithIcon(FontAwesomeIcon.Trophy, "Completion".Loc(), "modeSelect_Completion");
-                    if (C.Show_MissionPriority)
-                        DrawSelectableWithIcon(FontAwesomeIcon.SortAmountUp, "Mission Priority".Loc(), "setting_MissionPriority");
-                    else
-                        DrawHiddenNotice(1);
-                }
-                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Gathering".Loc(), icon: FontAwesomeIcon.Leaf, id: "cat_Gathering"))
-                {
-                    if (C.Show_GatheringProfile)
-                        DrawSelectableWithIcon(FontAwesomeIcon.Leaf, "Gathering Profile".Loc(), "setting_GatheringProfile");
-                    else
-                        DrawHiddenNotice(1);
+                //    這一批的 9 個 id 與 MainBody 的 9 個 case 已逐一走過。
+                // ⚠️ 分類標題一律傳明確的 id（第 4 個具名參數），不要讓已在地化的 label 當 key。
 
-                    // 刻意不加 C.Show_* 開關：這一頁的重點就是「讓使用者知道採集路線可以自己改」，
-                    // 藏在偵錯視窗底下等於沒有。
-                    DrawSelectableWithIcon(FontAwesomeIcon.MapSigns, "Gathering Routes".Loc(), "setting_GatherRoutes");
-                }
-                if (C.Show_HubActivities)
+                // ① 任務 —— 唯一保留子項的導覽分類，而且它本來就有三個真的不同的目的地。
+                //    ⚠️ 標準／完成度刻意「沒有」合併：它們不是同一頁的兩個名字，而是切換
+                //    C.ShowCompletionWindow 的**唯二**開關（見 MainBody 的兩個 case），
+                //    併成一項等於刪功能。
+                if (C.Show_Page_Missions)
                 {
-                    if (ImGui_Tools.DrawCategoryHeader_AutoSize("Hub Activities".Loc(), icon: FontAwesomeIcon.Home, id: "cat_HubActivities"))
+                    if (ImGui_Tools.DrawCategoryHeader_AutoSize("Missions".Loc(), icon: FontAwesomeIcon.ListAlt, id: "cat_Missions"))
                     {
-                        DrawSelectableWithImage(65112, "Credit Shopping".Loc(), "hubActivities_CreditShopping");
-                        DrawSelectableWithImage(65127, "Gambling Settings".Loc(), "hubActivites_GambaSetting");
+                        DrawSelectableWithIcon(FontAwesomeIcon.List, "Standard".Loc(), "modeSelect_Standard");
+                        DrawSelectableWithIcon(FontAwesomeIcon.Trophy, "Completion".Loc(), "modeSelect_Completion");
+                        DrawSelectableWithIcon(FontAwesomeIcon.SortAmountUp, "Mission Priority".Loc(), "setting_MissionPriority");
                     }
                 }
-                else
-                {
-                    // ⚠️ 這一個 Show_* 藏的是**整個分類**（連標題一起），不是分類底下的某一項，
-                    //    所以提示要畫在分類原本的位置、外面，不能塞進 header 的 if 裡。
-                    DrawHiddenNotice(1);
-                }
-                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Mecha Ops".Loc(), icon: FontAwesomeIcon.Robot, id: "cat_MechaOps"))
-                {
-                    DrawSelectableWithIcon(FontAwesomeIcon.Robot, "Mecha Skill Ranges".Loc(), "setting_MechaOps");
-                }
-                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Display & Overlay".Loc(), icon: FontAwesomeIcon.WindowMaximize, id: "cat_Display"))
-                {
-                    DrawSelectableWithIcon(FontAwesomeIcon.WindowMaximize, "Overlay Window".Loc(), "setting_Display");
-                }
-                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Automation & Safety".Loc(), icon: FontAwesomeIcon.ShieldAlt, id: "cat_Automation"))
-                {
-                    if (C.Show_StopWhen)
-                        DrawSelectableWithIcon(FontAwesomeIcon.Stop, "Stop When...".Loc(), "setting_StopWhen");
-                    DrawSelectableWithIcon(FontAwesomeIcon.ExclamationTriangle, "Safety Settings".Loc(), "setting_Safety");
 
-                    // ⚠️ 「其他設定」這一項在重構計畫的一級項清單裡**沒有**被列到，但不能拿掉：
-                    //    Misc 設定頁被拆走 3 節（疊加層／機甲／安全）之後還剩 5 節
-                    //    （自動使用道具／自動修理／時間紀錄／坐騎選擇／任務後指令，
-                    //     加上 B3 才會搬走的顯示分頁開關），這幾節在新結構裡沒有指定去處。
-                    //    拿掉入口＝它們直接變成使用者摸不到的死頁，所以先掛在這裡。
-                    //    放這一類是因為剩下的內容以自動化為主（自動使用／自動修理／任務後指令）。
-                    //    等它們各自有家之後再把這一項移走。
-                    // 📌 刻意不另外開一個「Other Settings」分類：那個字串與 "Misc Settings"
-                    //    的中文翻譯**都是「其他設定」**，會變成父項與子項同名，看起來像畫錯了。
-                    if (C.Show_MiscSettings)
-                        DrawSelectableWithIcon(FontAwesomeIcon.UserCog, "Misc Settings".Loc(), "setting_Misc");
+                // ②~⑤ 單頁一級項：不再包一層只裝一兩項的分類，直接就是一列可點的頁。
+                //     indentPx: 0 讓它們與分類標題對齊（分類底下的子項才縮排）。
+                if (C.Show_Page_Gathering)
+                    DrawSelectableWithIcon(FontAwesomeIcon.Leaf, "Gathering".Loc(), "page_Gathering", indentPx: 0f);
+                if (C.Show_Page_HubActivities)
+                    DrawSelectableWithIcon(FontAwesomeIcon.Home, "Hub Activities".Loc(), "page_HubActivities", indentPx: 0f);
+                if (C.Show_Page_MechaOps)
+                    DrawSelectableWithIcon(FontAwesomeIcon.Robot, "Mecha Ops".Loc(), "page_MechaOps", indentPx: 0f);
 
-                    // 這一類底下有兩項各自可被藏：停止條件與其他設定。合起來數，只畫一行。
-                    DrawHiddenNotice((C.Show_StopWhen ? 0 : 1) + (C.Show_MiscSettings ? 0 : 1));
-                }
-                // 🔴 「介面」是唯一不受任何 C.Show_* 影響的分頁，而且必須保持如此：
-                //    分頁顯示/隱藏的開關本身住在這一頁（B3 從 Misc ⑦ 搬進來）。
+                // 🔴 「設定」是唯一不受任何 C.Show_Page_* 影響的一級項，而且必須保持如此：
+                //    分頁顯示/隱藏的開關本身住在它的「介面與導覽」節裡。
                 //    如果它自己也能被藏起來，使用者就沒有任何辦法把藏掉的東西叫回來 ——
-                //    那是個把自己鎖在門外、只能去改設定檔才救得回來的狀態。
-                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Interface".Loc(), icon: FontAwesomeIcon.SlidersH, id: "cat_Interface"))
-                {
-                    DrawSelectableWithIcon(FontAwesomeIcon.WindowRestore, "Show / Hide Tabs".Loc(), "setting_Interface");
-                }
+                //    那是個把自己鎖在門外、只能去手改設定檔才救得回來的狀態。
+                DrawSelectableWithIcon(FontAwesomeIcon.Cog, "Settings".Loc(), "page_Settings", indentPx: 0f);
+
                 var currentJob = C.SelectedJob;
                 if (ImGui_Tools.DrawCategoryHeader_AutoSize("Moon Selection".Loc(), FontAwesomeIcon.Moon))
                 {
@@ -244,10 +203,17 @@ namespace ICE.Ui.MainUi
                         ImGui.TextWrapped("You have to be in a cosmic area for us to view this info. Blame square for not making it always accesable".Loc());
                     }
                 }
-                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Help & Diagnostics".Loc(), icon: FontAwesomeIcon.QuestionCircle, id: "cat_Help"))
+                // ⑥ 說明與診斷 —— 刻意保留成兩個子項而不是併成一頁：
+                //    「ICE 日誌」整頁是一個吃滿剩餘高度的子視窗（helpSelect_Logs 的
+                //    ImRaii.Child(new Vector2(0, 0))），跟必要插件清單擠同一頁時
+                //    高度會被壓到只剩幾列。這一項的兩個目的地本來就不同性質，維持兩入口。
+                if (C.Show_Page_Help)
                 {
-                    DrawSelectableWithIcon(FontAwesomeIcon.Question, "Requirements".Loc(), "helpSelect_Requirements");
-                    DrawSelectableWithIcon(FontAwesomeIcon.Book, "Ice Logs".Loc(), "helpSelect_Logs");
+                    if (ImGui_Tools.DrawCategoryHeader_AutoSize("Help & Diagnostics".Loc(), icon: FontAwesomeIcon.QuestionCircle, id: "cat_Help"))
+                    {
+                        DrawSelectableWithIcon(FontAwesomeIcon.Question, "Requirements".Loc(), "helpSelect_Requirements");
+                        DrawSelectableWithIcon(FontAwesomeIcon.Book, "Ice Logs".Loc(), "helpSelect_Logs");
+                    }
                 }
             }
             ImGui.EndChild();
@@ -293,29 +259,16 @@ namespace ICE.Ui.MainUi
             }
         }
 
-        // 灰字提示：這個位置本來有東西，被「介面」分頁的開關藏起來了。
-        //
-        // 🔑 為什麼要留這一行：藏起來的項目如果完全不留痕跡，使用者看到的是
-        //    「功能不見了」，分不出是自己關的、還是外掛壞了。
-        //    「不知道」本身要在列上看得見 —— tooltip 藏的是「為什麼」，不是「有沒有問題」。
-        // 📌 用 TextWrapped ＋ TextDisabled 色而不是 TextDisabled()：側欄只有 200px 寬，
-        //    單行的話中文會被裁掉。
-        private static void DrawHiddenNotice(int hiddenCount)
-        {
-            if (hiddenCount <= 0)
-                return;
+        // 📌 這裡原本有 DrawHiddenNotice()：被藏起來的位置留一行灰字「已隱藏 N 項」。
+        //    2026-08-08 使用者裁決整個拿掉 ——「灰字隱藏指示讓他不能點，沒有整理的效果」。
+        //    逃生門改成結構性的：「設定」一級項永遠不可藏，所有顯示開關都在它的
+        //    「介面與導覽」節裡，所以任何時候都回得去，不需要在每個分類下掛提示。
 
-            float scale = ImGuiHelpers.GlobalScale;
-            ImGui.SetCursorPosX(ImGui.GetCursorPosX() + 16 * scale);
-            ImGui.PushStyleColor(ImGuiCol.Text, ImGui.GetColorU32(ImGuiCol.TextDisabled));
-            ImGui.PushTextWrapPos(ImGui.GetContentRegionAvail().X);
-            ImGui.TextWrapped("?? hidden - turn back on in Interface".Loc(hiddenCount));
-            ImGui.PopTextWrapPos();
-            ImGui.PopStyleColor();
-            ImGui.Dummy(new Vector2(0, 2 * scale));
-        }
-
-        private static void DrawSelectableWithIcon(FontAwesomeIcon icon, string label, string id)
+        /// <param name="indentPx">
+        /// 左側縮排。分類底下的子項用預設的 16（縮排才看得出從屬關係）；
+        /// 一級項自己就是一頁時傳 0，與分類標題對齊。
+        /// </param>
+        private static void DrawSelectableWithIcon(FontAwesomeIcon icon, string label, string id, float indentPx = 16f)
         {
             bool isSelected = currentSelection == id;
             float scale = ImGuiHelpers.GlobalScale;
@@ -327,7 +280,7 @@ namespace ICE.Ui.MainUi
             }
 
             // Indent for items under categories (scaled)
-            ImGui.SetCursorPosX(ImGui.GetCursorPosX() + 16 * scale);
+            ImGui.SetCursorPosX(ImGui.GetCursorPosX() + indentPx * scale);
 
             float width = ImGui.GetContentRegionAvail().X;
 
@@ -368,6 +321,10 @@ namespace ICE.Ui.MainUi
             ImGui.Dummy(new Vector2(0, 2 * scale));
         }
 
+        // 🔴 死碼（2026-08-08 起）：唯二呼叫端是舊側欄「據點活動」底下的點數購物／賭博設定，
+        //    第四批把那一類收斂成單一頁之後就沒有呼叫端了（靜態掃描；本 repo 無反射式 UI 探索）。
+        //    保留不刪 —— 它裡面那段「圖示載不到時不能 SameLine」的處置是台服實測出來的教訓，
+        //    下次有人想在側欄放遊戲圖示時會需要它（見方法內的註解）。
         private static void DrawSelectableWithImage(uint iconId, string label, string id)
         {
             bool isSelected = currentSelection == id;

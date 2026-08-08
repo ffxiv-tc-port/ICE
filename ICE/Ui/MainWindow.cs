@@ -8,6 +8,7 @@ using ICE.Sounds;
 using ICE.Ui.MainUi;
 using ICE.Ui.MainUi.HelpFolder;
 using ICE.Ui.MainUi.ModeSelect;
+using ICE.Ui.MainUi.Settings;
 using ICE.Ui.MainUi.Settings.Settings_Table;
 using ICE.Ui.SettingTabs;
 using ICE.Utilities.Cosmic;
@@ -90,51 +91,30 @@ namespace ICE.Ui
                     modeSelect_Standard.Draw();
                     break;
 
-                // Settings
-                case "setting_StopWhen":
-                    StopWhen.Draw();
-                    break;
-                case "setting_GatheringProfile":
-                    GatherSettings.Draw();
-                    break;
                 case "setting_MissionPriority":
                     Priority_Settings.Draw();
                     break;
-                case "setting_Misc":
-                    Misc_Settings.Draw();
-                    break;
-                case "setting_GatherRoutes":
-                    GatherRouteCustomization.Draw();
-                    break;
-                // 📌 舊的 "helpSelect_AllSettings"（把六個設定頁塞進一列按鈕的「全部設定」頁）
-                //    已於 UI 重構第三批整頁移除，六個目的地在新側欄各自都有入口。
-                //    它自帶的 DrawCategoryTab / settingsTabs 是那一頁專用的，一併消失；
-                //    ⚠️ modeSelect_Standard 用的 EndCategoryButtonRow 是 ImGui_Tools 裡的**另一個**同名方法，不受影響。
 
-                // ── UI 重構第二批新增的路由 ──────────────────────────────
-                // 這三個 case 呼叫的是原本就住在 Misc 設定頁裡的那幾節，**內容一個字都沒改**，
-                // 只是各自獨立成一頁。對應的節已經從 Misc_Settings.Draw() 移除，
-                // 所以是「搬家」不是「複製」—— 同一組設定不會同時出現在兩個地方。
-                case "setting_MechaOps":
+                // ── UI 重構第四批：一級項＝一頁，頁內用 ImGui_Tools.PageSection 分節 ────
+                // 使用者反饋「分頁拆了很多種但都只有一兩項，沒整理效果」⇒ 一級項收斂成 6 個。
+                // 這幾個 case 呼叫的都是**組頁函式**，各節的內容一個字都沒改，只是換了位置。
+                // 📌 已經消失的路由（都是搬進某一頁的一節，不是被刪掉的功能）：
+                //    setting_StopWhen / setting_Safety / setting_Display / setting_Misc /
+                //    setting_Interface   → 全部併進 page_Settings
+                //    setting_GatheringProfile / setting_GatherRoutes → page_Gathering
+                //    hubActivities_CreditShopping / hubActivites_GambaSetting → page_HubActivities
+                //    setting_MechaOps    → page_MechaOps（同一頁改名，內容改成五節）
+                case "page_Gathering":
+                    GatheringPage.Draw();
+                    break;
+                case "page_HubActivities":
+                    HubActivitiesPage.Draw();
+                    break;
+                case "page_MechaOps":
                     Misc_Settings.DrawMechaOpsPage();
                     break;
-                case "setting_Display":
-                    Misc_Settings.DrawDisplayPage();
-                    break;
-                case "setting_Safety":
-                    Misc_Settings.DrawSafetyPage();
-                    break;
-                case "setting_Interface":
-                    InterfaceSettings.Draw();
-                    break;
-
-
-                // Hub Activities
-                case "hubActivities_CreditShopping":
-                    ShoppingTab.Draw();
-                    break;
-                case "hubActivites_GambaSetting":
-                    GambaWheel.Draw();
+                case "page_Settings":
+                    Misc_Settings.DrawSettingsPage();
                     break;
 
                 // Help Section

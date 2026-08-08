@@ -533,11 +533,35 @@ namespace ICE.Config
 
         #region Tab Hider
 
+        // 🔴 這五個是**舊側欄**（一頁一設定的分頁樹）的顯示開關。
+        //    2026-08-08 UI 重構第四批把分頁樹收斂成「少頁多節」之後，它們指向的
+        //    那幾個一級項已經不存在了（各自變成某一頁裡的一節），所以**不再有任何
+        //    消費端**。刻意留在設定類別裡不刪：
+        //    ① 使用者的設定檔裡已經有這些鍵，拿掉欄位＝反序列化時整個丟掉，
+        //       將來若要做遷移就再也讀不回來了；
+        //    ② 鍵不動原則 —— 新開關一律用新鍵，舊鍵只是停止消費。
+        //    對應關係（給將來要做遷移的人）：
+        //      Show_StopWhen        → 「停止條件」現在是「設定」頁的一節，而設定頁永不可藏 ⇒ 無對應
+        //      Show_GatheringProfile→ Show_Page_Gathering
+        //      Show_MissionPriority → Show_Page_Missions（任務頁整頁，比原本粗）
+        //      Show_MiscSettings    → 內容全數併入「設定」頁 ⇒ 無對應
+        //      Show_HubActivities   → Show_Page_HubActivities（語意 1:1，但仍照鍵不動原則換新鍵）
         public bool Show_StopWhen { get; set; } = true;
         public bool Show_GatheringProfile { get; set; } = true;
         public bool Show_MissionPriority { get; set; } = true;
         public bool Show_MiscSettings { get; set; } = true;
         public bool Show_HubActivities { get; set; } = true;
+
+        // ---- 新側欄（2026-08-08 UI 重構第四批）的一級項顯示開關 ----
+        // 一個一級項一個開關，全部預設顯示＝現行版面零改變。
+        // 🔴 「設定」頁**刻意沒有**開關：這幾個開關本身就住在它的「介面與導覽」節裡，
+        //    它自己也能被藏的話，使用者就沒有任何辦法把藏掉的東西叫回來。
+        //    改側欄那段碼之前先想清楚這件事（SelectableSidebar.Draw 有同樣的註記）。
+        public bool Show_Page_Missions { get; set; } = true;
+        public bool Show_Page_Gathering { get; set; } = true;
+        public bool Show_Page_HubActivities { get; set; } = true;
+        public bool Show_Page_MechaOps { get; set; } = true;
+        public bool Show_Page_Help { get; set; } = true;
 
         #endregion
 

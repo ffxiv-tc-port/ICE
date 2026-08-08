@@ -146,7 +146,16 @@ internal static class GatherRouteCustomization
         var tableFlags = ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingFixedFit
                        | ImGuiTableFlags.ScrollY;
 
-        if (!ImGui.BeginTable("ICE_GatherRouteCustomization", 6, tableFlags, new Vector2(0, ImGui.GetContentRegionAvail().Y)))
+        // ⚠️ 高度取「剩餘高度」與一個下限的較大者。2026-08-08 這一頁從獨立分頁變成
+        //    「採集」頁裡的一節之後，上面可能還疊著展開的「採集設定」那一節 ——
+        //    在會捲動的父容器裡，游標一旦超過可視區，GetContentRegionAvail().Y 會變成
+        //    負值，而 BeginTable 對負的 outer_size 是「可用高度再減掉這麼多」，
+        //    結果是表格整個消失或只剩一條線（不會報錯）。
+        //    ⚠️ 原本單獨成頁的情況下剩餘高度一定遠大於下限，所以那時的版面逐字不變。
+        var tableHeight = MathF.Max(ImGui.GetContentRegionAvail().Y,
+                                    ImGui.GetTextLineHeightWithSpacing() * 12);
+
+        if (!ImGui.BeginTable("ICE_GatherRouteCustomization", 6, tableFlags, new Vector2(0, tableHeight)))
             return;
 
         ImGui.TableSetupColumn("Missions".Loc(), ImGuiTableColumnFlags.WidthStretch);
