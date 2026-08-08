@@ -241,6 +241,13 @@ internal static unsafe class MechaObjectiveTracker
     public static int LearnedBaseIdCount => learnedBaseIds.Count;
 
     /// <summary>
+    /// 同上，但給得出實際的 id。<see cref="MechaEventRecorder"/> 要拿它分辨
+    /// 「這個分級是遊戲自己標的（可信）還是我們從資料表推的（要靠身份才篩得對）」。
+    /// ⚠️ 唯讀視圖，呼叫端不得修改。
+    /// </summary>
+    public static IReadOnlySet<uint> LearnedBaseIds => learnedBaseIds;
+
+    /// <summary>
     /// 這個 <c>BaseId</c> 是不是「疑似任務目標」。兩條**互相獨立**的線索，但**不對等**：
     ///
     /// 🔴 <b>2026-08-06 修正</b>：舊版把兩條直接取聯集，而資料表白名單裡的
@@ -302,7 +309,10 @@ internal static unsafe class MechaObjectiveTracker
     /// </summary>
     public static void SampleMarkers(WKSMechaEvent* ev)
     {
-        if (!C.ShowMechaAoeOverlay || !C.ShowMechaObjectives)
+        // 🔑 錄製模式開著時強制取樣，理由與 MechaOpsMonitor.SampleTargets 同一條：
+        //    不強制的話（顯示開關預設關）錄出來的 log 缺掉目的指示這一整塊。
+        //    ⚠️ 只影響取樣，不影響繪製。
+        if (!MechaEventRecorder.ForceSampling && (!C.ShowMechaAoeOverlay || !C.ShowMechaObjectives))
         {
             ResetMarkers();
             return;
@@ -559,7 +569,8 @@ internal static unsafe class MechaObjectiveTracker
     /// </summary>
     public static void ResolveFrame()
     {
-        if (!C.ShowMechaAoeOverlay || !C.ShowMechaObjectives)
+        // 🔑 同上：錄製模式強制解析（只影響取樣，不影響繪製）。
+        if (!MechaEventRecorder.ForceSampling && (!C.ShowMechaAoeOverlay || !C.ShowMechaObjectives))
         {
             ClearActive();
             return;

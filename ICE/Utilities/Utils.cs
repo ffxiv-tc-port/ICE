@@ -10,6 +10,7 @@ using FFXIVClientStructs.FFXIV.Client.Game.Object;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using ICE.Utilities.Cosmic_Helper;
+using ICE.Utilities.MechaOps;
 using SharpDX.Direct3D11;
 using System;
 using System.Numerics;
@@ -172,6 +173,9 @@ public static unsafe class Utils
                 if (EzThrottler.Throttle($"Throttle targeting: {x.DataId}"))
                 {
                     IceLogging.Info($"Attempting to set the target to: {x.DataId} | {x.Name}", "[Target Game Object]");
+                    // 🔑 機甲事件錄製要分得出「人選的」與「外掛選的」——這裡是 ICE 主動指定目標
+                    //    的唯一路徑，先登記再真的設定。錄製沒開時整個方法第一行就 return。
+                    MechaEventRecorder.NoteIceAction("target", x);
                     Svc.Targets.SetTarget(x);
                 }
             }
@@ -183,6 +187,8 @@ public static unsafe class Utils
         {
             if (gameObject == null || !gameObject.IsTargetable)
                 return;
+            // 同上：ICE 自己發起的互動。六個呼叫點全部經過這裡，所以只要記這一處。
+            MechaEventRecorder.NoteIceAction("interact", gameObject);
             var gameObjectPointer = (GameObject*)gameObject.Address;
             TargetSystem.Instance()->InteractWithObject(gameObjectPointer, false);
         }

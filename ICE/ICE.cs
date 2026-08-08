@@ -156,6 +156,9 @@ public sealed partial class ICE : IDalamudPlugin
             WeatherForecastHandler.Tick();
             // 機甲行動偵察（P0）＋繪製快照：遊戲結構只在 Framework 執行緒讀。
             MechaOpsMonitor.Tick();
+            // 機甲事件錄製（debug，/ice d）。🔑 一定要排在 monitor 之後——它只讀 monitor
+            // 已經發布的快照，排前面會慢一幀。錄製沒開時第一行就 return。
+            MechaEventRecorder.Tick();
         }
         else
         {

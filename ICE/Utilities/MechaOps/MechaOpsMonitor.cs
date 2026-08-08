@@ -458,7 +458,20 @@ internal static unsafe class MechaOpsMonitor
     private static void SampleTargets()
     {
         // 沒開、或根本不在機甲階段（PetHotbar 上沒有機甲技能）就不掃。
-        if (!C.ShowMechaAoeOverlay || !C.ShowMechaTargets || activeCandidates.Count == 0)
+        //
+        // 🔑 錄製模式（MechaEventRecorder）開著時強制取樣：那兩個顯示開關預設是關的，
+        //    不強制的話錄出來的 log 會缺掉「ICE 判定出什麼」這個最重要的部分，
+        //    而且使用者要跑完一整場才會發現。
+        //    ⚠️ 這只影響**取樣**，繪製仍然完全由 C.ShowMechaAoeOverlay 決定
+        //    （MechaAoeOverlay.DrawInner 第一行就擋掉了），所以畫面上不會多出任何東西，
+        //    也不會動到使用者的任何一個設定值。錄製關著時行為與先前完全相同。
+        if (!MechaEventRecorder.ForceSampling && (!C.ShowMechaAoeOverlay || !C.ShowMechaTargets))
+        {
+            ClearTargets();
+            return;
+        }
+
+        if (activeCandidates.Count == 0)
         {
             ClearTargets();
             return;
@@ -640,7 +653,10 @@ internal static unsafe class MechaOpsMonitor
     /// ⚠️ ② 的兩個條件必須同時成立。少了「沒有名字」會連無名的任務目標一起濾掉——
     /// 那正是這次要修的 bug（不過任務目標在上一層就已經放行了，這裡是第二道保險）。
     /// </summary>
-    private static bool IsKnownNoise(ObjectKind kind, string name, bool targetable)
+    /// ⚠️ <c>internal</c> 而不是 <c>private</c>：<see cref="MechaEventRecorder"/> 要拿它算
+    /// 「這一筆會被哪一條規則濾掉」寫進診斷。**共用同一份判準才不會漂移**——
+    /// 抄一份到錄製端的話，之後改了這裡而忘了改那裡，log 就會開始說謊。
+    internal static bool IsKnownNoise(ObjectKind kind, string name, bool targetable)
     {
         if (kind is ObjectKind.EventNpc or ObjectKind.Aetheryte or ObjectKind.GatheringPoint
             or ObjectKind.Housing or ObjectKind.Area or ObjectKind.Cutscene or ObjectKind.CardStand)

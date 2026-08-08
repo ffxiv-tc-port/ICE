@@ -413,8 +413,12 @@ internal static class MechaAoeOverlay
         drawList.AddText(t.Position, TargetNameColor, mark + name, 1f);
     }
 
-    /// <summary>個別技能開關：設定裡沒有紀錄＝開。</summary>
-    private static bool IsSkillEnabled(uint actionId)
+    /// <summary>
+    /// 個別技能開關：設定裡沒有紀錄＝開。
+    /// ⚠️ <c>internal</c> 而不是 <c>private</c>：<see cref="MechaEventRecorder"/> 要用同一份判準
+    /// 決定「這一輪要記哪幾個技能的預測範圍」，抄一份過去會漂移。
+    /// </summary>
+    internal static bool IsSkillEnabled(uint actionId)
         => !C.MechaAoeSkillToggles.TryGetValue(actionId, out var enabled) || enabled;
 
     /// <summary>
