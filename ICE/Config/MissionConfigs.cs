@@ -173,6 +173,24 @@ namespace ICE.Config
         // 取樣端會先做指標範圍驗證，驗證不過就什麼都不顯示。
         public bool ShowMechaEventProgress { get; set; } = true;
 
+        // ---- 事件排程（Utilities/MechaOps/MechaSchedule.cs）----
+        // 「下次機甲事件：<名稱> HH:mm（N 分後）」。
+        // 資料來自 WKSMechaEventModule._events 這個**內嵌**陣列的純量欄位，
+        // 一個指標都不用解（比既有的 CurrentEvent 路徑更安全），所以比照其他子開關預設開。
+        // ✅ 「事件還沒開始就讀得到開始時間」已由 2026-08-08 的三場實機錄製證實
+        //    （提前 19 分鐘就讀得到，開始時刻分秒吻合）。
+        public bool ShowMechaSchedule { get; set; } = true;
+
+        // 🔴🔴 部署閘門：預設 false。
+        // 開啟＝顯示緊急事件（紅色警報：磁暴／流星雨／孢子霧）的類型與剩餘時間。
+        // 資料源是 AgentWKSAnnounce.Data，那是一塊**我們沒有辦法驗證大小**的堆積配置：
+        // CS 宣告 Size = 0xA8 是照國際服的佈局，台服沒有離線驗證過。
+        // 若台服的配置比較小，讀 +0xA0 的 State 就是越界，而 AccessViolationException
+        // 是 corrupted-state exception，try/catch 與 HookSafety.ExecuteSafe 都攔不到。
+        // ⚠️ 要改成預設開，必須先有實機證據（開著跑過一輪磁暴而沒有崩潰）。
+        //    這與同檔的 MechaObjectiveUseMarkerVector 是同一個理由、同一個處置。
+        public bool ShowMechaEmergency { get; set; } = false;
+
         // ---- 目的指示標示（Utilities/MechaOps/MechaObjectives.cs）----
         // 把機甲事件自己的 map marker 畫成世界疊加層（有方向、有外框、不疊顏色）。
         // 比照其他子開關預設開，但整組仍然掛在 ShowMechaAoeOverlay 底下（該項預設關）。

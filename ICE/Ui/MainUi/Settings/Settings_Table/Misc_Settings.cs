@@ -438,6 +438,44 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                                       "if it does not, nothing is shown at all.").Loc());
                 }
 
+                bool showSchedule = C.ShowMechaSchedule;
+                if (ImGui.Checkbox("Show Next Mecha Event Time".Loc() + "###ICEShowMechaSchedule", ref showSchedule))
+                {
+                    C.ShowMechaSchedule = showSchedule;
+                    C.Save();
+                }
+                ImGui.SameLine();
+                ImGui.TextDisabled("?");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("Shows when the next mecha event starts, as a clock time and a countdown.\n" +
+                                      "The game's own panel tells you there is a next event but never says when.\n" +
+                                      "The start time is readable well before the event begins (measured: 19 minutes " +
+                                      "ahead), and the countdown runs off the game's server clock, not your PC clock.\n" +
+                                      "Display only - it never signs you up.").Loc());
+                }
+
+                bool showEmergency = C.ShowMechaEmergency;
+                if (ImGui.Checkbox("Show Red Alert (Emergency) Events".Loc() + "###ICEShowMechaEmergency", ref showEmergency))
+                {
+                    C.ShowMechaEmergency = showEmergency;
+                    C.Save();
+                }
+                ImGui.SameLine();
+                ImGui.TextDisabled("?");
+                if (ImGui.IsItemHovered())
+                {
+                    // 🔴 這個 tooltip 必須誠實說出「這一項還沒有實機驗證過」——
+                    //    它是部署閘門，不是一般的顯示開關。
+                    ImGui.SetTooltip(("Shows the current Red Alert (magnetic storm / meteor shower / spore mist): " +
+                                      "which one it is and how long is left.\n\n" +
+                                      "OFF BY DEFAULT ON PURPOSE. This one reads a game structure whose size we could " +
+                                      "not verify offline on the TC client. If the layout differs there, the read goes " +
+                                      "out of bounds and that crashes the game outright - it cannot be caught.\n" +
+                                      "Everything else in this window has been verified offline; this has not. " +
+                                      "Turn it on only if you are willing to hit that.").Loc());
+                }
+
                 if (ImGui.TreeNode("Per-skill Toggles".Loc() + "###ICEMechaSkillToggles"))
                 {
                     // 保底清單（離線驗證過的六技）＋執行期在 PetHotbar 上發現的新技能。

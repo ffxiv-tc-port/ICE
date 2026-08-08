@@ -2,6 +2,7 @@ using Dalamud.Game.ClientState.Objects.Enums;
 using ECommons.GameHelpers;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.WKS;
+using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Client.UI.Misc;
 using ICE.Utilities.Cosmic_Helper;
 using System.Collections.Generic;
@@ -248,6 +249,22 @@ internal static unsafe class MechaOpsMonitor
     public static MechaEventDetail? EventDetail => eventDetail;
     private static MechaEventDetail? eventDetail;
 
+    /// <summary>
+    /// 機甲事件的<b>排程</b>快照：<c>_events</c> 兩格裡每一格「有填開始時間戳」的那些。
+    /// 與 <see cref="EventDetail"/> 不同，這一份**不限於進行中的那場**——
+    /// 使用者要的「下一次機甲事件是幾點」就是從這裡算出來的。
+    /// 發布方式同 <see cref="ActiveCandidates"/>：整個換參考，發布後不再修改。
+    /// </summary>
+    public static IReadOnlyList<MechaScheduleEntry> Schedule => schedule;
+    private static List<MechaScheduleEntry> schedule = [];
+
+    /// <summary>
+    /// 緊急事件（紅色警報）的狀態快照，<c>null</c> ＝這一輪讀不到或功能沒開。
+    /// ⚠️ 只有 <c>C.ShowMechaEmergency</c> 開著時才會去取樣（那是部署閘門，預設關）。
+    /// </summary>
+    public static MechaEmergencyState? Emergency => emergency;
+    private static MechaEmergencyState? emergency;
+
     private static string lastSignature = "";
     private static bool wasActive;
 
@@ -292,6 +309,10 @@ internal static unsafe class MechaOpsMonitor
         // 事件狀態要在機甲階段之外也能顯示（報名 → 中籤 → 加入），所以在
         // PetHotbar 的檢查之前就取樣。
         ReadEventFlags();
+
+        // 緊急事件跟機甲模組是兩條獨立的資料源（它走 AgentWKSAnnounce），
+        // 所以就算 WKSManager／MechaEventModule 取不到也要照樣試。
+        emergency = ReadEmergency();
 
         var module = RaptureHotbarModule.Instance();
         if (module == null)
@@ -782,6 +803,8 @@ internal static unsafe class MechaOpsMonitor
             EventFlags = 0;
             EventFlagsValid = false;
             eventDetail = null;
+            if (schedule.Count > 0)
+                schedule = [];
             MechaObjectiveTracker.ClearMarkersOnly();
             return;
         }
@@ -790,6 +813,106 @@ internal static unsafe class MechaOpsMonitor
         EventFlags = mod->Flags;
         EventFlagsValid = true;
         eventDetail = TryReadEventDetail(mod);
+        schedule = ReadSchedule(mod);
+    }
+
+    /// <summary>
+    /// 掃 <c>_events</c> 的每一格，把「有填開始時間戳」的抄成純值快照。
+    ///
+    /// 🔑 <b>這條路徑不解任何指標</b>：<c>_events</c> 是模組內嵌的
+    /// <c>FixedSizeArray2&lt;WKSMechaEvent&gt;</c>（<c>module + 0x30</c>），
+    /// 不是指標鏈，所以<b>不需要</b> <see cref="IsInsideEventArray"/> 那套驗證——
+    /// 那套驗證要解決的問題是「<c>CurrentEvent</c> 這個指標指到哪」，這裡根本沒有那個指標。
+    /// 唯一前提是 <paramref name="mod"/> 本身有效，而呼叫端已經檢查過。
+    ///
+    /// ⚠️ 仍然保留一次「陣列整塊落在模組配置內」的算術檢查（與
+    /// <see cref="IsInsideEventArray"/> 的 (i) 同義）：日後 CS 若改了佈局讓算術不再成立，
+    /// 退化行為是<b>本功能自動停用</b>，而不是開始越界讀取。
+    /// </summary>
+    private static List<MechaScheduleEntry> ReadSchedule(WKSMechaEventModule* mod)
+    {
+        var list = new List<MechaScheduleEntry>();
+
+        var slots = mod->Events;
+        if (slots.Length <= 0)
+            return list;
+
+        var slotSize = (nint)sizeof(WKSMechaEvent);
+        if (slotSize <= 0)
+            return list;
+
+        var arrayBase = GetEventArrayBase(mod);
+        var arrayBytes = slots.Length * slotSize;
+        var modBase = (nint)mod;
+        var modBytes = (nint)sizeof(WKSMechaEventModule);
+        if (arrayBase < modBase || arrayBase + arrayBytes > modBase + modBytes)
+            return list;
+
+        // 伺服器時間一輪只取一次；取不到（0）時顯示端會退回顯示原始整數。
+        var now = TryGetServerTime();
+        var tick = Environment.TickCount64;
+
+        for (var i = 0; i < slots.Length; i++)
+        {
+            ref var ev = ref slots[i];
+
+            // 沒填開始時間戳的格子＝這一格現在沒有排程，直接跳過。
+            // 🔑 這是唯一的「有沒有資料」判準，刻意不看旗標——
+            //    實機證據顯示事件還沒開始（旗標還沒亮）時時間戳就已經填好了。
+            var start = ev.EventStartTimestamp;
+            if (start <= 0)
+                continue;
+
+            list.Add(new MechaScheduleEntry(
+                i,
+                ev.WKSMechaEventDataRowId,
+                ev.Flags,
+                start,
+                ev.EventEndTimestamp,
+                ev.PilotRegistrationStartTimestamp,
+                ev.PilotRegistrationEndTimestamp,
+                ev.TeleportStartTimestamp,
+                now,
+                tick));
+        }
+
+        return list;
+    }
+
+    /// <summary>
+    /// 取樣緊急事件（紅色警報）狀態。
+    ///
+    /// 🔴🔴 <b>這是部署閘門後面的東西（<c>C.ShowMechaEmergency</c> 預設關）。</b>
+    /// 理由與同 repo 的 <c>MechaObjectiveUseMarkerVector</c> 完全一樣：
+    /// <c>AgentWKSAnnounce.Data</c> 是一個我們<b>沒有辦法驗證大小</b>的堆積配置，
+    /// CS 宣告它 <c>Size = 0xA8</c> 是照國際服的佈局，台服沒有離線驗證過。
+    /// 若台服的配置比較小，讀 <c>+0xA0</c> 的 <c>State</c> 就是越界——
+    /// 而 AccessViolationException 是 corrupted-state exception，<c>try/catch</c> 攔不到。
+    /// ⇒ 在實機證實之前，預設不開；開了也只影響有主動打開機甲總開關的人。
+    ///
+    /// 🔴 只讀純量（三個 byte ＋ 一個 uint），<b>不碰</b> <c>FormattedString</c>
+    /// 那個 <c>Utf8String</c>——理由見 <see cref="MechaEmergencyState"/>。
+    /// </summary>
+    private static MechaEmergencyState? ReadEmergency()
+    {
+        if (!C.ShowMechaEmergency)
+            return null;
+
+        var agent = AgentWKSAnnounce.Instance();
+        if (agent == null)
+            return null;
+
+        var data = agent->Data;
+        if (data == null)
+            return null;
+
+        return new MechaEmergencyState(
+            data->State,                    // +0xA0 byte
+            data->EmergencyInfoRowId,       // +0x04 byte
+            data->EmergencyInfoSubRowId,    // +0x08 byte
+            data->EndTime,                  // +0x8C uint（unix 秒）
+            TryGetServerTime(),
+            Environment.TickCount64);
     }
 
     /// <summary>
@@ -993,6 +1116,11 @@ internal static unsafe class MechaOpsMonitor
         EventFlags = 0;
         EventFlagsValid = false;
         eventDetail = null;
+        // 排程與緊急事件都是「宇宙區域內才有意義」的東西，離開就一起丟掉，
+        // 不要在別的地圖上留一行過期的「下次機甲事件」。
+        if (schedule.Count > 0)
+            schedule = [];
+        emergency = null;
         // 目的指示連同繫結與手動釘選一起丟掉——換區之後物件 id 一律失效。
         MechaObjectiveTracker.Deactivate();
     }

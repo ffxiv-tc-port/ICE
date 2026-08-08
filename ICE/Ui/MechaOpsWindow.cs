@@ -38,10 +38,19 @@ namespace ICE.Ui
             if (!C.ShowMechaAoeOverlay)
                 return false;
             if (!C.ShowMechaCooldowns && !C.ShowMechaTargets && !C.ShowMechaProcAlert
-                && !C.ShowMechaEventStatus && !C.ShowMechaEventProgress && !C.ShowMechaObjectives)
+                && !C.ShowMechaEventStatus && !C.ShowMechaEventProgress && !C.ShowMechaObjectives
+                && !C.ShowMechaSchedule && !C.ShowMechaEmergency)
                 return false;
             if (!PlayerHelper.IsInCosmicZone())
                 return false;
+
+            // 🔑 排程與緊急事件刻意排在「有沒有機甲技能」之前：
+            //    這兩行的**全部價值就是在機甲階段以外**看得到（「下一場幾點」「現在有沒有紅色警報」）。
+            //    掛在 ActiveCandidates 底下等於只有已經在打的人才看得到，那就沒有意義了。
+            if (C.ShowMechaSchedule && MechaOpsMonitor.Schedule.Count > 0)
+                return true;
+            if (C.ShowMechaEmergency && MechaOpsMonitor.Emergency is { IsRedAlert: true })
+                return true;
 
             // 沒在機甲階段、也沒有任何事件旗標時就整個收起來，
             // 不要在宇宙探索全程掛一個空視窗。
@@ -67,8 +76,24 @@ namespace ICE.Ui
         {
             var drewSomething = false;
 
+            // 排程與緊急事件放最上面：它們是「隨時掃視」的資訊，
+            // 而且在機甲階段以外這個視窗往往只有這兩行。
+            if (C.ShowMechaSchedule)
+                drewSomething = DrawSchedule();
+
+            if (C.ShowMechaEmergency)
+            {
+                if (drewSomething)
+                    ImGui.Separator();
+                drewSomething |= DrawEmergency();
+            }
+
             if (C.ShowMechaEventStatus)
-                drewSomething = DrawEventStatus();
+            {
+                if (drewSomething)
+                    ImGui.Separator();
+                drewSomething |= DrawEventStatus();
+            }
 
             // 先確認真的有東西可畫，才畫分隔線——避免留下一條下面空無一物的線。
             if (C.ShowMechaEventProgress && MechaOpsMonitor.EventDetail != null)
@@ -98,6 +123,179 @@ namespace ICE.Ui
                     ImGui.Separator();
                 DrawSkillRows();
             }
+        }
+
+        /// <summary>
+        /// 「下次機甲事件：<c>名稱 HH:mm（N 分後）</c>」。
+        ///
+        /// 🔑 <b>這是使用者原本要的那一行</b>（原話：「機甲任務有下一次任務 但沒提示時間」）。
+        /// 遊戲自己的面板只說「有下一場」，不說幾點。
+        ///
+        /// 🔴 <b>時間換算</b>：時間戳是 <b>unix 秒</b>，倒數一律拿<b>伺服器時間</b>比
+        /// （遊戲自己判斷報名／傳送視窗就是拿它比，見 <see cref="MechaEventDetail"/>）；
+        /// 而「幾點幾分」那一段用 <c>DateTimeOffset.FromUnixTimeSeconds(x).LocalDateTime</c>
+        /// 轉成使用者的當地時間 —— <b>不要</b>用 <c>UtcDateTime</c>，那會整整差一個時區
+        /// （台服使用者就是差 8 小時，而且畫面上看起來完全正常）。
+        ///
+        /// 🔑 <b>「不知道」要看得見</b>：拿不到伺服器時間時不猜「還有幾分鐘」，
+        /// 改成灰色的「?」＋原始時鐘，而不是畫一個看起來很正常的錯誤倒數。
+        /// </summary>
+        private static bool DrawSchedule()
+        {
+            var entries = MechaOpsMonitor.Schedule;
+            if (entries.Count == 0)
+                return false;
+
+            var now = entries[0].ServerTimeNow;
+
+            // 下一場＝開始時間還在未來的那些裡面最早的。
+            MechaScheduleEntry? next = null;
+            MechaScheduleEntry? running = null;
+            foreach (var e in entries)
+            {
+                if (now > 0 && e.EventStart <= now)
+                {
+                    // 已經開始了：如果還沒結束，它就是「進行中」的那一場。
+                    if (e.EventEnd > now && (running == null || e.EventEnd < running.EventEnd))
+                        running = e;
+                    continue;
+                }
+                if (next == null || e.EventStart < next.EventStart)
+                    next = e;
+            }
+
+            // 進行中的那場已經有既有的進度區塊在講，這裡只在「沒有下一場」時才提一句，
+            // 免得同一件事在視窗裡出現兩次。
+            if (next == null && running == null)
+                return false;
+
+            if (next == null)
+            {
+                ImGui.TextUnformatted("Mecha Event".Loc());
+                ImGui.SameLine();
+                ImGui.TextColored(ImGuiColors.HealerGreen, "In progress".Loc());
+                ImGui.SameLine();
+                ImGui.TextDisabled(NameOf(running!.DataRowId));
+                return true;
+            }
+
+            ImGui.TextUnformatted("Next Mecha Event".Loc());
+            ImGui.SameLine();
+
+            // 事件名稱。查不到就是灰色問號——不要拿空字串充數。
+            var name = NameOf(next.DataRowId);
+            if (name.Length > 0)
+                ImGui.TextColored(ImGuiColors.DalamudWhite, name);
+            else
+                ImGui.TextColored(ImGuiColors.DalamudGrey3, "?");
+
+            ImGui.SameLine();
+
+            // 幾點幾分（當地時間）——這一段不需要伺服器時間，時間戳本身就是絕對時刻。
+            ImGui.TextColored(ImGuiColors.DalamudOrange, FormatClock(next.EventStart));
+
+            // 還有多久——這一段需要伺服器時間，拿不到就標「?」。
+            ImGui.SameLine();
+            if (TryGetRemaining(next.EventStart, now, out var remaining) && remaining > 0)
+            {
+                ImGui.TextDisabled($"({FormatDuration(remaining)})");
+            }
+            else
+            {
+                ImGui.TextColored(ImGuiColors.DalamudGrey3, "(?)");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("The countdown needs the game's own server clock, and it could not be read " +
+                                      "this pass (or the timestamp is out of range).\n" +
+                                      "The start time itself is still correct - it is an absolute timestamp.").Loc());
+                }
+            }
+
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip(
+                    $"WKSMechaEventDataRowId = {next.DataRowId}\n" +
+                    $"EventStart = {next.EventStart} ({FormatClock(next.EventStart)})\n" +
+                    $"EventEnd = {next.EventEnd} ({FormatClock(next.EventEnd)})\n" +
+                    $"PilotRegistration = {next.RegistrationStart} .. {next.RegistrationEnd}\n" +
+                    $"TeleportStart = {next.TeleportStart}\n" +
+                    $"Flags = 0x{(uint)next.Flags:X}  slot={next.Slot}\n" +
+                    $"ServerTime = {now}");
+            }
+
+            return true;
+        }
+
+        private static string NameOf(uint dataRowId)
+            => MechaObjectNames.EventName(dataRowId) ?? string.Empty;
+
+        /// <summary>
+        /// unix 秒 → 使用者當地時間的「HH:mm」。
+        /// 🔴 一定要用 <c>LocalDateTime</c>：<c>UtcDateTime</c> 會整整差一個時區，
+        ///    而且畫面上看起來完全正常（台服使用者差 8 小時）。
+        /// </summary>
+        private static string FormatClock(int unixSeconds)
+        {
+            if (unixSeconds <= 0)
+                return "?";
+            try
+            {
+                return DateTimeOffset.FromUnixTimeSeconds(unixSeconds).LocalDateTime.ToString("HH:mm");
+            }
+            catch
+            {
+                // 垃圾值（超出 DateTimeOffset 範圍）：照樣不要猜，直接說不知道。
+                return "?";
+            }
+        }
+
+        /// <summary>
+        /// 緊急事件（紅色警報：磁暴／流星雨／孢子霧）那一行。
+        ///
+        /// ⚠️ 整段掛在 <c>C.ShowMechaEmergency</c> 底下，而那是<b>預設關的部署閘門</b>
+        /// （理由見 <c>MissionConfigs</c> 的註解與 <c>MechaOpsMonitor.ReadEmergency</c>）。
+        ///
+        /// 🔑 類型名稱走純資料表查詢，查不到就畫灰色「?」——
+        /// <b>不要</b>因為查不到名字就整行不畫，那會讓「有紅色警報」這件事本身消失。
+        /// </summary>
+        private static bool DrawEmergency()
+        {
+            var em = MechaOpsMonitor.Emergency;
+            if (em == null || !em.IsRedAlert)
+                return false;
+
+            var (shortName, banner) = MechaEmergencyNames.Lookup(em.InfoRowId, em.InfoSubRowId);
+
+            ImGui.TextColored(ImGuiColors.DalamudRed, "Red Alert".Loc());
+            ImGui.SameLine();
+
+            if (shortName != null)
+                ImGui.TextColored(ImGuiColors.DalamudWhite, shortName);
+            else
+                ImGui.TextColored(ImGuiColors.DalamudGrey3, "?");
+
+            ImGui.SameLine();
+            ImGui.TextDisabled(em.IsIncoming ? "Incoming".Loc() : "In progress".Loc());
+
+            // 剩餘時間。EndTime 是 unix 秒；同樣拿伺服器時間比，拿不到就「?」。
+            var now = em.ServerTimeNow;
+            var end = em.EndTime is > 0 and <= int.MaxValue ? (int)em.EndTime : 0;
+            ImGui.SameLine();
+            if (TryGetRemaining(end, now, out var remaining) && remaining > 0)
+                ImGui.TextColored(ImGuiColors.DalamudOrange, FormatDuration(remaining));
+            else
+                ImGui.TextColored(ImGuiColors.DalamudGrey3, "?");
+
+            if (ImGui.IsItemHovered())
+            {
+                var raw = $"State = {em.State}\n" +
+                          $"EmergencyInfo = {em.InfoRowId}.{em.InfoSubRowId}\n" +
+                          $"EndTime = {em.EndTime} ({FormatClock(end)})\n" +
+                          $"ServerTime = {now}";
+                ImGui.SetTooltip(banner != null ? banner + "\n\n" + raw : raw);
+            }
+
+            return true;
         }
 
         /// <summary>
