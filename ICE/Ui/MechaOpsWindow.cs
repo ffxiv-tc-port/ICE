@@ -58,7 +58,7 @@ namespace ICE.Ui
                 return false;
             if (!C.ShowMechaCooldowns && !C.ShowMechaTargets && !C.ShowMechaProcAlert
                 && !C.ShowMechaEventStatus && !C.ShowMechaEventProgress && !C.ShowMechaObjectives
-                && !C.ShowMechaSchedule && !C.ShowMechaEmergency)
+                && !C.ShowMechaSchedule && !C.ShowMechaEmergency && !C.ShowMechaPilotTicket)
                 return false;
             if (!PlayerHelper.IsInCosmicZone())
                 return false;
@@ -69,6 +69,12 @@ namespace ICE.Ui
             if (C.ShowMechaSchedule && MechaOpsMonitor.Schedule.Count > 0)
                 return true;
             if (C.ShowMechaEmergency && MechaOpsMonitor.Emergency is { IsRedAlert: true })
+                return true;
+
+            // 駕駛申請書同理，而且更極端：這一列的<b>全部價值就在事件開始之前</b>——
+            // 等到報名視窗開了才發現自己沒票，那一場就沒了（要先去 NPC 換一張）。
+            // 所以它只要求「模組讀得到」，不要求現在有沒有事件。
+            if (C.ShowMechaPilotTicket && MechaOpsMonitor.EventFlagsValid)
                 return true;
 
             // 沒在機甲階段、也沒有任何事件旗標時就整個收起來，
@@ -107,6 +113,15 @@ namespace ICE.Ui
             // 而且在機甲階段以外這個視窗往往只有這兩行。
             if (C.ShowMechaSchedule)
                 drewSomething = DrawSchedule();
+
+            // 駕駛申請書緊接在排程後面：兩者是同一個決策的兩半——
+            //「下一場幾點」與「我報得了名嗎」。
+            if (C.ShowMechaPilotTicket)
+            {
+                if (drewSomething)
+                    ImGui.Separator();
+                drewSomething |= DrawPilotTicket();
+            }
 
             if (C.ShowMechaEmergency)
             {
@@ -257,6 +272,60 @@ namespace ICE.Ui
 
         private static string NameOf(uint dataRowId)
             => MechaObjectNames.EventName(dataRowId) ?? string.Empty;
+
+        /// <summary>
+        /// 「駕駛申請書：持有／無／?」。
+        /// （2026-08-08 使用者原話：「駕駛申請書身上只能帶一張 能偵測到有沒有嗎」。）
+        ///
+        /// 🔑 <b>為什麼在列上而不是 tooltip</b>：這是「隨時掃視」的資訊。沒票就當不了駕駛員，
+        /// 而且要先去找 NPC 換 —— 等報名視窗開了才發現，那一場就報不上了。
+        ///
+        /// 🔑 <b>三種狀態必須分得開</b>（同 <see cref="DrawObjectiveRow"/> 的處理）：
+        /// <list type="bullet">
+        ///   <item>連模組都拿不到 → 這一列<b>不該存在</b>（不是「沒有申請書」）。</item>
+        ///   <item>模組在、但資料還沒送到 → 灰色「?」，那才是真正的「不知道」。</item>
+        ///   <item>讀到了 → 持有／無。</item>
+        /// </list>
+        /// 🔴 把「讀不到」畫成「無」會害使用者白跑一趟去換一張他其實已經有的票，
+        /// 而且畫面上完全看不出哪裡不對。
+        /// </summary>
+        private static bool DrawPilotTicket()
+        {
+            if (!MechaOpsMonitor.EventFlagsValid)
+                return false;
+
+            ImGui.TextUnformatted("Pilot Application".Loc());
+            ImGui.SameLine();
+
+            switch (MechaOpsMonitor.PilotTicketHeld)
+            {
+                case true:
+                    ImGui.TextColored(ImGuiColors.HealerGreen, "Held".Loc());
+                    break;
+                case false:
+                    // 警示色：想當駕駛員就得先去換一張，這是「現在就該處理」的狀態。
+                    ImGui.TextColored(ImGuiColors.DalamudOrange, "None".Loc());
+                    break;
+                default:
+                    ImGui.TextColored(ImGuiColors.DalamudGrey3, "?");
+                    break;
+            }
+
+            if (ImGui.IsItemHovered())
+            {
+                // ⚠️ 刻意不寫死 NPC 名字：駕駛申請書分成兩類、對應不同的探索區域，
+                //    兌換地點也就不只一處。座標是遊戲自己的提示文字（Addon 16964）在渴望灣的內容。
+                ImGui.SetTooltip(("You can only carry one - the game's own panel shows this as 0/1 or 1/1.\n" +
+                                  "Exchange it at the mecha ops counter in the exploration zone, paying that " +
+                                  "zone's own credits (Sinus Ardorum: 22, 20 - lunar credits).\n" +
+                                  "It is spent when you are picked as the pilot, and it is spent anyway if you " +
+                                  "decline or let the timer run out after being picked.\n" +
+                                  "'?' means the game has not sent this data yet - that is not the same as " +
+                                  "not having one.").Loc());
+            }
+
+            return true;
+        }
 
         /// <summary>
         /// unix 秒 → 使用者當地時間的「HH:mm」。

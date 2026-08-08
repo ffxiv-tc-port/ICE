@@ -229,6 +229,42 @@ internal static unsafe class MechaOpsMonitor
     public static bool EventFlagsValid { get; private set; }
 
     /// <summary>
+    /// 「身上有沒有駕駛申請書」。<c>null</c> ＝這一輪讀不到（模組資料還沒送到），
+    /// 顯示端必須畫成「?」而不是「無」。
+    ///
+    /// 🔴 <b>它不是背包道具，所以沒有 <c>GetInventoryItemCount</c> 這條路。</b>
+    /// 台服 <c>Item</c> 與 <c>EventItem</c> 兩張表裡<b>沒有任何一列</b>的名字含「申請書」
+    /// （exd dump 與 live sqpack 兩邊各查過一次，都是 0 筆），它是伺服器直接送給
+    /// <c>WKSMechaEventModule</c> 的一個旗標。附帶好處：既有的「過區時
+    /// <c>GetInventoryItemCount</c> 回 0」那個坑在這條路上不存在。
+    ///
+    /// 🔬 <b>資料來源</b>（台服 7.20 <c>ffxiv_dx11.exe</c> 離線反組譯，2026-08-08）：
+    /// <c>WKSMechaEventModule + 0xA2A9</c> 的一個 byte。CS 沒有替它命名，但遊戲自己拿它做兩件事：
+    /// <code>
+    /// // (1) 申請駕駛員的閘門 @ 0x140F8B4CD
+    ///   mov   rcx, [rbx+108h]         ; WKSMechaEventModule
+    ///   mov   eax, [rcx+0A2A4h]       ; Flags（＝CS 的 WKSEventModuleFlag）
+    ///   shr   eax, 1 / test al, 1
+    ///   jne   已經報名過了
+    ///   cmp   byte [rcx+0A2A9h], 0
+    ///   jne   繼續申請
+    ///   mov   edx, 2A8Eh / call ShowLogMessage
+    ///         ; LogMessage 10894 =「未持有駕駛申請書，無法申請。」
+    ///
+    /// // (2) 面板上那一格數字 @ 0x140F8B240
+    ///   mov   edx, 41BCh              ; Addon 16828 =「UNKNOWN/UNKNOWN」
+    ///   mov   r9d, 1                  ; 第二個參數<b>固定是 1</b> ← 上限就是一張
+    ///   cmp   byte [rcx+0A2A9h], r8b  ; r8b = 0
+    ///   setne r8b                     ; 第一個參數 ＝ 有沒有
+    ///   call  FormatAddonText
+    /// </code>
+    /// ⇒ 遊戲自己就是把它畫成「0/1」或「1/1」，正好對上使用者說的
+    /// 「駕駛申請書身上只能帶一張」。另外三處（0x140F89713／0x140F8B431／0x140F8BD16）
+    /// 也全部拿它當「能不能申請」的前置條件，五處用法一致。
+    /// </summary>
+    public static bool? PilotTicketHeld { get; private set; }
+
+    /// <summary>
     /// 這一輪判定的參與身份。判準是<b>手上有哪些機甲技能</b>（見 <see cref="ResolveRole"/>）。
     ///
     /// 🔑 <b>為什麼不用 <c>WKSEventModuleFlag.PilotApplicationAccepted</c></b>：那是「申請有沒有
@@ -810,6 +846,7 @@ internal static unsafe class MechaOpsMonitor
         {
             EventFlags = 0;
             EventFlagsValid = false;
+            PilotTicketHeld = null;
             eventDetail = null;
             if (schedule.Count > 0)
                 schedule = [];
@@ -820,8 +857,43 @@ internal static unsafe class MechaOpsMonitor
         var mod = wks->MechaEventModule;
         EventFlags = mod->Flags;
         EventFlagsValid = true;
+        PilotTicketHeld = ReadPilotTicket(mod);
         eventDetail = TryReadEventDetail(mod);
         schedule = ReadSchedule(mod);
+    }
+
+    /// <summary>
+    /// 「這個模組的資料伺服器送過來了沒」的旗標 byte。封包處理器（0x14190B901）收到資料時
+    /// 把它設成 1，離開內容時（0x14190BE53）清成 0。
+    ///
+    /// 🔑 <b>為什麼一定要問這一格</b>：沒設過的時候 <see cref="PilotTicketHeldOffset"/>
+    /// 只是零初始化的殘值。把它當成「沒有申請書」就會在使用者其實有票的時候顯示「無」，
+    /// 害他白跑一趟去換一張已經有的票 —— 那是「不知道」不是「沒有」。
+    /// </summary>
+    private const int PilotTicketReadyOffset = 0xA2AA;
+
+    /// <summary>「持有駕駛申請書」的旗標 byte。語意證據見 <see cref="PilotTicketHeld"/>。</summary>
+    private const int PilotTicketHeldOffset = 0xA2A9;
+
+    /// <summary>
+    /// 讀出駕駛申請書的持有狀態。只讀兩個 byte，不解任何指標。
+    ///
+    /// 🔴 <b>邊界</b>：兩個偏移都必須落在 CS 宣告的模組配置（<c>Size = 0xA2B0</c>）之內。
+    /// ✅ 那個大小本身也離線證實過 —— <c>0x140D28E5B</c> 的 <c>mov ecx, 0A2B0h</c> 就是
+    /// WKSManager 建這個模組時傳給配置器的位元組數，與 CS 宣告的完全相同。
+    /// 這裡仍然實測一次：日後 CS 若縮小了這個結構，退化行為是<b>本列自動變成「不知道」</b>，
+    /// 而不是開始越界讀取（同 <see cref="IsInsideEventArray"/> 的 (i) 那條的用意）。
+    /// </summary>
+    private static bool? ReadPilotTicket(WKSMechaEventModule* mod)
+    {
+        if (sizeof(WKSMechaEventModule) <= PilotTicketReadyOffset)
+            return null;
+
+        var raw = (byte*)mod;
+        if (raw[PilotTicketReadyOffset] == 0)
+            return null;
+
+        return raw[PilotTicketHeldOffset] != 0;
     }
 
     /// <summary>
@@ -1123,6 +1195,7 @@ internal static unsafe class MechaOpsMonitor
         DeactivateSkills();
         EventFlags = 0;
         EventFlagsValid = false;
+        PilotTicketHeld = null;
         eventDetail = null;
         // 排程與緊急事件都是「宇宙區域內才有意義」的東西，離開就一起丟掉，
         // 不要在別的地圖上留一行過期的「下次機甲事件」。

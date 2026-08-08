@@ -684,6 +684,23 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                                       "Display only - it never signs you up.").Loc());
                 }
 
+                bool showPilotTicket = C.ShowMechaPilotTicket;
+                if (ImGui.Checkbox("Show Pilot Application".Loc() + "###ICEShowMechaPilotTicket", ref showPilotTicket))
+                {
+                    C.ShowMechaPilotTicket = showPilotTicket;
+                    C.Save();
+                }
+                ImGui.SameLine();
+                ImGui.TextDisabled("?");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("Shows whether you are carrying a pilot application - you can only hold one, " +
+                                      "and it is what lets you sign up as the mecha pilot.\n" +
+                                      "It is not an inventory item, so the game only shows it inside its own mecha " +
+                                      "ops panel; this puts it where you can see it before the sign-up window opens.\n" +
+                                      "Display only - it never signs you up and never buys anything.").Loc());
+                }
+
                 bool showEmergency = C.ShowMechaEmergency;
                 if (ImGui.Checkbox("Show Red Alert (Emergency) Events".Loc() + "###ICEShowMechaEmergency", ref showEmergency))
                 {

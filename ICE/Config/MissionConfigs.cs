@@ -257,6 +257,19 @@ namespace ICE.Config
         //    （提前 19 分鐘就讀得到，開始時刻分秒吻合）。
         public bool ShowMechaSchedule { get; set; } = true;
 
+        // ---- 駕駛申請書持有狀態 ----
+        // 2026-08-08 使用者原話：「駕駛申請書身上只能帶一張 能偵測到有沒有嗎」。
+        // 「駕駛申請書：持有／無／?」一列。
+        //
+        // 🔴 它不是背包道具（台服 Item／EventItem 兩張表都查無「申請書」），資料是
+        //    WKSMechaEventModule 的兩個 byte（+0xA2A9 持有、+0xA2AA 資料到了沒），
+        //    純量、位置在 CS 宣告的模組配置內、一個指標都不用解 ——
+        //    與 ShowMechaSchedule 同一個安全等級，所以同樣預設開。
+        // ⚠️ 這一列會讓機甲區塊在「現在沒有任何事件」時也有東西可畫，因此在宇宙區域裡
+        //    區塊幾乎總是看得見。那是刻意的：這一列的價值就在事件開始之前。
+        //    整組仍然掛在 ShowMechaAoeOverlay 底下（該項預設關），沒開機甲功能的人不受影響。
+        public bool ShowMechaPilotTicket { get; set; } = true;
+
         // 🔴🔴 部署閘門：預設 false。
         // 開啟＝顯示緊急事件（紅色警報：磁暴／流星雨／孢子霧）的類型與剩餘時間。
         // 資料源是 AgentWKSAnnounce.Data，那是一塊**我們沒有辦法驗證大小**的堆積配置：
