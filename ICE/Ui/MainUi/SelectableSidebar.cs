@@ -94,8 +94,16 @@ namespace ICE.Ui.MainUi
                 //    那是個把自己鎖在門外、只能去手改設定檔才救得回來的狀態。
                 DrawSelectableWithIcon(FontAwesomeIcon.Cog, "Settings".Loc(), "page_Settings", indentPx: 0f);
 
+                // ⑦~⑨ 側欄下半的三個「內嵌控件組」——它們不切頁，控件直接畫在側欄裡。
+                //    2026-08-09 補上顯示開關（使用者原話「我是指 像界面導覽一樣 可以關閉」）：
+                //    在這之前它們只能收合、沒辦法關掉，是側欄唯三關不掉的東西。
+                //
+                // 📌 這裡刻意用 `C.Show_Side_X && DrawCategoryHeader_AutoSize(...)` 的短路寫法，
+                //    而不是像上面 ① 那樣多包一層 if：短路的效果完全相同（關掉時標題與內容
+                //    都不會畫），但省掉整組四十幾行的重新縮排，diff 讀得出真正改了什麼。
                 var currentJob = C.SelectedJob;
-                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Moon Selection".Loc(), FontAwesomeIcon.Moon))
+                if (C.Show_Side_MoonSelection
+                    && ImGui_Tools.DrawCategoryHeader_AutoSize("Moon Selection".Loc(), FontAwesomeIcon.Moon, id: "cat_MoonSelection"))
                 {
                     string SinusAsset = "ICE.Resources.Sinus_Ardorum.png";
                     string PhaennaAsset = "ICE.Resources.Phaenna.png";
@@ -143,12 +151,17 @@ namespace ICE.Ui.MainUi
                         ImGui.SetTooltip("Phaenna".Loc());
                     }
                 }
+                // 🔴 這一段「自動跟著目前職業」的同步**刻意留在顯示開關外面**：它改的是
+                //    C.SelectedJob，而整個外掛（採集／製作／任務篩選）都吃那個值。
+                //    把它一起關掉的話，使用者只是想收掉側欄上一塊佔位置的圖示，卻會連帶
+                //    讓自動選職業停止運作 —— 那是關掉一個顯示開關不該有的副作用。
                 if (C.AutoPickCurrentJob && (CosmicHelper.CrafterJobList.Contains(Player.JobId) || CosmicHelper.GatheringJobList.Contains(Player.JobId)) && C.SelectedJob != Player.JobId)
                 {
                     C.SelectedJob = Player.JobId;
                     C.Save();
                 }
-                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Class Selection".Loc(), imageTexture: GreyscaleJob()))
+                if (C.Show_Side_ClassSelection
+                    && ImGui_Tools.DrawCategoryHeader_AutoSize("Class Selection".Loc(), imageTexture: GreyscaleJob(), id: "cat_ClassSelection"))
                 {
                     float iconSize = 26 * scale;
                     float iconSpacing = 4;
@@ -188,7 +201,8 @@ namespace ICE.Ui.MainUi
                     ImGui.SameLine(0, iconSpacing);
                     ImGui_Tools.DrawJobButtons(18, "FSH".Loc());
                 }
-                if (ImGui_Tools.DrawCategoryHeader_AutoSize("Tool Relic XP".Loc(), icon: FontAwesomeIcon.ArrowUpRightDots))
+                if (C.Show_Side_ToolRelicXp
+                    && ImGui_Tools.DrawCategoryHeader_AutoSize("Tool Relic XP".Loc(), icon: FontAwesomeIcon.ArrowUpRightDots, id: "cat_ToolRelicXp"))
                 {
                     if (PlayerHelper.IsInCosmicZone())
                     {
@@ -230,6 +244,11 @@ namespace ICE.Ui.MainUi
         //    改成無條件呼叫會讓「不在 Standard 頁 ＋ Moon Selection 收合」這個組合
         //    從「完全不同步」變成「會同步並寫檔」，那是行為改變，不在本批範圍內。
         //    改用每幀閘門達成「一幀最多跑一次」，可達性與原本逐字相同。
+        //
+        // 📌 2026-08-09 追記：月球選擇多了 C.Show_Side_MoonSelection 這個顯示開關，
+        //    所以本檔這份副本現在是「開關開著 ＋ 分類展開」才跑得到。這**沒有製造新的
+        //    故障模式** —— 原本「分類收合」就已經是同一個不執行的狀態，而 modeSelect_Standard
+        //    那份副本不受顯示開關影響，仍然照舊。
         //
         // 📌 副作用（自動改寫 ShowSinusMissions/ShowPhaennaMissions 並 C.Save()）是既有行為，
         //    不是這次新加的。

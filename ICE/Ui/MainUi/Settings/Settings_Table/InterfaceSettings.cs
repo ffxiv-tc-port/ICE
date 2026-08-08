@@ -56,6 +56,31 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 C.Save();
             }
 
+            // ---- 側欄下半的三個內嵌控件組（2026-08-09）----
+            // 上面五個管的是「會切頁」的一級項；這三個管的是直接畫在側欄裡的控件組。
+            // 使用者原話：「我是指 像界面導覽一樣 可以關閉」——在這之前它們只能收合、關不掉。
+            // 📌 全部預設 true，所以升上來的人版面完全不變。
+            bool showMoonSelection = C.Show_Side_MoonSelection;
+            if (ImGui.Checkbox("Show Moon Selection".Loc() + "###ICEShowSideMoonSelection", ref showMoonSelection))
+            {
+                C.Show_Side_MoonSelection = showMoonSelection;
+                C.Save();
+            }
+
+            bool showClassSelection = C.Show_Side_ClassSelection;
+            if (ImGui.Checkbox("Show Class Selection".Loc() + "###ICEShowSideClassSelection", ref showClassSelection))
+            {
+                C.Show_Side_ClassSelection = showClassSelection;
+                C.Save();
+            }
+
+            bool showToolRelicXp = C.Show_Side_ToolRelicXp;
+            if (ImGui.Checkbox("Show Tool Relic XP".Loc() + "###ICEShowSideToolRelicXp", ref showToolRelicXp))
+            {
+                C.Show_Side_ToolRelicXp = showToolRelicXp;
+                C.Save();
+            }
+
             ImGui.Dummy(new(0, 5));
             // 📌 這一行講的是「藏起來的東西去哪了」。舊版是在側欄每個被藏的位置留一行灰字
             //    「已隱藏 N 項」，使用者的回饋是那行點不動、又佔位置、沒有整理的效果，

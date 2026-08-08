@@ -563,6 +563,20 @@ namespace ICE.Config
         public bool Show_Page_MechaOps { get; set; } = true;
         public bool Show_Page_Help { get; set; } = true;
 
+        // ---- 側欄「內嵌控件組」的顯示開關（2026-08-09）----
+        // 使用者回饋：「我是指 像界面導覽一樣 可以關閉」——上面五個 Show_Page_* 蓋掉了每一個
+        // **會切頁**的一級項，但側欄下半三組**直接畫在側欄裡**的控件（月球選擇／職業選擇／
+        // 宇宙工具經驗值）當初完全沒有開關，只能收合、不能關掉。這三個補上。
+        //
+        // ⚠️ 前綴刻意用 Show_Side_ 而不是 Show_Page_：這三組**沒有對應的頁**，
+        //    MainWindow.MainBody() 的 switch 裡找不到它們的 case。沿用 Show_Page_ 會讓
+        //    下一個人去找一個不存在的頁。
+        // 📌 預設全部 true＝現行版面零改變（既有使用者的設定檔沒有這三個鍵，
+        //    反序列化時吃到欄位初始值，所以升上來看起來完全一樣）。
+        public bool Show_Side_MoonSelection { get; set; } = true;
+        public bool Show_Side_ClassSelection { get; set; } = true;
+        public bool Show_Side_ToolRelicXp { get; set; } = true;
+
         #endregion
 
         #region Debug
