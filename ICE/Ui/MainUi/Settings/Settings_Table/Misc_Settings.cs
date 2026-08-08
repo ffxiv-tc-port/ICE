@@ -104,9 +104,11 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
             using (ImRaii.Disabled(!showMechaAoe))
             {
+                // ⚠️ 上限 360：使用者實測後要試 240 以上，原本的 180 會直接把他想試的值夾掉。
+                //    執行期的 clamp 本來就是 15~360，所以放寬滑桿不會與任何使用點打架。
                 float coneAngle = C.MechaConeAngleDeg;
                 ImGui.SetNextItemWidth(150);
-                if (ImGui.SliderFloat("Flamethrower Cone Angle".Loc() + "###ICEMechaConeAngle", ref coneAngle, 15f, 180f, "%.0f"))
+                if (ImGui.SliderFloat("Flamethrower Cone Angle".Loc() + "###ICEMechaConeAngle", ref coneAngle, 15f, 360f, "%.0f"))
                 {
                     C.MechaConeAngleDeg = coneAngle;
                     C.SaveDebounced();
@@ -115,8 +117,31 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 ImGui.TextDisabled("?");
                 if (ImGui.IsItemHovered())
                 {
-                    ImGui.SetTooltip(("The game data does not contain this cone's angle.\n" +
-                                      "Default is 90 degrees - awaiting in-game calibration.").Loc());
+                    ImGui.SetTooltip(("Full cone angle for the Cosmic Flamethrower - the game data does not contain it.\n" +
+                                      "Measured logs suggest 240 degrees or more; the default is 240.\n" +
+                                      "This applies to every cone-shaped mecha skill (today only the Flamethrower).").Loc());
+                }
+
+                // 宇宙鑽頭的矩形長度。表上是 7，但實測觸發距離短得多（見 MissionConfigs 的註解）。
+                float drillLength = C.MechaDrillLength;
+                ImGui.SetNextItemWidth(150);
+                if (ImGui.SliderFloat("Cosmic Drill Range".Loc() + "###ICEMechaDrillLength",
+                        ref drillLength,
+                        MechaActionShapes.DrillLengthMin,
+                        MechaActionShapes.DrillLengthMax,
+                        "%.1f"))
+                {
+                    C.MechaDrillLength = drillLength;
+                    C.SaveDebounced();
+                }
+                ImGui.SameLine();
+                ImGui.TextDisabled("?");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("Effective length of the Cosmic Drill rectangle, in yalms.\n" +
+                                      "The game data says 7, but measured logs put the real trigger distance at " +
+                                      "roughly 3.5-4 - so the default is 4. Set it back to 7 for the raw game value.\n" +
+                                      "The half-width stays on the game data and is not adjustable.").Loc());
                 }
 
                 // ---- 目標點位 ----

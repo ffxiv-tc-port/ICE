@@ -63,7 +63,7 @@ internal readonly record struct MechaAoeShape(MechaAoeKind Kind, float Primary, 
 /// 驗證基準（台服 7.20 EXD 實測，來源 exd-tc/7.20/Action.csv，2026-08-02）：
 /// <code>
 ///   42150 宇宙鑽頭（協助員）       CastType 12  EffectRange 7   XAxisModifier 5   → 矩形 長 7、全寬 5
-///   42258 宇宙火焰噴射器（協助員）  CastType 13  EffectRange 7   Omen 0            → 扇形 半徑 7；角度表裡沒有（Omen=0），走設定值，預設 90°
+///   42258 宇宙火焰噴射器（協助員）  CastType 13  EffectRange 7   Omen 0            → 扇形 半徑 7；角度表裡沒有（Omen=0），走設定值
 ///   42037 強力胡蘿蔔加農砲（駕駛）  CastType 12  EffectRange 60  XAxisModifier 10  → 矩形 長 60、全寬 10
 ///   42071 鏟刃衝鋒（駕駛）         CastType 12  EffectRange 30  XAxisModifier 5   → 矩形 長 30、全寬 5
 ///   42261 氣動粉碎機（駕駛）       CastType 2   EffectRange 15                    → 自身圓 半徑 15
@@ -71,6 +71,11 @@ internal readonly record struct MechaAoeShape(MechaAoeKind Kind, float Primary, 
 /// </code>
 /// 六筆的 ClassJobCategory 都是 35。
 /// ⚠️ XAxisModifier 是「全寬」，半寬要 ÷2。
+///
+/// 🔴 <b>表上的值不等於實戰有效值。</b>2026-08-08 的 [MechaRec] log 量測顯示
+/// 42150 的實際觸發距離約 3.5~4m（表上 7），所以解析完之後還會過一層
+/// <see cref="ApplyCalibration"/> 把使用者校準過的參數套上去。
+/// 需要「Lumina 原值」時要看的是 <see cref="ResolveFromSheet"/>，不是 <see cref="TryResolve"/>。
 /// </summary>
 internal static class MechaActionShapes
 {
@@ -127,6 +132,12 @@ internal static class MechaActionShapes
         uint ProcStatusId,
         string ProcStatusName);
 
+    /// <summary>宇宙鑽頭（協助員）。矩形長度走設定值校準，見 <see cref="ApplyCalibration"/>。</summary>
+    public const uint CosmicDrillActionId = 42150;
+
+    /// <summary>宇宙火焰噴射器（協助員）。扇形全角走設定值 <c>C.MechaConeAngleDeg</c>（不存在形狀裡）。</summary>
+    public const uint CosmicFlamethrowerActionId = 42258;
+
     /// <summary>解析一個 ActionId 的範圍形狀。查不到表或形狀不支援時回傳 false（name 仍會給）。</summary>
     public static bool TryResolve(uint actionId, out MechaAoeShape shape, out string name)
     {
@@ -134,12 +145,40 @@ internal static class MechaActionShapes
         name = entry.Name;
         if (entry.Shape is { } s)
         {
-            shape = s;
+            // 🔴 校準必須在**快取之外**套用：<see cref="Cache"/> 存的是 Lumina 原值，
+            //    設定值每次都重新讀 —— 這樣使用者拉滑桿才會當場生效。
+            //    若把校準寫進 ResolveFromSheet，第一次解析就會把值凍進快取，
+            //    滑桿要重載外掛才有反應（失敗形式是靜默的「滑桿沒作用」）。
+            shape = ApplyCalibration(actionId, s);
             return true;
         }
         shape = default;
         return false;
     }
+
+    /// <summary>
+    /// 把使用者校準過的參數套到 Lumina 解出來的形狀上。
+    ///
+    /// 🔑 <b>為什麼需要這一層</b>：Lumina <c>Action</c> 表的 EffectRange 是技能資料上的射程，
+    /// 實戰上真正打得到的距離可能更短（42150 宇宙鑽頭實測約 3.5~4m vs 表上 7）。
+    /// 表不會錯，但拿它直接畫範圍會誤導使用者，所以留一個可調的校準層。
+    ///
+    /// ⚠️ 只動有實測支撐的參數，其餘一律原封不動走 Lumina —— 這樣未來新增的機甲技能
+    /// 仍然不用改碼就能自動適用（維持原本的設計）。
+    /// 📌 扇形角度不在這裡：它根本不存在 <see cref="MechaAoeShape"/> 裡（Cone 的 HalfWidth 是 0），
+    /// 各使用點自己讀 <c>C.MechaConeAngleDeg</c>。
+    /// </summary>
+    private static MechaAoeShape ApplyCalibration(uint actionId, MechaAoeShape shape)
+    {
+        if (actionId == CosmicDrillActionId && shape.Kind == MechaAoeKind.Rect)
+            return shape with { Primary = Math.Clamp(C.MechaDrillLength, DrillLengthMin, DrillLengthMax) };
+
+        return shape;
+    }
+
+    /// <summary>宇宙鑽頭長度滑桿的下限／上限。UI 與執行期用同一組常數，避免兩邊漂開。</summary>
+    public const float DrillLengthMin = 2f;
+    public const float DrillLengthMax = 10f;
 
     /// <summary>這個 ActionId 是否可能是機甲技能（ClassJobCategory==35 或在白名單裡）。</summary>
     public static bool IsMechaCandidate(uint actionId)
@@ -190,7 +229,7 @@ internal static class MechaActionShapes
             12 or 4 => new MechaAoeShape(MechaAoeKind.Rect, row.EffectRange, row.XAxisModifier * 0.5f),
 
             // 13/3：扇形，半徑=EffectRange。角度通常得從 Omen 路徑解析（fanXXX），
-            // 但 42258 的 Omen=0 → 無從得知，角度由設定值提供（預設 90°，待實機校準）。
+            // 但 42258 的 Omen=0 → 無從得知，角度由設定值提供（C.MechaConeAngleDeg，實測校準）。
             13 or 3 => new MechaAoeShape(MechaAoeKind.Cone, row.EffectRange, 0f),
 
             // 2/5：以施放者為圓心的圓（5 理論上加 hitbox，同上不加）。
