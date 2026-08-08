@@ -1,3 +1,4 @@
+using ICE.Config;
 using System.Collections.Generic;
 using LuminaAction = Lumina.Excel.Sheets.Action;
 using LuminaStatus = Lumina.Excel.Sheets.Status;
@@ -163,22 +164,99 @@ internal static class MechaActionShapes
     /// 實戰上真正打得到的距離可能更短（42150 宇宙鑽頭實測約 3.5~4m vs 表上 7）。
     /// 表不會錯，但拿它直接畫範圍會誤導使用者，所以留一個可調的校準層。
     ///
-    /// ⚠️ 只動有實測支撐的參數，其餘一律原封不動走 Lumina —— 這樣未來新增的機甲技能
-    /// 仍然不用改碼就能自動適用（維持原本的設計）。
+    /// ⚠️ 沒有覆蓋、也不是舊鍵管的那一技時，連 Clamp 都不做，原封不動走 Lumina ——
+    /// 這樣未來新增的機甲技能仍然不用改碼就能自動適用（維持原本的設計）。
     /// 📌 扇形角度不在這裡：它根本不存在 <see cref="MechaAoeShape"/> 裡（Cone 的 HalfWidth 是 0），
-    /// 各使用點自己讀 <c>C.MechaConeAngleDeg</c>。
+    /// 走 <see cref="ConeAngleFor"/>。
     /// </summary>
     private static MechaAoeShape ApplyCalibration(uint actionId, MechaAoeShape shape)
     {
-        if (actionId == CosmicDrillActionId && shape.Kind == MechaAoeKind.Rect)
-            return shape with { Primary = Math.Clamp(C.MechaDrillLength, DrillLengthMin, DrillLengthMax) };
+        var ov = GetOverride(actionId);
 
-        return shape;
+        // ---- Primary（Rect 最遠距離／Cone 距離／圓形半徑／射程圈半徑）----
+        // 🔑 讀取優先序：per-skill 覆蓋 > 舊鍵 > Lumina 原值。
+        // ⚠️ 三條分支刻意寫成「有值才動」：沒有覆蓋、也不是舊鍵管的那一技時，
+        //    連 Clamp 都不做，原封不動把 Lumina 的值傳出去
+        //    ——這樣升級到本版的人行為是**逐位元相同**的。
+        var primary = shape.Primary;
+        if (ov?.Primary is { } p)
+            primary = Math.Clamp(p, PrimaryMin, PrimaryMax);
+        else if (actionId == CosmicDrillActionId && shape.Kind == MechaAoeKind.Rect)
+            primary = Math.Clamp(C.MechaDrillLength, DrillLengthMin, DrillLengthMax);
+
+        // ---- HalfWidth（只有矩形有意義）----
+        // 🔴 非矩形的 HalfWidth 是 0，這裡**絕對不能**跟著 Clamp 到下限，
+        //    否則圓形／扇形會憑空長出 0.5 的半寬。
+        var halfWidth = shape.HalfWidth;
+        if (shape.Kind == MechaAoeKind.Rect && ov?.HalfWidth is { } hw)
+            halfWidth = Math.Clamp(hw, HalfWidthMin, HalfWidthMax);
+
+        return shape with { Primary = primary, HalfWidth = halfWidth };
     }
+
+    /// <summary>
+    /// 這個技能的扇形<b>全角</b>（度）。讀取優先序與 <see cref="ApplyCalibration"/> 一致：
+    /// per-skill 覆蓋 &gt; 舊鍵 <c>C.MechaConeAngleDeg</c> &gt; 預設。
+    ///
+    /// 📌 角度為什麼不塞進 <see cref="MechaAoeShape"/>：Lumina 的 <c>Action</c> 表<b>沒有</b>這個欄位
+    /// （42258 的 Omen=0），它自始至終就是一個純設定值，不是「從表解出來再校準」。
+    /// 🔑 所有使用點都要走這個方法，不要再直接讀 <c>C.MechaConeAngleDeg</c>——
+    /// 直接讀的話 per-skill 覆蓋會被靜默忽略（失敗形式是「滑桿沒作用」）。
+    /// </summary>
+    public static float ConeAngleFor(uint actionId)
+    {
+        var ov = GetOverride(actionId);
+        return Math.Clamp(ov?.AngleDeg ?? C.MechaConeAngleDeg, ConeAngleMin, ConeAngleMax);
+    }
+
+    /// <summary>取這個技能的 per-skill 覆蓋，沒有就回 <c>null</c>。</summary>
+    private static MechaShapeOverride? GetOverride(uint actionId)
+        => C.MechaShapeOverrides.TryGetValue(actionId, out var ov) ? ov : null;
+
+    /// <summary>
+    /// 這個技能<b>沒有任何覆蓋</b>時的形狀（Lumina 原值 ＋ 舊鍵校準）。
+    /// UI 用它顯示「預設值是多少」與判斷重設鈕要不要亮。
+    /// </summary>
+    public static bool TryResolveDefault(uint actionId, out MechaAoeShape shape, out string name)
+    {
+        var entry = GetEntry(actionId);
+        name = entry.Name;
+        if (entry.Shape is not { } s)
+        {
+            shape = default;
+            return false;
+        }
+
+        // 舊鍵仍算「預設」的一部分：使用者早就調過的 42150 長度不該在 UI 上被說成「非預設」。
+        var primary = s.Primary;
+        if (actionId == CosmicDrillActionId && s.Kind == MechaAoeKind.Rect)
+            primary = Math.Clamp(C.MechaDrillLength, DrillLengthMin, DrillLengthMax);
+
+        shape = s with { Primary = primary };
+        return true;
+    }
+
+    /// <summary>這個技能沒有覆蓋時的扇形全角。</summary>
+    public static float DefaultConeAngleFor(uint actionId)
+        => Math.Clamp(C.MechaConeAngleDeg, ConeAngleMin, ConeAngleMax);
 
     /// <summary>宇宙鑽頭長度滑桿的下限／上限。UI 與執行期用同一組常數，避免兩邊漂開。</summary>
     public const float DrillLengthMin = 2f;
     public const float DrillLengthMax = 10f;
+
+    /// <summary>
+    /// per-skill 滑桿的範圍。刻意開得比實際值寬很多——真值未知，
+    /// 夾太緊會讓使用者連想試的值都拉不到（42258 的 240° 就是這樣才放寬到 360 的）。
+    /// </summary>
+    /// ⚠️ 上限刻意是 60 而不是 30：<c>42037 強力胡蘿蔔加農砲</c> 的 Lumina 原值就是 60，
+    ///    夾在 30 的話使用者一旦動過那一技就再也拉不回預設值（而且是靜默的）。
+    ///    「滑桿上限必須 ≥ 該技能的預設值」是這一組常數的硬條件。
+    public const float PrimaryMin = 1f;
+    public const float PrimaryMax = 60f;
+    public const float HalfWidthMin = 0.5f;
+    public const float HalfWidthMax = 10f;
+    public const float ConeAngleMin = 15f;
+    public const float ConeAngleMax = 360f;
 
     /// <summary>這個 ActionId 是否可能是機甲技能（ClassJobCategory==35 或在白名單裡）。</summary>
     public static bool IsMechaCandidate(uint actionId)

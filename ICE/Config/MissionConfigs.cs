@@ -121,6 +121,17 @@ namespace ICE.Config
         // 📌 半寬（XAxisModifier/2 = 2.5）沒有任何回報指出不準，維持走 Lumina 不開設定。
         public float MechaDrillLength { get; set; } = 4f;
 
+        // ---- per-skill 形狀覆蓋（Utilities/MechaOps/MechaActionShapes.cs）----
+        // 技能 id → 各維度的覆蓋值。**預設空字典＝完全沿用現行有效值**
+        // （Lumina 原值，或上面兩個舊鍵已經校準過的值），所以升級不會改變任何行為。
+        //
+        // 🔑 讀取優先序：per-skill 覆蓋 > 舊鍵（MechaDrillLength / MechaConeAngleDeg）> Lumina 原值。
+        //    舊鍵刻意保留而不遷移：使用者已經拉過的 5.0／120 不能因為改版就消失，
+        //    而「沒有覆蓋時就去問舊鍵」正好讓那些值繼續生效。
+        // ⚠️ null ＝「這個維度不覆蓋」，不是 0。用 float? 而不是 0 當哨兵，
+        //    否則「使用者真的想設 0」與「沒設」分不出來。
+        public Dictionary<uint, MechaShapeOverride> MechaShapeOverrides { get; set; } = new();
+
         // 個別技能顯示開關；沒有紀錄的 ActionId ＝ 開。
         public Dictionary<uint, bool> MechaAoeSkillToggles { get; set; } = new();
 
@@ -622,6 +633,30 @@ namespace ICE.Config
         public uint ItemId { get; set; }
         public int Weight { get; set; } = 0;
         public GambaType Type { get; set; }
+    }
+
+    /// <summary>
+    /// 單一機甲技能的範圍形狀覆蓋值。每個維度都是 <c>float?</c>：
+    /// <c>null</c> ＝這個維度不覆蓋，走預設（舊鍵或 Lumina 原值）。
+    ///
+    /// 🔴 <b>用 <c>float?</c> 而不是拿 0 當哨兵</b>：0 是一個合法的角度／距離輸入，
+    /// 拿它當「沒設定」的話，使用者把滑桿拉到底就會變成「重設」——那是靜默的行為錯誤。
+    ///
+    /// 各維度對應哪一種形狀見 <see cref="Utilities.MechaOps.MechaAoeShape"/>：
+    /// <list type="bullet">
+    ///   <item><c>Primary</c>：矩形的最遠距離／扇形的距離／圓形與射程圈的半徑</item>
+    ///   <item><c>HalfWidth</c>：矩形的半寬（<b>只有矩形有意義</b>，UI 也只對矩形顯示）</item>
+    ///   <item><c>AngleDeg</c>：扇形的全角（度）</item>
+    /// </list>
+    /// </summary>
+    public class MechaShapeOverride
+    {
+        public float? Primary { get; set; }
+        public float? HalfWidth { get; set; }
+        public float? AngleDeg { get; set; }
+
+        /// <summary>三個維度都沒設＝這筆等於不存在，可以從字典裡移掉。</summary>
+        public bool IsEmpty => Primary == null && HalfWidth == null && AngleDeg == null;
     }
 
     public class CosmoShoppingList

@@ -356,7 +356,46 @@ internal static class MechaEventRecorder
             + $";includePlayers={C.MechaTargetsIncludePlayers};requireObjectTable={C.MechaObjectiveRequireObjectTable}"
             + $";matchRadius={C.MechaObjectiveMatchRadius:F1};useMarkerVector={C.MechaObjectiveUseMarkerVector}"
             + $";fullPlayerNames={C.MechaShowFullPlayerNames}"
-            + $";skillToggles={(C.MechaAoeSkillToggles.Count == 0 ? "全開(預設)" : string.Join(",", C.MechaAoeSkillToggles.Select(kv => kv.Key + "=" + kv.Value)))}");
+            + $";skillToggles={(C.MechaAoeSkillToggles.Count == 0 ? "全開(預設)" : string.Join(",", C.MechaAoeSkillToggles.Select(kv => kv.Key + "=" + kv.Value)))}"
+            // 🔑 per-skill 形狀覆蓋。**有覆蓋的印出值、沒覆蓋的印 default**——
+            //    下一輪拿 log 訂參數時，這一欄是唯一能分出
+            //    「我們預測的形狀不準」與「使用者自己把滑桿拉過」的東西。
+            //    （drillLen/coneDeg 兩個舊鍵仍照印，它們是沒有覆蓋時的實際來源。）
+            + $";shapeOverrides={DescribeShapeOverrides()}");
+    }
+
+    /// <summary>
+    /// 六個已驗證機甲技能的形狀覆蓋摘要，形如
+    /// <c>42150[p=3.5,hw=default],42258[p=default,ang=200]</c>。
+    /// 沒有任何覆蓋時回 <c>全部default</c>——刻意不印空字串，
+    /// 免得事後看 log 分不出「沒有覆蓋」與「這一版還沒有這一欄」。
+    /// </summary>
+    private static string DescribeShapeOverrides()
+    {
+        if (C.MechaShapeOverrides.Count == 0)
+            return "全部default";
+
+        var parts = new List<string>();
+        foreach (var id in MechaActionShapes.BaselineActionIds)
+        {
+            if (!C.MechaShapeOverrides.TryGetValue(id, out var ov) || ov == null || ov.IsEmpty)
+                continue;
+            parts.Add($"{id}[p={Fmt(ov.Primary)},hw={Fmt(ov.HalfWidth)},ang={Fmt(ov.AngleDeg)}]");
+        }
+
+        // 白名單以外的技能（日後新增的）也要印，不然它們的覆蓋在 log 上是隱形的。
+        foreach (var kv in C.MechaShapeOverrides)
+        {
+            if (Array.IndexOf(MechaActionShapes.BaselineActionIds, kv.Key) >= 0)
+                continue;
+            if (kv.Value == null || kv.Value.IsEmpty)
+                continue;
+            parts.Add($"{kv.Key}[p={Fmt(kv.Value.Primary)},hw={Fmt(kv.Value.HalfWidth)},ang={Fmt(kv.Value.AngleDeg)}]");
+        }
+
+        return parts.Count == 0 ? "全部default" : string.Join(",", parts);
+
+        static string Fmt(float? v) => v is { } f ? f.ToString("F1") : "default";
     }
 
     private static void StopSession(string reason)
@@ -952,7 +991,8 @@ internal static class MechaEventRecorder
         List<SweepEntry> entries,
         HashSet<ulong>? predictedInto = null)
     {
-        var coneRad = Math.Clamp(C.MechaConeAngleDeg, 15f, 360f) * MathF.PI / 180f;
+        // per-skill 角度：這個方法本來就是逐技能呼叫的，直接問這一技的值。
+        var coneRad = MechaActionShapes.ConeAngleFor(c.ActionId) * MathF.PI / 180f;
         var useHitbox = C.MechaCoverageUseHitbox;
 
         var covered = new List<(SweepEntry E, float D)>();
@@ -991,7 +1031,7 @@ internal static class MechaEventRecorder
     /// <summary>形狀參數。矩形／扇形／自身圓／單體射程圈的語意見 <see cref="MechaAoeShape"/>。</summary>
     private static string ShapeFields(MechaCandidate c)
         => $"shape={c.Shape.Kind};primary={c.Shape.Primary:F1};halfWidth={c.Shape.HalfWidth:F1}"
-         + $";coneDeg={(c.Shape.Kind == MechaAoeKind.Cone ? Math.Clamp(C.MechaConeAngleDeg, 15f, 360f).ToString("F0") : "-")}";
+         + $";coneDeg={(c.Shape.Kind == MechaAoeKind.Cone ? MechaActionShapes.ConeAngleFor(c.ActionId).ToString("F0") : "-")}";
 
     private static string IdDistList(List<(SweepEntry E, float D)> items)
     {

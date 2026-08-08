@@ -81,6 +81,125 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
         }
 
         /// <summary>
+        /// 一個機甲技能的形狀維度滑桿組（矩形：最遠距離＋最寬範圍；扇形：距離＋角度；圓形：半徑）。
+        ///
+        /// 🔑 <b>「預設」與「已覆蓋」必須在畫面上分得出來</b>：滑桿本身只看得到一個數字，
+        /// 看不出那是遊戲資料的原值還是自己拉出來的。所以已覆蓋的維度後面掛一個
+        /// 橘色的 <c>*</c>，tooltip 講預設值是多少，並且只有真的有覆蓋時才出現「重設」。
+        ///
+        /// ⚠️ 滑桿上限用 <c>max(常數上限, 該技能的預設值)</c>：42037 的預設距離是 60，
+        /// 若上限比預設值小，使用者一旦動過就再也拉不回預設（而且是靜默的）。
+        /// </summary>
+        private static void DrawSkillShapeSliders(uint actionId, MechaAoeShape shape, bool enabled)
+        {
+            using var disabled = ImRaii.Disabled(!enabled);
+            ImGui.Indent();
+            ImGui.PushID((int)actionId);
+
+            var hasDefault = MechaActionShapes.TryResolveDefault(actionId, out var def, out _);
+            C.MechaShapeOverrides.TryGetValue(actionId, out var ov);
+
+            var kindLabel = shape.Kind switch
+            {
+                MechaAoeKind.Rect => "Rectangle".Loc(),
+                MechaAoeKind.Cone => "Cone".Loc(),
+                MechaAoeKind.SelfCircle => "Circle".Loc(),
+                _ => "Range ring".Loc(),
+            };
+            ImGui.TextDisabled(kindLabel);
+
+            var primaryLabel = shape.Kind switch
+            {
+                MechaAoeKind.Rect => "Max distance".Loc(),
+                MechaAoeKind.Cone => "Cone distance".Loc(),
+                _ => "Radius".Loc(),
+            };
+
+            var defPrimary = hasDefault ? def.Primary : shape.Primary;
+            if (Dim(primaryLabel, "P", shape.Primary, defPrimary,
+                    MechaActionShapes.PrimaryMin, MechaActionShapes.PrimaryMax,
+                    ov?.Primary != null, out var newPrimary))
+            {
+                Ensure().Primary = newPrimary;
+                C.SaveDebounced();
+            }
+
+            if (shape.Kind == MechaAoeKind.Rect)
+            {
+                var defHalf = hasDefault ? def.HalfWidth : shape.HalfWidth;
+                if (Dim("Max width (half)".Loc(), "W", shape.HalfWidth, defHalf,
+                        MechaActionShapes.HalfWidthMin, MechaActionShapes.HalfWidthMax,
+                        ov?.HalfWidth != null, out var newHalf))
+                {
+                    Ensure().HalfWidth = newHalf;
+                    C.SaveDebounced();
+                }
+            }
+
+            if (shape.Kind == MechaAoeKind.Cone)
+            {
+                var current = MechaActionShapes.ConeAngleFor(actionId);
+                var defAngle = MechaActionShapes.DefaultConeAngleFor(actionId);
+                if (Dim("Cone angle".Loc(), "A", current, defAngle,
+                        MechaActionShapes.ConeAngleMin, MechaActionShapes.ConeAngleMax,
+                        ov?.AngleDeg != null, out var newAngle))
+                {
+                    Ensure().AngleDeg = newAngle;
+                    C.SaveDebounced();
+                }
+            }
+
+            if (ov is { IsEmpty: false })
+            {
+                if (ImGui.SmallButton("Reset to default".Loc() + "###ICEMechaShapeReset"))
+                {
+                    // 整筆移除而不是把三個維度設回 null：留一個空物件在 yaml 裡只是噪音。
+                    C.MechaShapeOverrides.Remove(actionId);
+                    C.Save();
+                }
+            }
+
+            ImGui.PopID();
+            ImGui.Unindent();
+
+            // 需要寫入時才建立字典項目——沒動過的技能不該在 yaml 裡留下痕跡。
+            MechaShapeOverride Ensure()
+            {
+                if (!C.MechaShapeOverrides.TryGetValue(actionId, out var existing) || existing == null)
+                {
+                    existing = new MechaShapeOverride();
+                    C.MechaShapeOverrides[actionId] = existing;
+                }
+                return existing;
+            }
+
+            static bool Dim(string label, string tag, float current, float defaultValue,
+                            float min, float max, bool overridden, out float value)
+            {
+                // 上限至少要容得下預設值，否則「拉回預設」這件事做不到。
+                var hi = MathF.Max(max, defaultValue);
+                value = Math.Clamp(current, min, hi);
+                ImGui.SetNextItemWidth(140);
+                var changed = ImGui.SliderFloat(label + "###ICEMechaShape" + tag, ref value, min, hi, "%.1f");
+
+                ImGui.SameLine();
+                if (overridden)
+                    ImGui.TextColored(ImGuiColors.DalamudOrange, "*");
+                else
+                    ImGui.TextDisabled("=");
+
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(overridden
+                        ? ("You changed this. Default: ??").Loc(defaultValue.ToString("F1"))
+                        : ("Currently the default: ??").Loc(defaultValue.ToString("F1")));
+                }
+
+                return changed;
+            }
+        }
+
+        /// <summary>
         /// 機甲行動技能範圍標示（Utilities/MechaOps）。純顯示、零自動化。
         /// </summary>
         private static void MechaAoeSettings()
@@ -488,13 +607,16 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
                     foreach (var id in ids)
                     {
-                        MechaActionShapes.TryResolve(id, out _, out var name);
+                        var hasShape = MechaActionShapes.TryResolve(id, out var shape, out var name);
                         bool enabled = !C.MechaAoeSkillToggles.TryGetValue(id, out var v) || v;
                         if (ImGui.Checkbox($"{name}###ICEMechaSkill{id}", ref enabled))
                         {
                             C.MechaAoeSkillToggles[id] = enabled;
                             C.Save();
                         }
+
+                        if (hasShape)
+                            DrawSkillShapeSliders(id, shape, enabled);
                     }
                     ImGui.TreePop();
                 }

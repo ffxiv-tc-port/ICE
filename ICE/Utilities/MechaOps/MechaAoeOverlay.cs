@@ -139,8 +139,10 @@ internal static class MechaAoeOverlay
                         DrawRect(drawList, origin, rotation, c.Shape.Primary, c.Shape.HalfWidth);
                         break;
                     case MechaAoeKind.Cone:
-                        // 角度不在遊戲資料裡（Omen=0），用設定值（預設 90°，待實機校準）。
-                        var angleRad = Math.Clamp(C.MechaConeAngleDeg, 15f, 360f) * MathF.PI / 180f;
+                        // 角度不在遊戲資料裡（Omen=0），走設定值。
+                        // 🔑 一律問 ConeAngleFor(actionId)，不要直接讀 C.MechaConeAngleDeg——
+                        //    直接讀會靜默忽略 per-skill 覆蓋（表現成「滑桿沒作用」）。
+                        var angleRad = MechaActionShapes.ConeAngleFor(c.ActionId) * MathF.PI / 180f;
                         drawList.AddConeFilled(origin, c.Shape.Primary, ToPictoRotation(rotation), angleRad, ConeFill);
                         break;
                     case MechaAoeKind.SelfCircle:
@@ -323,7 +325,6 @@ internal static class MechaAoeOverlay
             return;
         }
 
-        var coneRad = Math.Clamp(C.MechaConeAngleDeg, 15f, 360f) * MathF.PI / 180f;
         var useHitbox = C.MechaCoverageUseHitbox;
 
         // 「目標 N」的 N。只有真的沒有名字的任務目標才會用到（見 DrawTargetLabel）。
@@ -339,6 +340,9 @@ internal static class MechaAoeOverlay
                     continue;
 
                 var entry = counts[c.ActionId];
+                // ⚠️ 扇形角度改成 per-skill 之後就**不能**在迴圈外算一次了：
+                //    每個技能可以有自己的角度，提到外面等於全部套用第一個技能的值。
+                var coneRad = MechaActionShapes.ConeAngleFor(c.ActionId) * MathF.PI / 180f;
                 if (MechaCoverage.IsInReach(c.Shape, origin, casterHitbox, t, useHitbox))
                     entry.InReach++;
                 if (MechaCoverage.IsCovered(c.Shape, coneRad, origin, rotation, casterHitbox, t, useHitbox))
