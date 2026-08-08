@@ -536,7 +536,22 @@ internal static unsafe class MechaOpsMonitor
             // 🔑 任務目標（前兩層）一律列出，不受「只顯示可選取的物件」與雜訊過濾影響。
             //    這就是使用者回報那兩個症狀的正解：目標不必是可選取的，
             //    也不必為了看到它而把所有場景物件一起放進來。
-            if (tier == MechaTargetTier.Other)
+            //
+            // 🔴🔴 <b>2026-08-08 追加的第三道豁免：機甲事件物件家族（不分身份）。</b>
+            //    前兩層都是「這一場我們已經有證據」才成立；在那之前（剛 SPAWN、遊戲還沒標、
+            //    或身份還判不出來）目標會落到第 3 層，然後被下面兩條過濾靜默吃掉。
+            //    實機證據（2026-08-08 協助員錄製）：<c>did=2014721</c> 的小型偏屬性水晶
+            //    308 次出現裡有 <b>151 次</b> 被 <c>known-noise</c> 濾掉，而它正是使用者
+            //    每一發宇宙鑽頭都打到的那個目標。
+            //    ⚠️ 這條豁免<b>只認 DataId 家族</b>，不是把過濾整個放寬——
+            //    同一份 log 裡還有 221 筆 EventNpc 之類的真雜訊，仍然要靠下面兩條擋著。
+            //    兩條都豁免的理由分別是：
+            //      ① <c>MechaTargetsTargetableOnly</c>：協助員的目標是 per-player 生成的實體，
+            //         <c>IsTargetable</c> 讀到 False，但地面施放的宇宙工具打得到它
+            //         ——這個旗標對機甲目標的語意根本不對。log 直證同一場裡連
+            //         2014720 巨型水晶對協助員也是 <c>targetable=False</c>。
+            //      ② <c>MechaTargetsHideSceneryAndNpcs</c>：見 IsKnownNoise 的註解。
+            if (tier == MechaTargetTier.Other && !MechaObjectNames.IsKnownEventObjectId(baseId))
             {
                 if (C.MechaTargetsTargetableOnly)
                 {
@@ -626,7 +641,8 @@ internal static unsafe class MechaOpsMonitor
 
         var whitelist = Role == MechaRole.Unknown
             ? "不套用資料表白名單（只信遊戲自己的標記）"
-            : $"資料表白名單 {MechaObjectNames.RoleIdCount(rowId, Role)} 個 DataId";
+            : $"資料表白名單 {MechaObjectNames.RoleIdCount(rowId, Role)} 個 DataId"
+              + $"（分群來源：{MechaObjectNames.RoleSplitSource}）";
 
         var objective = MechaObjectNames.EventObjectiveText(rowId, Role);
 
@@ -652,6 +668,25 @@ internal static unsafe class MechaOpsMonitor
     ///
     /// ⚠️ ② 的兩個條件必須同時成立。少了「沒有名字」會連無名的任務目標一起濾掉——
     /// 那正是這次要修的 bug（不過任務目標在上一層就已經放行了，這裡是第二道保險）。
+    ///
+    /// 🔴🔴 <b>2026-08-08 實機定錨：這條規則曾經是誤殺協助員真目標的現行犯。</b>
+    /// 使用者以協助員跑完一場「巨型偏屬性水晶破壞指令」，他實際在打的
+    /// <c>did=2014721</c>（<c>kind=CardStand</c>、無名、<c>targetable=False</c>）
+    /// 308 次出現裡有 <b>151 次</b> 的 <c>iceFilter</c> 是 <c>known-noise</c>——
+    /// 正好命中 ② 的兩個條件。
+    ///
+    /// 📌 <b>處置是「在上游豁免」而不是「放寬這裡」</b>，兩個理由：
+    /// <list type="number">
+    ///   <item>同一份 log 裡還有 221 筆真雜訊（無名 EventNpc 之類）靠這條擋著，
+    ///         放寬會把它們全放進來——那是使用者當初回報的另一個症狀。</item>
+    ///   <item><c>name.Length == 0</c> 這個條件只會讓「被叫做雜訊」的東西<b>變少</b>。
+    ///         拿掉它反而更危險（變成「不可選取就是雜訊」）。</item>
+    /// </list>
+    /// ⇒ 真正的修法是 <see cref="SampleTargets"/> 裡新增的
+    /// <c>MechaObjectNames.IsKnownEventObjectId</c> 豁免：機甲事件家族的 <c>DataId</c>
+    /// 根本走不到這裡。<b>所以這裡的 <c>name.Length</c> 不是「用名字做目標判定」</b>——
+    /// 目標身分在上游就已經用 DataId 決定完了，這裡只剩「其餘東西怎麼排序雜訊」。
+    /// ⚠️ 日後要動這條之前，先確認那道豁免還在。
     /// </summary>
     /// ⚠️ <c>internal</c> 而不是 <c>private</c>：<see cref="MechaEventRecorder"/> 要拿它算
     /// 「這一筆會被哪一條規則濾掉」寫進診斷。**共用同一份判準才不會漂移**——

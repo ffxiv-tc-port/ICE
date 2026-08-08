@@ -49,6 +49,13 @@ internal static class MechaObjectNames
     private static HashSet<uint>? knownEventObjectIds;
     private static Dictionary<uint, uint>? layoutToBaseId;
 
+    /// <summary>
+    /// <c>WKSMechaEventObject</c> 的列 id → (物件 <c>DataId</c>, 物件種類欄 <c>Unknown3</c>)。
+    /// 這是 <see cref="WKSMechaEventObjectGroup"/> 的解參考表：群組表的值是**這張表的列號**，
+    /// 不是 DataId，所以要先有這一份才查得動群組。
+    /// </summary>
+    private static Dictionary<uint, (uint BaseId, uint Type)>? objectRows;
+
     /// <summary>共用的空集合。資料表還沒準備好時回這一份，**不快取**，下一幀會再試。</summary>
     private static readonly HashSet<uint> EmptyIds = [];
 
@@ -107,7 +114,24 @@ internal static class MechaObjectNames
         }
     }
 
-    // ---- 身份相關（2026-08-06 新增）----
+    /// <summary>
+    /// 這個 <c>BaseId</c> 是不是「機甲事件會用到的物件」——<b>不分身份、不分是哪一場事件</b>。
+    ///
+    /// 🔑 <b>用途只有一個：當雜訊過濾的豁免</b>。它回答的是「這東西屬不屬於機甲事件這個家族」，
+    /// 不是「這東西是不是你該打的目標」（後者請用
+    /// <see cref="ObjectIdsForRole"/> 或 <c>MechaObjectiveTracker.IsObjectiveBaseId</c>）。
+    ///
+    /// 🔴 <b>為什麼要有這一層</b>（2026-08-08 實機）：機甲事件的目標<b>普遍沒有名字、而且不可選取</b>
+    /// ——菌床場連駕駛員的目標都無名（使用者原話：「有害菌床驅除指令 協助員的目標 沒名字
+    /// 也是只有自己看得到　機甲得目標 也沒名字」）。水晶場的駕駛員路徑之所以看起來正常，
+    /// 純粹是因為 2014720 巨型偏屬性水晶<b>剛好</b>有名字。
+    /// 也就是說「無名＋不可選取＝場景裝飾」這條雜訊規則，對機甲目標是<b>系統性誤殺</b>，
+    /// 只是先前被一個巧合遮住。這裡用 <c>DataId</c> 家族把它們整批擋在雜訊規則之外。
+    /// </summary>
+    public static bool IsKnownEventObjectId(uint baseId)
+        => baseId != 0 && KnownEventObjectIds.Contains(baseId);
+
+    // ---- 身份相關（2026-08-06 新增，2026-08-08 改為資料表群組驅動）----
 
     /// <summary>上一次做身份分類時用的事件列 id。換事件就要重算。</summary>
     private static uint roleSplitRowId;
@@ -117,26 +141,44 @@ internal static class MechaObjectNames
     /// <summary>
     /// 這個身份**該看到**的機甲事件物件 <c>DataId</c>。
     ///
-    /// 分類方式刻意<b>不</b>依賴 <c>WKSMechaEventObject</c> 那幾個語意不明的數值欄，
-    /// 而是拿物件自己的名字去比對這一場事件的兩段指示文字（見 <see cref="EventObjectiveText"/>）：
-    /// <list type="bullet">
-    ///   <item>名字出現在<b>協助員</b>指示文字裡 → 協助員該看的（例如「野外探測器」）；</item>
-    ///   <item>其餘一律歸<b>駕駛員</b>——包含沒有名字、比對不出來的。</item>
+    /// 🔴🔴 <b>2026-08-08 重做：判定路徑完全不碰名字。</b>
+    /// 舊版是拿物件名去比對事件的指示文字（名字出現在協助員那段就歸協助員，其餘歸駕駛員）。
+    /// 那個做法有兩個致命問題，而且兩個都已被實機證據推翻：
+    /// <list type="number">
+    ///   <item><b>機甲目標普遍沒有名字。</b>2014721（協助員的小型偏屬性水晶）與菌床場的
+    ///         駕駛員／協助員目標在 <c>EObjName</c> 裡都是空字串 ⇒ 比對必定落空。</item>
+    ///   <item><b>落空時的預設是「歸駕駛員」</b> ⇒ 協助員的白名單只剩野外探測器一個
+    ///         （實機 <c>wlRole=1</c> 全場逐字吻合），他真正要打的那個反而被排除。</item>
     /// </list>
+    /// ⇒ <b>名字從此只准當顯示欄位</b>，歸屬一律走 <c>DataId</c>。
     ///
-    /// 🔑 <b>預設倒向保守那一邊是刻意的</b>：分不出來就歸給駕駛員，代表協助員拿到的是一份
-    /// <b>偏小</b>的白名單。這個方向的失敗是「少畫幾個，還有遊戲自己的標記兜底」；
-    /// 反過來把駕駛員的巨型目標塞給協助員，失敗形式就是使用者回報的「目標不一樣」。
+    /// 現在的資料鏈（純數值，離線可驗，台服 7.20 兩場事件都吻合）：
+    /// <code>
+    ///   WKSMechaEventData[事件列].Unknown18  → 協助員的物件群組
+    ///   WKSMechaEventData[事件列].Unknown19  ┐
+    ///   WKSMechaEventData[事件列].Unknown20  ┘ 駕駛員的物件群組（兩批，疑似兩波）
+    ///     → WKSMechaEventObjectGroup[群組].Unknown0（subrow）＝ WKSMechaEventObject 的列號
+    ///       → WKSMechaEventObject[列].Unknown1 ＝ EObj 的 DataId
+    ///         WKSMechaEventObject[列].Unknown3 ＝ 物件種類（7＝野外探測器／3＝巨型／4＝小型）
+    /// </code>
+    /// 台服 7.20 展開後（<c>exd-tc/7.20</c> 離線核對）：
+    /// <code>
+    ///   事件 1 巨型偏屬性水晶破壞指令：群組 6／7／8
+    ///     群組 6 （協助員）= 2014717 野外探測器 ×3(type 7) ＋ 2014721 小型水晶 ×3(type 4)
+    ///     群組 7+8（駕駛員）= 2014720 巨型偏屬性水晶 ×22(type 3)
+    ///   事件 5 有害菌床驅除指令：群組 9／10／11
+    ///     群組 9  （協助員）= 2014717 野外探測器 ×3(type 7) ＋ 2014723 小型菌床 ×4(type 4)
+    ///     群組 10+11（駕駛員）= 2014722 巨型變異菌床 ×25(type 3)
+    /// </code>
+    /// 🔑 <b>三條互相獨立的證據都指向同一組結論</b>，所以這個歸屬不是猜的：
+    /// ①群組表本身的結構（兩場事件形狀完全對稱）；
+    /// ②種類欄（協助員群組只有 4／7，駕駛員群組只有 3）；
+    /// ③指示文字（協助員那段點名「小型…」＋「野外探測器」，駕駛員那段點名「巨型…」）
+    /// ——③只拿來<b>驗證</b>，不參與執行期判定。
+    /// ⚠️ 順帶更正一個容易猜錯的地方：菌床場<b>協助員</b>的目標是 <b>2014723</b>，
+    /// 不是 2014722（後者是駕駛員的巨型目標）。
     ///
     /// ⚠️ <see cref="MechaRole.Unknown"/> 一律回空集合——判不出身份時只信遊戲自己的標記。
-    ///
-    /// 📌 台服 7.20 的實際分類（離線核對）：
-    /// <code>
-    ///   2014717 野外探測器      → 出現在兩場事件的協助員指示文字裡 → 協助員
-    ///   2014720 巨型偏屬性水晶  → 沒出現在協助員文字裡（在駕駛員文字裡）→ 駕駛員
-    ///   2014722 （無名，即巨型變異菌床）→ 沒有名字可比對 → 駕駛員（保守預設）
-    /// </code>
-    /// 第三筆正是使用者回報的那一個，而保守預設剛好給了正確答案。
     /// </summary>
     public static IReadOnlySet<uint> ObjectIdsForRole(uint dataRowId, MechaRole role)
     {
@@ -162,6 +204,9 @@ internal static class MechaObjectNames
         return (role == MechaRole.GroundSupport ? groundSupportIds?.Count : pilotIds?.Count) ?? 0;
     }
 
+    /// <summary>診斷用：這一輪的身份分類是怎麼算出來的（群組表 or 後備）。</summary>
+    public static string RoleSplitSource { get; private set; } = "未建立";
+
     private static void EnsureRoleSplit(uint dataRowId)
     {
         if (groundSupportIds != null && roleSplitRowId == dataRowId)
@@ -172,32 +217,146 @@ internal static class MechaObjectNames
         if (all == null)
             return;   // 白名單本身還沒建起來；不要把空結果快取住，下次再試
 
-        var support = new HashSet<uint>();
-        var pilot = new HashSet<uint>();
+        HashSet<uint> support;
+        HashSet<uint> pilot;
+        string source;
 
-        var supportText = EventObjectiveText(dataRowId, MechaRole.GroundSupport) ?? string.Empty;
-
-        foreach (var id in all)
+        if (TryBuildRoleSplitFromGroups(dataRowId, out var groupSupport, out var groupPilot))
         {
-            var name = FromSheet(id);
+            support = groupSupport;
+            pilot = groupPilot;
+            source = "群組表";
 
-            // 🔑 名字要有兩個字以上才拿去做子字串比對：一個字的名字在長句子裡太容易誤命中，
-            //    而誤命中的方向剛好是「把駕駛員目標判給協助員」——正是要避免的那一種。
-            var isSupport = name is { Length: >= 2 }
-                            && supportText.Contains(name, StringComparison.Ordinal);
-
-            if (isSupport)
+            // 🔑 <b>這一場事件的群組沒提到的 DataId 一律「兩種身份都顯示」</b>。
+            //    可能來源：別場事件的物件、或群組表沒收進去的新東西。
+            //    兩個方向的失敗代價不對等——多顯示一個圈只是雜訊，
+            //    少顯示的那個可能正是使用者要打的目標（這次的 bug 就是這樣來的），
+            //    所以未知一律倒向「都顯示」，不猜邊。
+            foreach (var id in all)
+            {
+                if (support.Contains(id) || pilot.Contains(id))
+                    continue;
                 support.Add(id);
-            else
                 pilot.Add(id);
+            }
+        }
+        else
+        {
+            // 後備：群組表讀不到或形狀不對（例如日後改版）。
+            // 🔑 這裡刻意<b>不</b>退回舊的「比名字」做法——那個做法對無名目標必定落空，
+            //    而落空的方向是「協助員少看到自己的目標」。改成整份都給兩邊：
+            //    退化行為變成「多顯示」而不是「漏顯示」，跟上面未知 DataId 的處置同一個原則。
+            support = [.. all];
+            pilot = [.. all];
+            source = "後備（群組表不可用，兩身份共用完整白名單）";
         }
 
-        // 駕駛員看得到全部（自己的＋共用的）。
+        // 駕駛員仍然看得到協助員那一批（野外探測器是共用的）。
+        // 多畫一個探測器不會造成「打錯批」，所以這一邊不必收緊。
         pilot.UnionWith(support);
 
         groundSupportIds = support;
         pilotIds = pilot;
         roleSplitRowId = dataRowId;
+        RoleSplitSource = source;
+    }
+
+    /// <summary>
+    /// 依 <c>WKSMechaEventData</c> 的三個群組欄把這一場事件的物件分給兩種身份。
+    ///
+    /// 🔴 <b>自我驗證</b>：這裡用到的欄位語意（Unknown18＝協助員群組、Unknown19/20＝駕駛員群組、
+    /// <c>WKSMechaEventObject.Unknown3</c>＝物件種類）是我們自己從資料推出來的，不是官方文件。
+    /// 所以展開之後要通過三關才收下：
+    /// <list type="number">
+    ///   <item>協助員群組不得是空的（空的代表欄位語意不對，不是「這場沒有協助員」）；</item>
+    ///   <item>協助員那批裡<b>不能</b>出現種類 3（＝駕駛員的巨型目標）；</item>
+    ///   <item>駕駛員那批裡<b>不能</b>出現種類 4（＝協助員的小型目標）。</item>
+    /// </list>
+    /// 任何一關沒過就整份放棄、回 <c>false</c>，由呼叫端走後備。
+    /// 也就是說推論若是錯的，結果是「退回兩邊都顯示」，<b>不會</b>把某一邊的目標藏起來。
+    /// </summary>
+    private static bool TryBuildRoleSplitFromGroups(uint dataRowId, out HashSet<uint> support, out HashSet<uint> pilot)
+    {
+        support = [];
+        pilot = [];
+
+        if (dataRowId == 0 || objectRows == null)
+            return false;
+
+        try
+        {
+            var eventRow = Svc.Data.GetExcelSheet<WKSMechaEventData>()?.GetRowOrDefault(dataRowId);
+            if (eventRow == null)
+                return false;
+
+            var groupSheet = Svc.Data.GetSubrowExcelSheet<WKSMechaEventObjectGroup>();
+            if (groupSheet == null)
+                return false;
+
+            var supportGroup = (uint)eventRow.Value.Unknown18;
+            var pilotGroupA = (uint)eventRow.Value.Unknown19;
+            var pilotGroupB = (uint)eventRow.Value.Unknown20;
+
+            // 種類欄的守衛（見方法註解的三關）。
+            var supportTypes = new HashSet<uint>();
+            var pilotTypes = new HashSet<uint>();
+
+            CollectGroup(groupSheet, supportGroup, support, supportTypes);
+            CollectGroup(groupSheet, pilotGroupA, pilot, pilotTypes);
+            CollectGroup(groupSheet, pilotGroupB, pilot, pilotTypes);
+
+            if (support.Count == 0)
+                return false;
+            if (supportTypes.Contains(PilotObjectType))
+                return false;
+            if (pilotTypes.Contains(GroundSupportObjectType))
+                return false;
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            if (EzThrottler.Throttle("MechaRoleSplitGroupFailed", 60_000))
+                IceLogging.Info($"讀機甲事件物件群組失敗，身份分類改走後備：{ex.Message}", "[MechaOps]");
+            return false;
+        }
+    }
+
+    /// <summary><c>WKSMechaEventObject.Unknown3</c>：駕駛員的巨型目標。</summary>
+    private const uint PilotObjectType = 3;
+
+    /// <summary><c>WKSMechaEventObject.Unknown3</c>：協助員的小型目標（執行期 per-player 生成）。</summary>
+    private const uint GroundSupportObjectType = 4;
+
+    /// <summary>
+    /// 把一個群組展開成 <c>DataId</c> 集合。
+    /// ⚠️ 群組表的值是 <c>WKSMechaEventObject</c> 的<b>列號</b>，不是 <c>DataId</c>——
+    /// 直接當 DataId 用會查無此物件而且不報錯。
+    /// </summary>
+    private static void CollectGroup(
+        Lumina.Excel.SubrowExcelSheet<WKSMechaEventObjectGroup> groupSheet,
+        uint groupId,
+        HashSet<uint> into,
+        HashSet<uint> types)
+    {
+        if (groupId == 0 || objectRows == null)
+            return;
+
+        var subrows = groupSheet.GetRowOrDefault(groupId);
+        if (subrows == null)
+            return;
+
+        foreach (var sub in subrows.Value)
+        {
+            var objectRowId = (uint)sub.Unknown0;
+            if (objectRowId == 0)
+                continue;
+            if (!objectRows.TryGetValue(objectRowId, out var entry))
+                continue;   // 那一列沒通過 EnsureBuilt 的自我驗證，跳過
+
+            into.Add(entry.BaseId);
+            types.Add(entry.Type);
+        }
     }
 
     /// <summary>
@@ -273,6 +432,7 @@ internal static class MechaObjectNames
 
         HashSet<uint> ids;
         Dictionary<uint, uint> map;
+        Dictionary<uint, (uint BaseId, uint Type)> rowsById;
 
         try
         {
@@ -283,6 +443,7 @@ internal static class MechaObjectNames
 
             ids = [];
             map = [];
+            rowsById = [];
 
             foreach (var row in sheet)
             {
@@ -298,17 +459,30 @@ internal static class MechaObjectNames
                 if (nameSheet.GetRowOrDefault(baseId) == null)
                     continue;
 
-                // 🔑 第三關：要有佈局實例 id 才算「真的擺在場景裡的物件」。
-                //    台服 7.20 的資料裡，2014721／2014723 這兩個 DataId 的列**沒有**實例 id
-                //    （欄 0 全是 0，欄 2 也跟其他列不同），看起來是出生點之類的佔位資料，
-                //    不是玩家看得到的目標。收進白名單只會在地上多出幾個看不懂的圈。
-                //    ⚠️ 這一關偏嚴：漏掉的東西仍然可以靠執行期的標記配對補回來。
-                var layoutId = row.Unknown0;
-                if (layoutId == 0)
-                    continue;
-
+                // 🔴🔴 <b>2026-08-08 實機推翻</b>：這裡原本還有第三關「沒有佈局實例 id 就跳過」，
+                //    理由寫的是「2014721／2014723 看起來是出生點之類的佔位資料，不是玩家看得到的目標」。
+                //    **那個推論是錯的，而且它正是協助員目標判定失效的根因。**
+                //
+                //    使用者 2026-08-08 以協助員身份跑完一整場「巨型偏屬性水晶破壞指令」，
+                //    <c>[MechaRec]</c> 錄到 <c>did=2014721</c> 的實體 <b>308 次</b>
+                //    （<c>kind=CardStand</c>、無名、<c>targetable=False</c>、事件中段才 SPAWN），
+                //    而使用者的宇宙鑽頭 11 發 <c>CAST-PRED-RAW</c> <b>每一發都蓋到它</b>（0.00~6.74 公尺）——
+                //    它就是協助員實際在打的那個「小型偏屬性水晶」。
+                //    被排除在白名單外的後果：它拿不到 <c>Likely</c> 分級，於是掉進
+                //    <c>MechaOpsMonitor.IsKnownNoise</c>（無名＋不可選取）被靜默濾掉
+                //    ——308 次裡有 <b>151 次</b> 的 <c>iceFilter</c> 就是 <c>known-noise</c>。
+                //
+                //    📌 <b>「沒有佈局實例 id」的真正語意是「執行期動態生成」而不是「佔位」</b>：
+                //    協助員的小型目標是 per-player 生成的（使用者：「協助員的目標都只有自己看得到」），
+                //    本來就不可能有靜態佈局實例 id。所以那一欄只能拿來建佈局對照，
+                //    <b>不能拿來當「這個 DataId 算不算目標」的判準</b>。
                 ids.Add(baseId);
-                map[layoutId] = baseId;
+                rowsById[row.RowId] = (baseId, (uint)row.Unknown3);
+
+                // 佈局對照仍然只收得到實例 id 的那些（純診斷用，見 LayoutToBaseId）。
+                var layoutId = row.Unknown0;
+                if (layoutId != 0)
+                    map[layoutId] = baseId;
             }
         }
         catch (Exception ex)
@@ -320,6 +494,7 @@ internal static class MechaObjectNames
 
         knownEventObjectIds = ids;
         layoutToBaseId = map;
+        objectRows = rowsById;
 
         // 📌 Information 而不是 Debug：使用者跑 LogLevel 2，而這一行正是
         //    「白名單有沒有生效」唯一問得出答案的地方（空的＝欄位推論不成立）。
@@ -328,7 +503,7 @@ internal static class MechaObjectNames
             + (ids.Count == 0
                 ? "（空的＝WKSMechaEventObject 的欄位語意跟預期不同，過濾退回純執行期配對）"
                 : "：" + string.Join(", ", ids.OrderBy(x => x).Select(id => $"{id}({FromSheet(id) ?? "無名"})")))
-            + $"；佈局對照 {map.Count} 筆",
+            + $"；佈局對照 {map.Count} 筆；物件列 {rowsById.Count} 筆（身份分群用）",
             "[MechaOps]");
     }
 

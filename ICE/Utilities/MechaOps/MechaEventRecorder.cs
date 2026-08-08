@@ -127,6 +127,12 @@ internal static class MechaEventRecorder
     private static int lastProgress, lastPersonal, lastContribution;
     private static bool progressBaselineSet;
 
+    /// <summary>
+    /// 上一次掃描裡有幾格的 <c>ObjectId</c> 跟前面某一格重複。
+    /// 🔑 <c>&gt;0</c> 代表這一輪所有以 id 為鍵的統計都是合計值，見 <see cref="UpdateTracks"/>。
+    /// </summary>
+    private static int lastDuplicateOidCount;
+
     private static ulong lastHardTargetId, lastSoftTargetId, lastFocusTargetId;
 
     /// <summary>ActionId → 上一次看到的冷卻剩餘秒數。用來判「剛剛施放了」。</summary>
@@ -168,6 +174,13 @@ internal static class MechaEventRecorder
 
         /// <summary>看過的最高分級。</summary>
         public MechaTargetTier BestTier;
+
+        /// <summary>
+        /// 🔴 <b>這個 ObjectId 在同一次掃描裡出現過不只一格</b>（＝好幾個實體共用同一個
+        /// <c>GameObjectId</c>）。詳見 <see cref="UpdateTracks"/> 的說明——
+        /// 為 true 時這一筆的所有計數都是<b>好幾個實體的合計</b>，不是單一實體的。
+        /// </summary>
+        public bool DuplicateId;
 
         /// <summary>從 ObjectTable 消失（＝「實際命中／被消滅」的<b>代理訊號</b>，侷限見 <see cref="EmitSummary"/>）。</summary>
         public bool Vanished;
@@ -313,6 +326,7 @@ internal static class MechaEventRecorder
         lastSnapshotTick = 0;
         lastSignature = "";
         lastSweepIdSignature = "";
+        lastDuplicateOidCount = 0;
         progressBaselineSet = false;
         tracks.Clear();
         interactions.Clear();
@@ -407,7 +421,10 @@ internal static class MechaEventRecorder
             "SUMMARY-NOTE;「實際命中」是代理訊號不是直接觀測："
             + "遊戲沒有可讀的命中欄位（要拿到就得攔封包＝紅線），這裡用的是"
             + "「實體從 ObjectTable 消失」＋「同時段計分有沒有跳」。"
-            + "多人內容裡別人打掉的也會消失，離開串流範圍同樣會消失 ⇒ 請一併看 persDelta 與 lastDist。");
+            + "多人內容裡別人打掉的也會消失，離開串流範圍同樣會消失 ⇒ 請一併看 persDelta 與 lastDist。"
+            + "⚠️ 另外：dupId=True 的那幾筆是**好幾個實體共用同一個 ObjectId**的合計值"
+            + "（機甲事件的 per-player 目標會這樣），seenSnaps 可能大於快照總數，"
+            + "而且個別消失偵測不到——那幾筆不要拿來算命中率。");
 
         // 預測有但實際無：預測範圍可能太寬，或那一發根本沒放出去。
         foreach (var t in predictedOnly.OrderBy(x => x.MinPredictedDistance))
@@ -415,7 +432,8 @@ internal static class MechaEventRecorder
             EmitRing(
                 $"SUMMARY-PRED-ONLY;oid=0x{t.ObjectId:X};did={t.BaseId};kind={t.Kind};name={t.Name}"
                 + $";predictedSnaps={t.PredictedSnapshots};minPredDist={t.MinPredictedDistance:F2}"
-                + $";lastDist={t.LastDistance:F2};lastPos={Fmt(t.LastPos)};tier={t.BestTier};iceListed={t.EverIceListed}");
+                + $";lastDist={t.LastDistance:F2};lastPos={Fmt(t.LastPos)};tier={t.BestTier};iceListed={t.EverIceListed}"
+                + $";dupId={t.DuplicateId}");
         }
 
         // 實際有但預測無：🔑 這一份才是「預測範圍太小／判定漏掉它」的直接證據。
@@ -424,7 +442,7 @@ internal static class MechaEventRecorder
             EmitRing(
                 $"SUMMARY-VANISH-ONLY;oid=0x{t.ObjectId:X};did={t.BaseId};kind={t.Kind};name={t.Name}"
                 + $";lastDist={t.LastDistance:F2};lastPos={Fmt(t.LastPos)};seenSnaps={t.SeenSnapshots}"
-                + $";tier={t.BestTier};iceListed={t.EverIceListed}"
+                + $";tier={t.BestTier};iceListed={t.EverIceListed};dupId={t.DuplicateId}"
                 + $";persDelta={t.PersonalDeltaAtVanish};progDelta={t.ProgressDeltaAtVanish}");
         }
 
@@ -749,8 +767,10 @@ internal static class MechaEventRecorder
             + $";learned={(MechaObjectiveTracker.LearnedBaseIds.Count == 0 ? "-" : string.Join("/", MechaObjectiveTracker.LearnedBaseIds.OrderBy(x => x)))}"
             + $";wlAll={MechaObjectNames.KnownEventObjectIds.Count}"
             + $";wlRole={(role == MechaRole.Unknown ? "不套用" : MechaObjectNames.RoleIdCount(rowId, role).ToString())}"
+            + $";roleSplit={MechaObjectNames.RoleSplitSource}"
             + $";iceTargets={iceTargets.Count};skillsEnabled={enabledSkills};predicted={predictedNow.Count}"
-            + $";sweep={sweep.Count};pPos={Fmt(origin)};pRot={rotation:F3};pHitbox={casterHitbox:F2}"
+            // 🔑 >0 代表這一輪有好幾個實體共用同一個 ObjectId，所有 id 為鍵的統計都是合計值。
+            + $";sweep={sweep.Count};dupOids={lastDuplicateOidCount};pPos={Fmt(origin)};pRot={rotation:F3};pHitbox={casterHitbox:F2}"
             + $";hardTarget=0x{lastHardTargetId:X};softTarget=0x{lastSoftTargetId:X}");
 
         // ---- 逐筆明細（只寫 dalamud.log）----
@@ -1003,10 +1023,30 @@ internal static class MechaEventRecorder
             listed.Add(t.GameObjectId);
 
         var seenNow = new HashSet<ulong>();
+        lastDuplicateOidCount = 0;
 
         foreach (var e in sweep)
         {
-            seenNow.Add(e.ObjectId);
+            // 🔴🔴 <b>GameObjectId 在機甲事件裡不是唯一鍵</b>（2026-08-08 實機直證）：
+            //    同一次掃描裡 <c>oid=0x100B2413A</c> 同時出現 2~4 格，座標各差十幾二十公尺，
+            //    <c>did</c> 全是 2014721（協助員的小型目標，per-player 生成）。
+            //    50 次傾印裡有 <b>33 次</b> 含這種重複。
+            //    ⇒ 這不是傾印迭代的 bug，是 ObjectTable 真的有好幾格共用一個 id。
+            //
+            //    ⚠️ 後果一定要看得見，否則 log 會自相矛盾而讀的人查錯方向：
+            //    本檔所有以 id 為鍵的統計（<c>seenSnaps</c>／<c>predictedSnaps</c>／消失偵測）
+            //    都會把那幾個實體<b>併成一筆</b>——實機就出現過 <c>seenSnaps=367</c>
+            //    而全場只有 79 次快照。消失偵測更是只要還有任何一個同 id 實體在，
+            //    <c>Svc.Objects.SearchById</c> 就查得到 ⇒ <b>個別消失偵測不到</b>。
+            //
+            //    這裡刻意<b>不</b>改識別模型（換鍵要嘛不穩定要嘛得靠座標猜，兩種都更糟），
+            //    只把「這一筆是合計值」標出來。
+            if (!seenNow.Add(e.ObjectId))
+            {
+                lastDuplicateOidCount++;
+                if (tracks.TryGetValue(e.ObjectId, out var dup))
+                    dup.DuplicateId = true;
+            }
 
             if (!tracks.TryGetValue(e.ObjectId, out var track))
             {
@@ -1067,7 +1107,7 @@ internal static class MechaEventRecorder
                 + $";name={track.Name};lastPos={Fmt(track.LastPos)};lastDist={track.LastDistance:F2}"
                 + $";seenSnaps={track.SeenSnapshots};predictedSnaps={track.PredictedSnapshots}"
                 + $";minPredDist={(track.MinPredictedDistance == float.MaxValue ? "-" : track.MinPredictedDistance.ToString("F2"))}"
-                + $";tier={track.BestTier};iceListed={track.EverIceListed}"
+                + $";tier={track.BestTier};iceListed={track.EverIceListed};dupId={track.DuplicateId}"
                 + $";progDelta={progDelta:+#;-#;0};persDelta={persDelta:+#;-#;0}"
                 // 距離遠的「消失」很可能只是離開串流範圍，不是被打掉。
                 + $";streamRisk={(track.LastDistance > Math.Clamp(SweepRadius, 10f, 300f) * 0.8f)}");
@@ -1129,6 +1169,12 @@ internal static class MechaEventRecorder
 
         if (tier != MechaTargetTier.Other)
             return "-";   // 任務目標一律放行，不受下面兩條影響
+
+        // 🔑 機甲事件物件家族（不分身份）同樣放行。⚠️ 這一行必須跟
+        //    MechaOpsMonitor.SampleTargets 的豁免條件<b>逐字對應</b>——
+        //    這裡是「重算」不是攔截，兩邊漂掉的話 log 會開始說謊。
+        if (MechaObjectNames.IsKnownEventObjectId(e.BaseId))
+            return "-";
 
         if (C.MechaTargetsTargetableOnly)
             return e.Targetable ? "-" : "targetable-only";
