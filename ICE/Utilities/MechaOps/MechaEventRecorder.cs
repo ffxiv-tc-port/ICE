@@ -356,6 +356,10 @@ internal static class MechaEventRecorder
             + $";includePlayers={C.MechaTargetsIncludePlayers};requireObjectTable={C.MechaObjectiveRequireObjectTable}"
             + $";matchRadius={C.MechaObjectiveMatchRadius:F1};useMarkerVector={C.MechaObjectiveUseMarkerVector}"
             + $";fullPlayerNames={C.MechaShowFullPlayerNames}"
+            // 身份分流的開關與這一場的歸屬表。⚠️ 歸屬表是空的＝分流整個不生效
+            //    （群組表讀不到），跟「分流生效但沒東西被擋」不是同一件事。
+            + $";showOtherRole={C.MechaShowOtherRoleTargets}"
+            + $";owners=[{MechaObjectNames.DescribeOwners(rowId)}]"
             + $";skillToggles={(C.MechaAoeSkillToggles.Count == 0 ? "全開(預設)" : string.Join(",", C.MechaAoeSkillToggles.Select(kv => kv.Key + "=" + kv.Value)))}"
             // 🔑 per-skill 形狀覆蓋。**有覆蓋的印出值、沒覆蓋的印 default**——
             //    下一輪拿 log 訂參數時，這一欄是唯一能分出
@@ -943,7 +947,12 @@ internal static class MechaEventRecorder
                 + $";pos={Fmt(e.Position)};dist={e.Distance:F2};hitbox={e.HitboxRadius:F2}"
                 + $";targetable={e.Targetable};hp={(e.Hp < 0 ? "-" : e.Hp + "/" + e.MaxHp)}"
                 + $";tier={tier};tierWhy={TierWhy(e.ObjectId, e.BaseId, e.Kind)}"
-                + $";iceListed={listed.Contains(e.ObjectId)};iceFilter={IceFilterReason(e, tier)}");
+                + $";iceListed={listed.Contains(e.ObjectId)};iceFilter={IceFilterReason(e, tier)}"
+                // 🔑 分流是**顯示層**的，跟 iceListed／iceFilter 不是同一層：
+                //    一筆可以 iceListed=True（仍然在 ActiveTargets 裡、錄製看得到）
+                //    卻 roleGate=hidden-other-role（畫面上沒有）。下一場 log 就是靠這兩欄
+                //    的組合驗證分流有沒有真的生效。
+                + $";roleGate={RoleGateText(e.BaseId, e.Kind)}");
         }
 
         if (ordered.Count > shown)
@@ -1197,6 +1206,26 @@ internal static class MechaEventRecorder
             return "family-other-role";
 
         return "-";
+    }
+
+    /// <summary>
+    /// 顯示層的身份分流結果。⚠️ 三個值要分得開，合併任兩個 log 就會說謊：
+    /// <list type="bullet">
+    ///   <item><c>shown</c>：分流不適用（身份判不出來、歸屬判不出來或共用、或本來就是我的）；</item>
+    ///   <item><c>hidden-other-role</c>：這一幀<b>真的沒有畫</b>（屬於另一個身份，開關是關的）；</item>
+    ///   <item><c>other-role-shown</c>：屬於另一個身份，但使用者把「顯示其他身份的目標」打開了。</item>
+    /// </list>
+    /// 📌 順帶帶出歸屬本身，下一輪要判「分流判對了沒」時不必回頭猜。
+    /// </summary>
+    private static string RoleGateText(uint baseId, ObjectKind kind)
+    {
+        var owner = MechaObjectiveTracker.OwnerOf(baseId, kind);
+
+        if (!MechaObjectiveTracker.IsOtherRoleTarget(baseId, kind))
+            return $"shown({MechaObjectNames.OwnerText(owner)})";
+
+        return (C.MechaShowOtherRoleTargets ? "other-role-shown" : "hidden-other-role")
+             + $"({MechaObjectNames.OwnerText(owner)})";
     }
 
     /// <summary>

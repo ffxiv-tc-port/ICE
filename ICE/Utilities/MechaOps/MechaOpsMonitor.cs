@@ -673,12 +673,20 @@ internal static unsafe class MechaOpsMonitor
 
         var objective = MechaObjectNames.EventObjectiveText(rowId, Role);
 
+        // 📌 身份分流（畫不畫）的兩個輸入：開關 ＋ 這一場的歸屬表。
+        //    使用者回報「協助員看到駕駛員的目標」時，答案就在這一行——
+        //    歸屬表是空的代表分流根本沒生效，跟「生效但沒擋到東西」是兩回事。
+        var roleGate = C.MechaShowOtherRoleTargets
+            ? "身份分流：關（使用者選擇顯示其他身份的目標）"
+            : $"身份分流：開（只畫自己身份的目標）；歸屬表 {MechaObjectNames.DescribeOwners(rowId)}";
+
         IceLogging.Info(
             $"機甲身份判定：{roleText}（依據＝PetHotbar 上的技能 "
             + $"[{string.Join(", ", activeCandidates.Select(c => c.ActionId + " " + c.Name))}]）"
             + $"；事件列 {rowId}；{whitelist}"
             + $"；標記學到 {MechaObjectiveTracker.LearnedBaseIdCount} 個 BaseId"
             + $"；模組旗標 0x{(uint)EventFlags:X}（僅供對照，不參與判定）"
+            + $"\n  {roleGate}"
             + (objective != null ? "\n  你的指示：" + objective.Replace("\n", " ") : ""),
             "[MechaOps]");
     }

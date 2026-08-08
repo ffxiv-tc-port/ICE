@@ -213,6 +213,11 @@ internal static class MechaContextMenu
                       $"  SheetWhitelist = {MechaObjectNames.KnownEventObjectIds.Count}" +
                       $"  AfterRoleSplit = {(role == MechaRole.Unknown ? "not applied" : MechaObjectNames.RoleIdCount(roleRowId, role).ToString())}");
 
+        // 身份分流（畫不畫）。⚠️ 跟上面那三個數字不是同一層：那些是「算不算任務目標」，
+        // 這一行是「屬於誰、所以這一幀有沒有被畫出來」。
+        sb.AppendLine($"  RoleGate = {(C.MechaShowOtherRoleTargets ? "off (showing every role's targets)" : "on (own role only)")}" +
+                      $"  Owners = {MechaObjectNames.DescribeOwners(roleRowId)}");
+
         sb.AppendLine($"  Objectives: markers={MechaObjectiveTracker.MarkerCount} " +
                       $"confirmed={MechaObjectiveTracker.ConfirmedCount} " +
                       $"source={MechaObjectiveTracker.Source} " +

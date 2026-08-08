@@ -167,6 +167,20 @@ internal static class MechaObjectNames
     private static HashSet<uint>? pilotIds;
 
     /// <summary>
+    /// 這一場事件的 <c>DataId</c> → <b>歸屬</b>（顯示層身份分流用）。
+    ///
+    /// 🔑 <b>跟上面兩份集合是兩件不同的事，不要合併</b>：
+    /// <see cref="groundSupportIds"/>／<see cref="pilotIds"/> 回答「這個身份**該看到**什麼」，
+    /// 為了不漏掉目標，未知的 <c>DataId</c> 會**同時加進兩邊**；
+    /// 這一份回答「這個東西**是誰的**」，未知就是不進表（<see cref="MechaTargetOwner.Unknown"/>）。
+    /// 拿前者去做「不畫」的判斷會反過來——它的設計方向是寧多勿漏，不是歸屬。
+    ///
+    /// ⚠️ 表裡只會有 <c>Pilot</c>／<c>GroundSupport</c>／<c>Shared</c> 三種值；
+    /// 查不到就是 <c>Unknown</c>（＝不分流）。
+    /// </summary>
+    private static Dictionary<uint, MechaTargetOwner>? objectOwners;
+
+    /// <summary>
     /// 這個身份**該看到**的機甲事件物件 <c>DataId</c>。
     ///
     /// 🔴🔴 <b>2026-08-08 重做：判定路徑完全不碰名字。</b>
@@ -235,6 +249,53 @@ internal static class MechaObjectNames
     /// <summary>診斷用：這一輪的身份分類是怎麼算出來的（群組表 or 後備）。</summary>
     public static string RoleSplitSource { get; private set; } = "未建立";
 
+    /// <summary>
+    /// 這個 <c>DataId</c> 依<b>群組表</b>算出來的歸屬。查不到（沒進這一場的群組、
+    /// 或群組表根本不可用）一律回 <see cref="MechaTargetOwner.Unknown"/>，
+    /// 由呼叫端決定要不要再問別的線索——見 <c>MechaObjectiveTracker.OwnerOf</c>。
+    ///
+    /// 🔑 <b>歸屬要兩個互相獨立的軸都同意才算數</b>：
+    /// ①這個 <c>DataId</c> 出現在哪一個身份的群組（<c>Unknown18</c> vs <c>Unknown19/20</c>）；
+    /// ②物件種類欄（<c>WKSMechaEventObject.Unknown3</c>：3＝駕駛員巨型、4＝協助員小型）。
+    /// 兩軸不一致就退成 <see cref="MechaTargetOwner.Shared"/>（＝照舊顯示）。
+    /// 這樣「欄位語意推錯」的失敗形式一律是**少擋一個**，不會是**藏起使用者要打的目標**。
+    /// </summary>
+    public static MechaTargetOwner OwnerFromGroups(uint dataRowId, uint baseId)
+    {
+        if (baseId == 0)
+            return MechaTargetOwner.Unknown;
+
+        EnsureRoleSplit(dataRowId);
+
+        return objectOwners != null && objectOwners.TryGetValue(baseId, out var owner)
+            ? owner
+            : MechaTargetOwner.Unknown;
+    }
+
+    /// <summary>
+    /// 診斷用：這一場事件的歸屬表長什麼樣（例如 <c>2014717=共用,2014720=駕駛員,2014721=協助員</c>）。
+    /// 📌 這一行是「身份分流有沒有生效」唯一問得出答案的地方——空的代表整個分流不生效
+    /// （＝全部照舊顯示），跟「分流生效但沒東西被擋」不是同一件事。
+    /// </summary>
+    public static string DescribeOwners(uint dataRowId)
+    {
+        EnsureRoleSplit(dataRowId);
+
+        if (objectOwners == null || objectOwners.Count == 0)
+            return "（空的＝這一場沒有歸屬資料，身份分流不生效）";
+
+        return string.Join(", ", objectOwners.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key}={OwnerText(kv.Value)}"));
+    }
+
+    /// <summary>歸屬的顯示字樣。⚠️ 面向使用者的診斷用繁中，不要直接印列舉名。</summary>
+    public static string OwnerText(MechaTargetOwner owner) => owner switch
+    {
+        MechaTargetOwner.Pilot => "駕駛員",
+        MechaTargetOwner.GroundSupport => "協助員",
+        MechaTargetOwner.Shared => "共用",
+        _ => "判不出來",
+    };
+
     private static void EnsureRoleSplit(uint dataRowId)
     {
         if (groundSupportIds != null && roleSplitRowId == dataRowId)
@@ -249,10 +310,11 @@ internal static class MechaObjectNames
         HashSet<uint> pilot;
         string source;
 
-        if (TryBuildRoleSplitFromGroups(dataRowId, out var groupSupport, out var groupPilot))
+        if (TryBuildRoleSplitFromGroups(dataRowId, out var groupSupport, out var groupPilot, out var groupOwners))
         {
             support = groupSupport;
             pilot = groupPilot;
+            objectOwners = groupOwners;
             source = "群組表";
 
             // 🔑 <b>這一場事件的群組沒提到的 DataId 一律「兩種身份都顯示」</b>。
@@ -276,6 +338,12 @@ internal static class MechaObjectNames
             //    退化行為變成「多顯示」而不是「漏顯示」，跟上面未知 DataId 的處置同一個原則。
             support = [.. all];
             pilot = [.. all];
+
+            // 🔴 歸屬表也一起清空——群組表是**唯一**的歸屬來源，它不可用時就是
+            //    「一個都判不出歸屬」，於是顯示層的身份分流整個不生效（全部照舊顯示）。
+            //    ⚠️ 這裡絕不可以拿上面那份「兩邊都給」的白名單去反推歸屬：
+            //    那份的設計方向是寧多勿漏，反推出來的歸屬會是錯的，而且錯的方向是藏東西。
+            objectOwners = [];
             source = "後備（群組表不可用，兩身份共用完整白名單）";
         }
 
@@ -303,10 +371,19 @@ internal static class MechaObjectNames
     /// 任何一關沒過就整份放棄、回 <c>false</c>，由呼叫端走後備。
     /// 也就是說推論若是錯的，結果是「退回兩邊都顯示」，<b>不會</b>把某一邊的目標藏起來。
     /// </summary>
-    private static bool TryBuildRoleSplitFromGroups(uint dataRowId, out HashSet<uint> support, out HashSet<uint> pilot)
+    /// <param name="owners">
+    /// 順帶算出來的<b>歸屬</b>表（見 <see cref="objectOwners"/>）。
+    /// ⚠️ 回 <c>false</c> 時這一份是半成品，呼叫端<b>不得</b>使用。
+    /// </param>
+    private static bool TryBuildRoleSplitFromGroups(
+        uint dataRowId,
+        out HashSet<uint> support,
+        out HashSet<uint> pilot,
+        out Dictionary<uint, MechaTargetOwner> owners)
     {
         support = [];
         pilot = [];
+        owners = [];
 
         if (dataRowId == 0 || objectRows == null)
             return false;
@@ -329,9 +406,9 @@ internal static class MechaObjectNames
             var supportTypes = new HashSet<uint>();
             var pilotTypes = new HashSet<uint>();
 
-            CollectGroup(groupSheet, supportGroup, support, supportTypes);
-            CollectGroup(groupSheet, pilotGroupA, pilot, pilotTypes);
-            CollectGroup(groupSheet, pilotGroupB, pilot, pilotTypes);
+            CollectGroup(groupSheet, supportGroup, support, supportTypes, MechaRole.GroundSupport, owners);
+            CollectGroup(groupSheet, pilotGroupA, pilot, pilotTypes, MechaRole.Pilot, owners);
+            CollectGroup(groupSheet, pilotGroupB, pilot, pilotTypes, MechaRole.Pilot, owners);
 
             if (support.Count == 0)
                 return false;
@@ -365,7 +442,9 @@ internal static class MechaObjectNames
         Lumina.Excel.SubrowExcelSheet<WKSMechaEventObjectGroup> groupSheet,
         uint groupId,
         HashSet<uint> into,
-        HashSet<uint> types)
+        HashSet<uint> types,
+        MechaRole groupRole,
+        Dictionary<uint, MechaTargetOwner> owners)
     {
         if (groupId == 0 || objectRows == null)
             return;
@@ -384,7 +463,47 @@ internal static class MechaObjectNames
 
             into.Add(entry.BaseId);
             types.Add(entry.Type);
+            RecordOwner(owners, entry.BaseId, groupRole, entry.Type);
         }
+    }
+
+    /// <summary>
+    /// 把一筆物件列的歸屬記進表裡。**兩個互相獨立的軸都同意才歸給某一個身份**，
+    /// 否則一律退成 <see cref="MechaTargetOwner.Shared"/>（顯示層看到 Shared 就照舊顯示）。
+    ///
+    /// 🔴 <b>「其他種類」必須是 Shared 而不是 Unknown</b>——這一點決定了野外探測器
+    /// （2014717，種類欄 7，兩種身份都要用）會不會被藏起來：
+    /// <c>Unknown</c> 會讓呼叫端繼續往下問 <c>ObjectKind</c>，而探測器在 ObjectTable 裡
+    /// 很可能是 <c>EventObj</c>（＝會被判成駕駛員的東西），於是<b>協助員就看不到自己
+    /// 要投放資源的地方</b>。<c>Shared</c> 在這一層就把答案定死，不讓推論繼續往下走。
+    ///
+    /// ⚠️ 同一個 <c>DataId</c> 若在兩個身份的群組裡都出現（資料改版或我們欄位推錯），
+    /// 結論同樣退成 <c>Shared</c>：分不出來就不要擋。
+    /// </summary>
+    private static void RecordOwner(
+        Dictionary<uint, MechaTargetOwner> owners,
+        uint baseId,
+        MechaRole groupRole,
+        uint type)
+    {
+        var byType = type switch
+        {
+            PilotObjectType => MechaTargetOwner.Pilot,
+            GroundSupportObjectType => MechaTargetOwner.GroundSupport,
+            _ => MechaTargetOwner.Shared,      // 台服目前只有 7＝野外探測器
+        };
+
+        var byGroup = groupRole == MechaRole.Pilot
+            ? MechaTargetOwner.Pilot
+            : MechaTargetOwner.GroundSupport;
+
+        // 兩軸一致才歸給那個身份；不一致（含種類欄是「共用」的 7）就是 Shared。
+        var owner = byType == byGroup ? byType : MechaTargetOwner.Shared;
+
+        if (owners.TryGetValue(baseId, out var prev) && prev != owner)
+            owner = MechaTargetOwner.Shared;
+
+        owners[baseId] = owner;
     }
 
     /// <summary>

@@ -263,6 +263,27 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                                       "The half-width stays on the game data and is not adjustable.").Loc());
                 }
 
+                // ---- 身份分流 ----
+                // ⚠️ 刻意放在目標點位與目的指示**兩組之前**、而且不縮排：它同時管兩邊。
+                //    縮進任何一組底下都會讓人以為只對那一組有效。
+                bool showOtherRole = C.MechaShowOtherRoleTargets;
+                if (ImGui.Checkbox("Show The Other Role's Targets".Loc() + "###ICEMechaShowOtherRoleTargets", ref showOtherRole))
+                {
+                    C.MechaShowOtherRoleTargets = showOtherRole;
+                    C.Save();
+                }
+                ImGui.SameLine();
+                ImGui.TextDisabled("?");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("Off (default): only your own role's targets are drawn - as ground support you no " +
+                                      "longer see the pilot's giant target, and the other way round.\n" +
+                                      "Shared objects such as the field probe are always drawn for both roles.\n" +
+                                      "When your role cannot be worked out (before you board, or outside an event), or " +
+                                      "when a target cannot be attributed to either role, everything is drawn as before.\n" +
+                                      "On: draws every mecha event target again, whichever role it belongs to.").Loc());
+                }
+
                 // ---- 目標點位 ----
                 bool showTargets = C.ShowMechaTargets;
                 if (ImGui.Checkbox("Show Target Markers".Loc() + "###ICEShowMechaTargets", ref showTargets))

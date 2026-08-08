@@ -173,6 +173,21 @@ namespace ICE.Config
         // 把其他玩家也畫出來。預設關（隊友不是攻擊目標，只會擋住畫面）。
         public bool MechaTargetsIncludePlayers { get; set; } = false;
 
+        // ---- 身份分流（Utilities/MechaOps/MechaObjectives.cs 的 HiddenByRoleGate）----
+        // 顯示「另一個身份」的目標。**預設 false ＝分流生效**，也就是協助員不會看到
+        // 駕駛員的巨型目標、反之亦然。
+        //
+        // 🔴 這一項改變了 2026-08-08 之前的行為，而那個行為正是使用者回報的問題本身：
+        //    他以協助員身份參加「有害菌床驅除指令」，畫面上一直有駕駛員的菌床本體
+        //    （did=2014722），而且勾「只顯示可選取的物件」也濾不掉——因為三層分級全都
+        //    正確地把它判成「這場事件的任務目標」，缺的是「它是不是**我的**目標」。
+        //
+        // 🔑 分流**只影響畫不畫**：分級、標記學習、錄製器全部照舊看得到全家族，
+        //    否則下一次實機錄製就分不出「另一邊發生了什麼」。
+        // ⚠️ 判不出身份（上機甲前／事件外）或判不出歸屬時一律不分流（全部顯示）——
+        //    這個功能的失敗方向必須是「多顯示」，不是「把使用者要打的東西藏起來」。
+        public bool MechaShowOtherRoleTargets { get; set; } = false;
+
         // 機甲行動狀態視窗（Ui/MechaOpsWindow）的三個子區塊。
         // 全部掛在 ShowMechaAoeOverlay 底下，總開關關著時整個視窗都不出現；
         // 子開關預設開啟，比照 MechaAoeSkillToggles「沒紀錄＝開」的風格。

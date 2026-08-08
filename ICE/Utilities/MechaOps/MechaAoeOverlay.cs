@@ -186,6 +186,14 @@ internal static class MechaAoeOverlay
 
         foreach (var o in objectives)
         {
+            // 🔴 身份分流（2026-08-08）：屬於另一個身份的目的指示預設不畫。
+            //    遊戲的標記在同一場裡是**全場共用**的（第五場實機錄製直證：協助員的
+            //    畫面上出現 did=2014722 的駕駛員菌床本體，路徑就是 confirmed-marker），
+            //    所以「遊戲標給你的就是你的目標」這個推論在機甲行動裡不成立。
+            //    ⚠️ 手動釘選永遠不受它影響——那是使用者自己按的，藏掉他自己釘的東西沒有道理。
+            if (!o.IsPin && MechaObjectiveTracker.HiddenByRoleGate(o.BaseId, o.Kind))
+                continue;
+
             // 三態 ＋ 一個「來源可不可信」的維度：
             //   淺藍          ＝ 使用者自己釘的（來源就是他本人，不可能過期）
             //   金（實）粗框  ＝ ObjectTable 已確認，而且標記來自遊戲的有效清單
@@ -332,6 +340,13 @@ internal static class MechaAoeOverlay
 
         foreach (var t in targets)
         {
+            // 🔴 身份分流（2026-08-08）：屬於另一個身份的目標預設不畫。
+            //    ⚠️ 這一行必須在涵蓋統計**之前**——狀態視窗那個 n/m 是這個迴圈算出來的，
+            //    放到後面的話畫面上看不到的東西會繼續被算進分母，
+            //    協助員會看到「打得到 25 個」而地上只有 4 個圈。
+            if (MechaObjectiveTracker.HiddenByRoleGate(t.DataId, t.Kind))
+                continue;
+
             var covered = false;
 
             foreach (var c in candidates)

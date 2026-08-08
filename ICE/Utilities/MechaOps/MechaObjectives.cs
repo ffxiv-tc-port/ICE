@@ -312,6 +312,93 @@ internal static unsafe class MechaObjectiveTracker
         return MechaObjectNames.RoleByObjectKind(kind) == role;
     }
 
+    // ---- 顯示層的身份分流（2026-08-08）----
+
+    /// <summary>
+    /// 「這個東西是**誰的**目標」。
+    ///
+    /// 🔴🔴 <b>為什麼需要這個</b>（2026-08-08 使用者第五場實機錄製）：他以協助員身份參加
+    /// 「有害菌床驅除指令」，畫面上仍然看得到 <c>did=2014722</c>（駕駛員的菌床本體），
+    /// 而且把「只顯示可選取的物件」勾起來也濾不掉。三條路徑各自都對，合起來就是這個結果：
+    /// <list type="number">
+    ///   <item><c>learned-baseid</c>：<see cref="learnedBaseIds"/> 是<b>全家族共用、不分身份</b>的
+    ///         ——遊戲的標記在同一場裡兩種身份的目標都標，學進去就再也分不開；</item>
+    ///   <item><c>confirmed-marker</c>：標記本身全場共用，直接把它判成「已確認」；</item>
+    ///   <item><c>SampleTargets</c> 的家族豁免讓 <c>targetableOnly</c>／<c>HideScenery</c>
+    ///         這兩道使用者過濾也攔不住它。</item>
+    /// </list>
+    /// 🔑 三條都是<b>分級</b>（是不是任務目標），而使用者問的是<b>歸屬</b>（是不是**我的**）。
+    /// 這個方法補的就是那個維度，而且**只影響畫不畫**：分級、學習、錄製全部照舊
+    /// ——認知層要保留全貌，否則下一次錄製就看不到「另一邊發生了什麼」。
+    ///
+    /// 兩層，順序不能顛倒：
+    /// <list type="number">
+    ///   <item>群組表（<c>WKSMechaEventObjectGroup</c>，權威、分得出是哪一場事件，
+    ///         而且是<b>唯一</b>講得出「共用」的一層）；</item>
+    ///   <item><see cref="ObjectKind"/>（只在機甲事件家族內有意義，見
+    ///         <see cref="MechaObjectNames.RoleByObjectKind"/>），補群組表沒收到的新 <c>DataId</c>。</item>
+    /// </list>
+    /// 🔴 第 ① 層給出 <see cref="MechaTargetOwner.Shared"/> 時<b>絕不</b>往下問第 ② 層：
+    /// 野外探測器是兩種身份共用的，但它在 ObjectTable 裡很可能是 <c>EventObj</c>，
+    /// 往下問就會被判成駕駛員的東西，協助員就看不到自己該投放資源的地方。
+    /// </summary>
+    public static MechaTargetOwner OwnerOf(uint baseId, ObjectKind kind)
+    {
+        if (baseId == 0)
+            return MechaTargetOwner.Unknown;
+
+        var rowId = MechaOpsMonitor.EventDetail?.DataRowId ?? 0u;
+
+        // ① 群組表。Unknown ＝這一場的群組沒提到它，才輪得到第二層。
+        var fromGroups = MechaObjectNames.OwnerFromGroups(rowId, baseId);
+        if (fromGroups != MechaTargetOwner.Unknown)
+            return fromGroups;
+
+        // ② ObjectKind。⚠️ 前置：一定要先確認它是機甲事件家族的 DataId，
+        //    否則場景裡每一個 EventObj 都會被判成「駕駛員的東西」而被藏起來。
+        if (!MechaObjectNames.IsKnownEventObjectId(baseId))
+            return MechaTargetOwner.Unknown;
+
+        return MechaObjectNames.RoleByObjectKind(kind) switch
+        {
+            MechaRole.Pilot => MechaTargetOwner.Pilot,
+            MechaRole.GroundSupport => MechaTargetOwner.GroundSupport,
+            _ => MechaTargetOwner.Unknown,
+        };
+    }
+
+    /// <summary>
+    /// 這一筆屬於「另一個身份」。
+    ///
+    /// ⚠️ <b>刻意不看設定</b>：開關由 <see cref="HiddenByRoleGate"/> 問。分成兩個方法是為了讓
+    /// <see cref="MechaEventRecorder"/> 記得出「本來會被擋掉、但使用者把開關打開了」
+    /// 這個狀態——只有一個布林的話，log 會把「沒被擋」與「開關開著」混成同一件事。
+    ///
+    /// 🔑 兩道前置缺一不可，兩者都是「判不出來就不分流」：
+    /// 身份是 <see cref="MechaRole.Unknown"/>（上機甲前、事件外）→ 不分流；
+    /// 歸屬是 <see cref="MechaTargetOwner.Unknown"/> 或 <see cref="MechaTargetOwner.Shared"/> → 不分流。
+    /// </summary>
+    public static bool IsOtherRoleTarget(uint baseId, ObjectKind kind)
+    {
+        var role = MechaOpsMonitor.Role;
+        if (role == MechaRole.Unknown)
+            return false;
+
+        return OwnerOf(baseId, kind) switch
+        {
+            MechaTargetOwner.Pilot => role != MechaRole.Pilot,
+            MechaTargetOwner.GroundSupport => role != MechaRole.GroundSupport,
+            _ => false,
+        };
+    }
+
+    /// <summary>
+    /// 顯示層真正的閘門：<c>true</c> ＝這一筆這一幀<b>不要畫</b>。
+    /// 使用者可以用 <c>C.MechaShowOtherRoleTargets</c> 把分流整個關掉（預設是開著分流的）。
+    /// </summary>
+    public static bool HiddenByRoleGate(uint baseId, ObjectKind kind)
+        => !C.MechaShowOtherRoleTargets && IsOtherRoleTarget(baseId, kind);
+
     // ---- 診斷（給狀態視窗與 Information 級 log 用）----
 
     /// <summary>上一輪取樣讀到幾個有效標記。<c>-1</c> ＝ 這一輪根本沒讀到（不是 0 個）。</summary>
