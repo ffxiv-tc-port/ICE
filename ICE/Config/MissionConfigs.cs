@@ -275,6 +275,13 @@ namespace ICE.Config
         public bool ShowPhaennaMissions { get; set; } = true;
         public bool RemoveAfterGold { get; set; } = false;
 
+        // 「取得金星後排除任務」對緊急任務網開一面。
+        // 🔑 預設 false ＝ 現行行為完全不變；要例外的人自己去勾。
+        // 判別碼是 MissionAttributes.Critical（源自 WKSMissionUnit.IsSpecialQuest），
+        // 台服 7.20 離線驗證恰為 33 個任務（列 512..544），
+        // 與 WKSEmergencyMissionGroup 那條獨立資料鏈逐筆相同——見 MissionChain 的註解。
+        public bool RemoveAfterGoldKeepCritical { get; set; } = false;
+
         /// <summary>
         /// 製作任務算出「剩下的材料已經不可能拿到金星」之後要怎麼處置。預設 <c>Off</c>＝維持現行行為。
         /// </summary>

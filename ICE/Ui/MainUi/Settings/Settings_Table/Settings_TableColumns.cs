@@ -1,4 +1,5 @@
-﻿using ICE.Config;
+﻿using Dalamud.Interface.Utility.Raii;
+using ICE.Config;
 using ICE.Utilities.Cosmic_Helper;
 using System;
 using System.Collections.Generic;
@@ -131,6 +132,29 @@ public static class Settings_TableColumns
         {
             C.RemoveAfterGold = removeGold;
             C.Save();
+        }
+
+        // 緊急任務例外。縮排一格掛在上面那項底下，上面關著時整項變灰（它只在那時有意義）。
+        using (ImRaii.Disabled(!removeGold))
+        {
+            ImGui.Indent();
+            bool keepCritical = C.RemoveAfterGoldKeepCritical;
+            if (ImGui.Checkbox("Keep Critical missions enabled".Loc() + "###ICERemoveAfterGoldKeepCritical", ref keepCritical))
+            {
+                C.RemoveAfterGoldKeepCritical = keepCritical;
+                C.Save();
+            }
+            ImGui.SameLine();
+            ImGui.TextDisabled("?");
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip(("Critical (emergency) missions stay in the pool even after you gold them.\n" +
+                                  "Those missions only show up during a Red Alert - magnetic storm, meteor shower " +
+                                  "or spore mist - so once the golded ones are removed there can be nothing left " +
+                                  "to take when an alert actually starts.\n" +
+                                  "Off by default: behaviour is unchanged unless you turn this on.").Loc());
+            }
+            ImGui.Unindent();
         }
 
         ImGui.Checkbox("Stop after current mission".Loc() + "###ICEGeneralStopAfterCurrent", ref Mission_Settings.StopAfterCurrent);

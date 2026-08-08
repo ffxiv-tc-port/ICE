@@ -115,6 +115,44 @@ internal static class MissionChain
     /// ⚠️ <b>不看下游任務的 <c>Enabled</c></b>：那個旗標正好會被本功能自己改掉，
     /// 拿它當判斷依據等於用結果去推原因。只看遊戲端的金星旗標 —— 那是唯一不會被我們污染的真值。
     /// </remarks>
+    /// <summary>
+    /// 「取得金星後排除任務」要不要對<b>緊急任務</b>網開一面。
+    /// 使用者需求原話：「取得金星後排除任務 要能把緊急任務列例外」。
+    ///
+    /// 🔑 <b>為什麼緊急任務值得例外</b>：它們是磁暴／流星雨／孢子霧時段限定的，
+    /// 一般任務金星之後就沒有再跑的理由，緊急任務卻是「這個時段只有這些能跑」——
+    /// 把拿過金星的整批踢出候選池之後，紅色警報一來反而沒有任務可接。
+    ///
+    /// 🔬 <b>判別碼＝<c>MissionAttributes.Critical</c></b>，它在 <c>ICEDictornaryCreation</c>
+    /// 直接來自 <c>WKSMissionUnit.IsSpecialQuest</c>。這個欄位在台服 7.20 已離線驗證
+    /// （2026-08-08）：<c>IsSpecialQuest == true</c> 的恰好是 <b>33 個任務</b>（列 512..544），
+    /// 而完全獨立的另一條資料鏈
+    /// <c>WKSEmergencyMission → WKSEmergencyMissionGroup.WKSMissionUnit</c>
+    /// 列出來的也是<b>同樣那 33 個</b>（33/33 逐筆相同，兩邊互為交叉驗證）。
+    /// ⚠️ 別用 <c>exd-tc</c> CSV 的欄位<b>位置</b>去取這個值：那張表裡
+    /// <c>WKSMissionLotterySpecialCond</c> 也含 "Special" 字樣，取錯欄會得到 3 筆而不是 33 筆
+    /// （本輪第一次就是這樣算錯的，失敗形式是「數字看起來很合理」）。
+    ///
+    /// ⚠️ 查不到任務資料時回 <c>false</c>（＝不例外，維持現行行為）。
+    /// 這個方向是安全的：例外只會「多留一個任務在池子裡」，而不例外只是照舊。
+    /// </summary>
+    internal static bool ShouldKeepEnabledForEmergency(uint missionId, out string reason)
+    {
+        reason = string.Empty;
+
+        if (!C.RemoveAfterGoldKeepCritical)
+            return false;
+
+        if (!CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var entry))
+            return false;
+
+        if (!entry.Attributes.HasFlag(MissionAttributes.Critical))
+            return false;
+
+        reason = "它是緊急任務，而你開了「緊急任務不受金星排除影響」";
+        return true;
+    }
+
     internal static unsafe bool ShouldKeepEnabledForChain(uint missionId, out string reason)
     {
         reason = string.Empty;

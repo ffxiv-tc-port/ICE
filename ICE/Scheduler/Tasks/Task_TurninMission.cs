@@ -281,7 +281,16 @@ namespace ICE.Scheduler.Tasks
                     //    就是上游對這個機制的認定）。停掉前置＝整條後續鏈再也接不到，
                     //    而且完全沒有提示，使用者只能自己回頭核對整張任務表。
                     //    台服 7.20 共有 88 條這種邊、最長三層（見 MissionChain 的資料統計）。
-                    if (MissionChain.ShouldKeepEnabledForChain(PreviousMissionId, out var keepReason))
+                    // 緊急任務的例外要排在鏈結檢查**之前**：兩者都是「不要停用」，
+                    // 先問哪一個都不影響結果，但先問這一個時 log 講的理由才是使用者
+                    // 自己勾的那個開關，而不是一個他沒設定過的鏈結規則。
+                    if (MissionChain.ShouldKeepEnabledForEmergency(PreviousMissionId, out var emergencyReason))
+                    {
+                        IceLogging.Info(
+                            $"保留任務 {MissionChain.DescribeMission(PreviousMissionId)}（不套用「取得金星後自動停用」）：{emergencyReason}。",
+                            "[Gold Check Task]");
+                    }
+                    else if (MissionChain.ShouldKeepEnabledForChain(PreviousMissionId, out var keepReason))
                     {
                         IceLogging.Info(
                             $"保留任務 {MissionChain.DescribeMission(PreviousMissionId)}（不套用「取得金星後自動停用」）：{keepReason}。"
