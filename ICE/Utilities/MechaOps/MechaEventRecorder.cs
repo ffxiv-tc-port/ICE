@@ -348,10 +348,13 @@ internal static class MechaEventRecorder
         EmitRing(
             "START-CFG"
             + $";overlay={C.ShowMechaAoeOverlay};targets={C.ShowMechaTargets};objectives={C.ShowMechaObjectives}"
-            + $";iceRadius={C.MechaTargetRadius:F0};coneDeg={C.MechaConeAngleDeg:F0};useHitbox={C.MechaCoverageUseHitbox}"
-            // ⚠️ drillLen 是可校準的形狀參數（見 MechaActionShapes.ApplyCalibration）——
-            //    下一輪拿 log 訂參數時，沒有這一欄就分不出「預測形狀不準」與「使用者調過滑桿」。
-            + $";drillLen={C.MechaDrillLength:F1}"
+            // ⚠️ 這兩欄印的是**效果值**，不是設定鍵。2026-08-08 起兩個全域舊鍵不再被讀
+            //    （值已搬進 per-skill 覆蓋），照舊印設定鍵的話 log 會開始說謊——
+            //    而且是那種「數字合理所以沒人會懷疑」的說謊。
+            + $";iceRadius={C.MechaTargetRadius:F0}"
+            + $";coneDeg={MechaActionShapes.ConeAngleFor(MechaActionShapes.CosmicFlamethrowerActionId):F0}"
+            + $";useHitbox={C.MechaCoverageUseHitbox}"
+            + $";drillLen={EffectivePrimary(MechaActionShapes.CosmicDrillActionId)}"
             + $";targetableOnly={C.MechaTargetsTargetableOnly};hideNoise={C.MechaTargetsHideSceneryAndNpcs}"
             + $";includePlayers={C.MechaTargetsIncludePlayers};requireObjectTable={C.MechaObjectiveRequireObjectTable}"
             + $";matchRadius={C.MechaObjectiveMatchRadius:F1};useMarkerVector={C.MechaObjectiveUseMarkerVector}"
@@ -367,6 +370,14 @@ internal static class MechaEventRecorder
             //    （drillLen/coneDeg 兩個舊鍵仍照印，它們是沒有覆蓋時的實際來源。）
             + $";shapeOverrides={DescribeShapeOverrides()}");
     }
+
+    /// <summary>
+    /// 一個技能<b>這一刻真的會拿去畫</b>的主要維度（矩形長度／扇形距離／圓半徑）。
+    /// 解不出形狀（Lumina 還沒好、或那不是支援的形狀）回 <c>?</c>——刻意不印 0，
+    /// 「讀不到」與「真的是 0」在事後看 log 時必須分得開。
+    /// </summary>
+    private static string EffectivePrimary(uint actionId)
+        => MechaActionShapes.TryResolve(actionId, out var shape, out _) ? shape.Primary.ToString("F1") : "?";
 
     /// <summary>
     /// 六個已驗證機甲技能的形狀覆蓋摘要，形如

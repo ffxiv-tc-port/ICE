@@ -223,45 +223,12 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
             using (ImRaii.Disabled(!showMechaAoe))
             {
-                // ⚠️ 上限 360：使用者實測後要試 240 以上，原本的 180 會直接把他想試的值夾掉。
-                //    執行期的 clamp 本來就是 15~360，所以放寬滑桿不會與任何使用點打架。
-                float coneAngle = C.MechaConeAngleDeg;
-                ImGui.SetNextItemWidth(150);
-                if (ImGui.SliderFloat("Flamethrower Cone Angle".Loc() + "###ICEMechaConeAngle", ref coneAngle, 15f, 360f, "%.0f"))
-                {
-                    C.MechaConeAngleDeg = coneAngle;
-                    C.SaveDebounced();
-                }
-                ImGui.SameLine();
-                ImGui.TextDisabled("?");
-                if (ImGui.IsItemHovered())
-                {
-                    ImGui.SetTooltip(("Full cone angle for the Cosmic Flamethrower - the game data does not contain it.\n" +
-                                      "Measured logs suggest 240 degrees or more; the default is 240.\n" +
-                                      "This applies to every cone-shaped mecha skill (today only the Flamethrower).").Loc());
-                }
-
-                // 宇宙鑽頭的矩形長度。表上是 7，但實測觸發距離短得多（見 MissionConfigs 的註解）。
-                float drillLength = C.MechaDrillLength;
-                ImGui.SetNextItemWidth(150);
-                if (ImGui.SliderFloat("Cosmic Drill Range".Loc() + "###ICEMechaDrillLength",
-                        ref drillLength,
-                        MechaActionShapes.DrillLengthMin,
-                        MechaActionShapes.DrillLengthMax,
-                        "%.1f"))
-                {
-                    C.MechaDrillLength = drillLength;
-                    C.SaveDebounced();
-                }
-                ImGui.SameLine();
-                ImGui.TextDisabled("?");
-                if (ImGui.IsItemHovered())
-                {
-                    ImGui.SetTooltip(("Effective length of the Cosmic Drill rectangle, in yalms.\n" +
-                                      "The game data says 7, but measured logs put the real trigger distance at " +
-                                      "roughly 3.5-4 - so the default is 4. Set it back to 7 for the raw game value.\n" +
-                                      "The half-width stays on the game data and is not adjustable.").Loc());
-                }
+                // 🔑 <b>這裡原本有兩個全域滑桿</b>（宇宙火焰噴射器扇形角度／宇宙鑽頭矩形長度）。
+                //    2026-08-08 收斂進底下「個別技能開關」裡的 per-skill 滑桿——
+                //    同一個維度有兩個地方可調、而且 per-skill 靜默優先，是使用者
+                //    「這兩個滑桿還有用嗎」這個疑問的來源。舊值由設定版本 11→12 的遷移
+                //    自動搬進對應技能的覆蓋格，效果值不變（見 ConfigMigrator）。
+                ImGui.TextDisabled("Skill shapes are now per skill - see 'Per-skill Toggles' below.".Loc());
 
                 // ---- 身份分流 ----
                 // ⚠️ 刻意放在目標點位與目的指示**兩組之前**、而且不縮排：它同時管兩邊。

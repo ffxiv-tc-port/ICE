@@ -140,7 +140,7 @@ internal static class MechaAoeOverlay
                         break;
                     case MechaAoeKind.Cone:
                         // 角度不在遊戲資料裡（Omen=0），走設定值。
-                        // 🔑 一律問 ConeAngleFor(actionId)，不要直接讀 C.MechaConeAngleDeg——
+                        // 🔑 一律問 ConeAngleFor(actionId)，不要自己去讀設定或常數——
                         //    直接讀會靜默忽略 per-skill 覆蓋（表現成「滑桿沒作用」）。
                         var angleRad = MechaActionShapes.ConeAngleFor(c.ActionId) * MathF.PI / 180f;
                         drawList.AddConeFilled(origin, c.Shape.Primary, ToPictoRotation(rotation), angleRad, ConeFill);

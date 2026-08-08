@@ -136,7 +136,7 @@ internal static class MechaActionShapes
     /// <summary>宇宙鑽頭（協助員）。矩形長度走設定值校準，見 <see cref="ApplyCalibration"/>。</summary>
     public const uint CosmicDrillActionId = 42150;
 
-    /// <summary>宇宙火焰噴射器（協助員）。扇形全角走設定值 <c>C.MechaConeAngleDeg</c>（不存在形狀裡）。</summary>
+    /// <summary>宇宙火焰噴射器（協助員）。扇形全角走 <see cref="ConeAngleFor"/>（不存在形狀裡）。</summary>
     public const uint CosmicFlamethrowerActionId = 42258;
 
     /// <summary>解析一個 ActionId 的範圍形狀。查不到表或形狀不支援時回傳 false（name 仍會給）。</summary>
@@ -182,7 +182,7 @@ internal static class MechaActionShapes
         if (ov?.Primary is { } p)
             primary = Math.Clamp(p, PrimaryMin, PrimaryMax);
         else if (actionId == CosmicDrillActionId && shape.Kind == MechaAoeKind.Rect)
-            primary = Math.Clamp(C.MechaDrillLength, DrillLengthMin, DrillLengthMax);
+            primary = Math.Clamp(DrillCalibratedLength, DrillLengthMin, DrillLengthMax);
 
         // ---- HalfWidth（只有矩形有意義）----
         // 🔴 非矩形的 HalfWidth 是 0，這裡**絕對不能**跟著 Clamp 到下限，
@@ -196,17 +196,17 @@ internal static class MechaActionShapes
 
     /// <summary>
     /// 這個技能的扇形<b>全角</b>（度）。讀取優先序與 <see cref="ApplyCalibration"/> 一致：
-    /// per-skill 覆蓋 &gt; 舊鍵 <c>C.MechaConeAngleDeg</c> &gt; 預設。
+    /// per-skill 覆蓋 &gt; 內建預設 <see cref="DefaultConeAngleDeg"/>。
     ///
     /// 📌 角度為什麼不塞進 <see cref="MechaAoeShape"/>：Lumina 的 <c>Action</c> 表<b>沒有</b>這個欄位
     /// （42258 的 Omen=0），它自始至終就是一個純設定值，不是「從表解出來再校準」。
-    /// 🔑 所有使用點都要走這個方法，不要再直接讀 <c>C.MechaConeAngleDeg</c>——
+    /// 🔑 所有使用點都要走這個方法，<b>不要</b>自己去讀設定——
     /// 直接讀的話 per-skill 覆蓋會被靜默忽略（失敗形式是「滑桿沒作用」）。
     /// </summary>
     public static float ConeAngleFor(uint actionId)
     {
         var ov = GetOverride(actionId);
-        return Math.Clamp(ov?.AngleDeg ?? C.MechaConeAngleDeg, ConeAngleMin, ConeAngleMax);
+        return Math.Clamp(ov?.AngleDeg ?? DefaultConeAngleDeg, ConeAngleMin, ConeAngleMax);
     }
 
     /// <summary>取這個技能的 per-skill 覆蓋，沒有就回 <c>null</c>。</summary>
@@ -227,10 +227,11 @@ internal static class MechaActionShapes
             return false;
         }
 
-        // 舊鍵仍算「預設」的一部分：使用者早就調過的 42150 長度不該在 UI 上被說成「非預設」。
+        // 內建校準值算「預設」的一部分：42150 的預設要顯示成 4.0（實測值）而不是 Lumina 的 7.0，
+        // 否則使用者一打開設定就會看到「已覆蓋」的星號，而他根本沒動過。
         var primary = s.Primary;
         if (actionId == CosmicDrillActionId && s.Kind == MechaAoeKind.Rect)
-            primary = Math.Clamp(C.MechaDrillLength, DrillLengthMin, DrillLengthMax);
+            primary = Math.Clamp(DrillCalibratedLength, DrillLengthMin, DrillLengthMax);
 
         shape = s with { Primary = primary };
         return true;
@@ -238,11 +239,31 @@ internal static class MechaActionShapes
 
     /// <summary>這個技能沒有覆蓋時的扇形全角。</summary>
     public static float DefaultConeAngleFor(uint actionId)
-        => Math.Clamp(C.MechaConeAngleDeg, ConeAngleMin, ConeAngleMax);
+        => Math.Clamp(DefaultConeAngleDeg, ConeAngleMin, ConeAngleMax);
 
     /// <summary>宇宙鑽頭長度滑桿的下限／上限。UI 與執行期用同一組常數，避免兩邊漂開。</summary>
     public const float DrillLengthMin = 2f;
     public const float DrillLengthMax = 10f;
+
+    /// <summary>
+    /// 宇宙鑽頭（42150）矩形長度的<b>內建校準值</b>，取代先前的全域設定鍵 <c>C.MechaDrillLength</c>。
+    ///
+    /// 📌 值本身沒有變（舊鍵的預設就是 4.0，離線與 log 依據見 <c>MissionConfigs</c> 的舊註解）；
+    /// 變的是它從「一個使用者可調的全域鍵」變成「per-skill 覆蓋的預設底值」。
+    /// 使用者調過的舊值由 <c>ConfigMigrator</c>（設定版本 11→12）搬進
+    /// <c>C.MechaShapeOverrides[42150].Primary</c>，所以效果值逐一相同。
+    /// </summary>
+    public const float DrillCalibratedLength = 4f;
+
+    /// <summary>
+    /// 扇形機甲技能的<b>內建預設全角</b>（度），取代先前的全域設定鍵 <c>C.MechaConeAngleDeg</c>。
+    ///
+    /// 📌 240 就是那個舊鍵 2026-08-08 起的預設值，所以沒調過的人效果完全一樣；
+    /// 調過的人由設定版本 11→12 的遷移搬進 <c>MechaShapeOverrides[42258].AngleDeg</c>。
+    /// ⚠️ 舊鍵是**所有**扇形技能共用的，這個常數也是——差別只在於使用者現在改的是
+    /// per-skill 的那一格，而不是一個看不出影響範圍的全域值。
+    /// </summary>
+    public const float DefaultConeAngleDeg = 240f;
 
     /// <summary>
     /// per-skill 滑桿的範圍。刻意開得比實際值寬很多——真值未知，
@@ -307,7 +328,7 @@ internal static class MechaActionShapes
             12 or 4 => new MechaAoeShape(MechaAoeKind.Rect, row.EffectRange, row.XAxisModifier * 0.5f),
 
             // 13/3：扇形，半徑=EffectRange。角度通常得從 Omen 路徑解析（fanXXX），
-            // 但 42258 的 Omen=0 → 無從得知，角度由設定值提供（C.MechaConeAngleDeg，實測校準）。
+            // 但 42258 的 Omen=0 → 無從得知，角度由 ConeAngleFor 提供（per-skill 覆蓋／內建預設，實測校準）。
             13 or 3 => new MechaAoeShape(MechaAoeKind.Cone, row.EffectRange, 0f),
 
             // 2/5：以施放者為圓心的圓（5 理論上加 hitbox，同上不加）。

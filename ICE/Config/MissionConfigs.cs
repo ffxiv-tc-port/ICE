@@ -97,6 +97,13 @@ namespace ICE.Config
         // 機甲行動技能範圍標示（Utilities/MechaOps）。預設關閉。
         public bool ShowMechaAoeOverlay { get; set; } = false;
 
+        // 🔴🔴 下面兩個舊鍵自 2026-08-08（設定版本 12）起**程式不再讀取**。
+        //      值已由 ConfigMigrator.MigrateMechaGlobalSlidersToPerSkill 搬進
+        //      MechaShapeOverrides[42258].AngleDeg / [42150].Primary，效果值逐一相同。
+        //      欄位刻意留著不刪：①舊設定檔還原得回來 ②遷移本身要讀它們。
+        //      ⚠️ 新碼一律走 MechaActionShapes.ConeAngleFor()／TryResolve()，不要再讀這兩個鍵——
+        //      讀了會靜默忽略 per-skill 覆蓋（失敗形式是「滑桿沒作用」）。
+
         // 宇宙火焰噴射器（42258）的扇形**全**角（度）。遊戲資料裡沒有（Omen=0），只能靠實機校準。
         //
         // 📌 2026-08-08 由兩場 [MechaRec] log 定錨：CAST 時刻 7.5m 內目標的相對朝向半角
@@ -125,9 +132,10 @@ namespace ICE.Config
         // 技能 id → 各維度的覆蓋值。**預設空字典＝完全沿用現行有效值**
         // （Lumina 原值，或上面兩個舊鍵已經校準過的值），所以升級不會改變任何行為。
         //
-        // 🔑 讀取優先序：per-skill 覆蓋 > 舊鍵（MechaDrillLength / MechaConeAngleDeg）> Lumina 原值。
-        //    舊鍵刻意保留而不遷移：使用者已經拉過的 5.0／120 不能因為改版就消失，
-        //    而「沒有覆蓋時就去問舊鍵」正好讓那些值繼續生效。
+        // 🔑 讀取優先序：per-skill 覆蓋 > 內建校準值（MechaActionShapes 的常數）> Lumina 原值。
+        //    ⚠️ 2026-08-08 起舊鍵不再參與這條優先序：使用者拉過的值（例如 5.0／120）
+        //    已由設定版本 11→12 的遷移**搬進這個字典**，所以那些值繼續生效，
+        //    只是現在看得出來是掛在哪一個技能上。
         // ⚠️ null ＝「這個維度不覆蓋」，不是 0。用 float? 而不是 0 當哨兵，
         //    否則「使用者真的想設 0」與「沒設」分不出來。
         public Dictionary<uint, MechaShapeOverride> MechaShapeOverrides { get; set; } = new();
