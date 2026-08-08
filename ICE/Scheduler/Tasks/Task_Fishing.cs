@@ -333,7 +333,8 @@ namespace ICE.Scheduler.Tasks
                     }
                     if (collectableCounter >= 2)
                     {
-                        if (EzThrottler.Throttle("Selecting yes to collectables"))
+                        // 閘門預設是「一律按下確定」＝與原本完全相同（見 YesnoGuard）。
+                        if (EzThrottler.Throttle("Selecting yes to collectables") && YesnoGuard.ShouldConfirm(YesnoSituation.FishingCollect))
                         {
                             yesNo.Yes();
                         }

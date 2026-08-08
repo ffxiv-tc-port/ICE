@@ -206,7 +206,9 @@ namespace ICE.Scheduler.Tasks
             }
             else if (GenericHelpers.TryGetAddonMaster<SelectYesno>("SelectYesno", out var selectYesno) && selectYesno.IsAddonReady)
             {
-                if (EzThrottler.Throttle("Selecting yes for turnin"))
+                // ⚠️ 這個情境沒有登記比對基準（台服 Addon 表裡找不到對得上的列），
+                //    所以閘門在任何檔位都只會記錄、不會擋 —— 行為在三個檔位下都不變。
+                if (EzThrottler.Throttle("Selecting yes for turnin") && YesnoGuard.ShouldConfirm(YesnoSituation.RelicTurnin))
                 {
                     IceLogging.Verbose("Selecting yes for the turnin");
                     selectYesno.Yes();

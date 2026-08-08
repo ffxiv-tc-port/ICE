@@ -21,6 +21,18 @@ namespace ICE.Config
         public bool AnimationLockAbandon { get; set; } = true;
         public bool JumpIfStuck { get; set; } = false;
 
+        /// <summary>
+        /// 遇到「文字對不上預期」的確認框時要怎麼處理。預設 <c>AlwaysConfirm</c>＝維持現行行為。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 這是<b>另一個</b>旗標，不是把新地方掛到 <see cref="RejectUnknownYesno"/> 上：
+        /// 那個旗標預設就是 <c>true</c>（既有使用者都開著），把新的檢查掛上去等於未經同意
+        /// 改了所有人的行為。<br/>
+        /// 涵蓋範圍與比對基準見 <c>ICE.Utilities.YesnoGuard</c>；
+        /// <see cref="RejectUnknownYesno"/> 蓋的是接任務與放棄任務兩處，兩者不重疊。
+        /// </remarks>
+        public UnexpectedYesnoAction UnexpectedYesno { get; set; } = UnexpectedYesnoAction.AlwaysConfirm;
+
         // 任務優先度：同一階級之內優先挑「還沒拿到金星」的任務（補完成度用）。
         // 判定來源是 WKSManager.IsMissionGolded；全部拿完之後這個選項自然失去作用，
         // 排序會回到原本的順序。

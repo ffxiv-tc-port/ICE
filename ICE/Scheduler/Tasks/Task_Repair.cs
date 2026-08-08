@@ -147,7 +147,8 @@ namespace ICE.Scheduler.Tasks
                 {
                     if (GenericHelpers.TryGetAddonMaster<SelectYesno>("SelectYesno", out var Yesno) && Yesno.IsAddonReady)
                     {
-                        if (FrameThrottler.Throttle("Saying yes to the gil"))
+                        // 閘門預設是「一律按下確定」，那條路徑連確認框的文字都不會讀（見 YesnoGuard）。
+                        if (FrameThrottler.Throttle("Saying yes to the gil") && YesnoGuard.ShouldConfirm(YesnoSituation.Repair))
                             Yesno.Yes();
                     }
                     else if (EzThrottler.Throttle("Firing off repair request", 300))
@@ -203,7 +204,9 @@ namespace ICE.Scheduler.Tasks
             }
             else if (GenericHelpers.TryGetAddonByName<AtkUnitBase>("SelectYesno", out var addon) && GenericHelpers.IsAddonReady(addon))
             {
-                if (FrameThrottler.Throttle("SelectYesnoThrottle", 300))
+                // 這裡刻意保留原本的 Callback.Fire（不改成 SelectYesno.Yes()）—— 閘門只負責「准不准按」，
+                // 真正按下去的方式維持原樣，免得順手換掉一條已經在出貨中驗過的路徑。
+                if (FrameThrottler.Throttle("SelectYesnoThrottle", 300) && YesnoGuard.ShouldConfirm(YesnoSituation.Repair))
                 {
                     IceLogging.Debug("SelectYesno Callback", "Self Repair Task");
                     ECommons.Automation.Callback.Fire(addon, true, 0);

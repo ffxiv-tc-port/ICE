@@ -323,8 +323,13 @@ namespace ICE.Scheduler.Tasks
 
                 if (GenericHelpers.TryGetAddonMaster<SelectYesno>("SelectYesno", out var select) && select.IsAddonReady)
                 {
+                    // 這裡原本只看點數夠不夠、完全不看確認框寫什麼。閘門預設仍然是
+                    // 「一律按下確定」＝行為不變（見 YesnoGuard）。
                     if (credits >= 1000 + C.GambaCreditsMinimum)
-                        select.Yes();
+                    {
+                        if (YesnoGuard.ShouldConfirm(YesnoSituation.Lottery))
+                            select.Yes();
+                    }
                     else
                         select.No();
                 }

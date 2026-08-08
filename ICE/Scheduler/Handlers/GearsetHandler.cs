@@ -21,7 +21,9 @@ namespace ICE.Scheduler.Handlers
                     {
                         if (GenericHelpers.TryGetAddonMaster<SelectYesno>("SelectYesno", out var select) && select.IsAddonReady)
                         {
-                            select.Yes();
+                            // 閘門預設是「一律按下確定」＝與原本完全相同（見 YesnoGuard）。
+                            if (YesnoGuard.ShouldConfirm(YesnoSituation.GearsetMainHand))
+                                select.Yes();
                         }
                         else
                         {
