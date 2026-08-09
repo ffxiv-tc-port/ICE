@@ -9,15 +9,18 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 {
     internal class SafetySettings
     {
-        private static bool rejectUnknownYesNo = C.RejectUnknownYesno;
-        private static bool delayGrabMission = C.DelayGrabMission;
-        private static int delayAmount = C.DelayIncrease;
-        private static bool delayCraft = C.DelayCraft;
-        private static int delayCraftAmount = C.DelayCraftIncrease;
-        private static int maxRerolls = C.MaxConsecutiveRerolls;
+        // 📌 這裡原本有六個 `private static x = C.某鍵;` 欄位當 widget 的暫存值。
+        //    static 初始化器**一輩子只跑一次**（型別第一次被碰到的那一刻），之後就再也
+        //    不看設定了 —— 而這個類別第一次被碰到的時機不保證在設定載入／遷移之後。
+        //    症狀不是「壞掉」而是「顯示舊值」：設定頁畫的是快照當下的值，使用者一動控件
+        //    就把那個舊值原封不動寫回設定，已經遷移好的值被靜默還原。
+        // ⇒ 全部改成在使用點當場讀 C（同檔 autoSwitchJob / jumpIfStuck 一直都是這個寫法）。
+        //    寫回的動作逐字不變：讀 local → 控件改 local → 寫回 C.某鍵 → Save。
+        //    設定鍵、控制項 id、Save/SaveDebounced 的選擇全部沒動。
 
         public static void Draw()
         {
+            var maxRerolls = C.MaxConsecutiveRerolls;
             ImGui.SetNextItemWidth(120f);
             if (ImGui.InputInt("Stop after this many failed rerolls".Loc() + "###ICEMaxRerolls", ref maxRerolls))
             {
@@ -48,6 +51,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 "anything else is skipped with a line in the log.\n" +
                 "This equips gear, so it is off by default.").Loc());
 
+            bool rejectUnknownYesNo = C.RejectUnknownYesno;
             if (ImGui.Checkbox("Ignore non-Cosmic prompts".Loc() + "###ICEIgnoreNonCosmicPrompts", ref rejectUnknownYesNo))
             {
                 C.RejectUnknownYesno = rejectUnknownYesNo;
@@ -60,6 +64,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             );
 
             DrawUnexpectedYesnoSetting();
+            bool delayGrabMission = C.DelayGrabMission;
             if (ImGui.Checkbox("Add delay to mission menu".Loc() + "###ICEAddDelayMissionMenu", ref delayGrabMission))
             {
                 C.DelayGrabMission = delayGrabMission;
@@ -71,6 +76,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 "Or if you're feeling daredevil. Lower it. I'm not your dad (will tell dad jokes though.").Loc());
             if (delayGrabMission)
             {
+                var delayAmount = C.DelayIncrease;
                 ImGui.SetNextItemWidth(150);
                 ImGui.SameLine();
                 if (ImGui.SliderInt("ms".Loc() + "###Mission", ref delayAmount, 0, 1000))
@@ -82,6 +88,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     }
                 }
             }
+            bool delayCraft = C.DelayCraft;
             if (ImGui.Checkbox("Add delay to crafting menu".Loc() + "###ICEAddDelayCraftingMenu", ref delayCraft))
             {
                 C.DelayCraft = delayCraft;
@@ -93,6 +100,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 "Or if you're feeling daredevil. Lower it. I'm not your dad (will tell dad jokes though.").Loc());
             if (delayCraft)
             {
+                var delayCraftAmount = C.DelayCraftIncrease;
                 ImGui.SetNextItemWidth(150);
                 ImGui.SameLine();
                 if (ImGui.SliderInt("ms".Loc() + "###Crafting", ref delayCraftAmount, 500, 5000))

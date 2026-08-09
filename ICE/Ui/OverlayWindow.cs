@@ -20,7 +20,10 @@ namespace ICE.Ui
 {
     internal class OverlayWindow : Window
     {
-        private uint selectedJob = C.SelectedJob;
+        // 📌 這裡原本有 `private uint selectedJob = C.SelectedJob;` —— 零讀取者的死碼，已刪。
+        //    它比一般的死欄位更值得記一筆：它是 **instance** 欄位，取值時機綁在建構子，
+        //    而這個視窗是在 ICE.cs 的建構子裡建出來的、設定遷移在那之後才跑，
+        //    所以它存的必定是「遷移前」的值。真正在用的地方一律直讀 C.SelectedJob。
         public OverlayWindow() : base("ICE Overlay".Loc() + "###ICEOverlayWindow", ImGuiWindowFlags.AlwaysAutoResize)
         {
             P.windowSystem.AddWindow(this);

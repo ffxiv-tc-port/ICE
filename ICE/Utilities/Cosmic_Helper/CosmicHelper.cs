@@ -36,7 +36,11 @@ public static unsafe partial class CosmicHelper
     };
 
     public static readonly int MinimumLevel = 10;
-    public static readonly int MaximumLevel = Player.MaxLevel;
+    // 📌 這裡原本有 `public static readonly int MaximumLevel = Player.MaxLevel;` ——
+    //    零讀取者的死碼，已刪。它是三個同形快照裡最糟的一個：static 初始化器只跑一次，
+    //    而取的是 `Player.MaxLevel` —— 登入前那個值未必可用，所以它不只是「可能過期」，
+    //    是「可能一開始就取到不對的值，然後永遠是那個值」。
+    //    要用等級上限的話當場問 Player，不要再放一個模組層級的快照。
 
     public static readonly int MaxRelicLevel = 14;
 

@@ -215,7 +215,11 @@ public static class Settings_TableColumns
                     }
                 }
 
-                C.Save();
+                // 📌 這裡原本有一行 C.Save()，已移除：這一格與下面的金／銀／銅三格都是
+                //    **純畫面暫存**（static 欄位，不在設定檔裡），要等按下「套用」才會
+                //    寫進任何一個任務的設定。只有這一格多了 Save，另外三格都沒有 ——
+                //    典型的複製貼上殘留。它存的是「當下的設定」，與這個勾選項無關，
+                //    所以拿掉不會少存任何東西。
             }
             ImGuiEx.HelpMarker("This option will strive to get the best result, but will turn in any result if necessary without stopping.".Loc());
 

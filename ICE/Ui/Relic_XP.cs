@@ -5,8 +5,10 @@ namespace ICE.Ui
 {
     internal class Relic_XP
     {
-        private static bool ShowXP = C.ShowExpBars;
-
+        // 📌 這裡原本有 `private static bool ShowXP = C.ShowExpBars;` —— 零讀取者的死碼，已刪。
+        //    ⚠️ 名字很像閘門，實際上不是：真正決定要不要畫經驗條的是
+        //    OverlayWindow 的 `if (C.ShowExpBars)`（直讀，每幀都對）。
+        //    留著它反而危險 —— 下次有人「順手用現成的旗標」就會接到一個永遠不更新的快照。
         private class XPType
         {
             public uint CurrentXP { get; set; }
