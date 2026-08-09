@@ -22,7 +22,7 @@ namespace ICE.Ui.DebugWindowTabs
             }
 
             ImGui.SameLine();
-            if (ImGui.Button("Clear"))
+            if (ImGui.Button("Clear".Loc()))
             {
                 searchFilter = "";
             }

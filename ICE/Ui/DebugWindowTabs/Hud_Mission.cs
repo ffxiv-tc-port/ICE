@@ -23,7 +23,7 @@ namespace ICE.Ui.DebugWindowTabs
                 ImGui.Text($"Selected Mission Name: {x.SelectedMissionName}");
                 ImGui.Text($"Selected Mission ID: {x.SelectedMissionId}");
 
-                if (ImGui.Button("Help"))
+                if (ImGui.Button("Help".Loc()))
                 {
                     x.Help();
                 }

@@ -193,7 +193,7 @@ namespace ICE.Ui.DebugWindowTabs
                                 missionData.FishingPreset[i] = item;
                             }
                             ImGui.SameLine();
-                            if (ImGui.Button("Remove"))
+                            if (ImGui.Button("Remove".Loc()))
                             {
                                 missionData.FishingPreset.RemoveAt(i);
                                 i--; // Adjust index after removal
@@ -350,7 +350,7 @@ namespace ICE.Ui.DebugWindowTabs
 
                                     ImGui.Text($"Bait ID: {baitId}");
                                     ImGui.SameLine();
-                                    if (ImGui.Button("Remove"))
+                                    if (ImGui.Button("Remove".Loc()))
                                     {
                                         baitIdsToRemove.Add(baitId);
                                     }
@@ -554,7 +554,7 @@ namespace ICE.Ui.DebugWindowTabs
 
                                     ImGui.Text($"Fish ID: {fishId}");
                                     ImGui.SameLine();
-                                    if (ImGui.Button("Remove"))
+                                    if (ImGui.Button("Remove".Loc()))
                                     {
                                         fishToRemove.Add(fishId);
                                     }

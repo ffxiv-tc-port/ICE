@@ -140,7 +140,7 @@ namespace ICE.Ui.DebugWindowTabs
                             P.Navmesh.Stop();
                         }
                         ImGui.SameLine();
-                        if (ImGui.Button("Mount"))
+                        if (ImGui.Button("Mount".Loc()))
                         {
                             Utils.MountAction();
                         }
@@ -216,7 +216,7 @@ namespace ICE.Ui.DebugWindowTabs
                             }
                             if (ImGui.BeginPopup("Option to Delete"))
                             {
-                                if (ImGui.MenuItem("Delete"))
+                                if (ImGui.MenuItem("Delete".Loc()))
                                 {
                                     fishingHole.RemoveAt(i);
                                     if (selectedSpotIndex >= i) selectedSpotIndex--;
