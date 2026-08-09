@@ -12,6 +12,30 @@ namespace ICE.Ui.MainUi.ModeSelect
 {
     internal class modeSelect_Standard
     {
+        // ── 任務頁的搜尋字串（2026-08-09 UI 重構第五批）────────────────────────────
+        // 🔴 刻意**不寫進設定檔**：這是「我現在想找哪個任務」的暫時狀態，不是偏好。
+        //    存起來的話，下次開遊戲會看到任務表莫名其妙只剩兩三列，而使用者不會聯想到
+        //    是上次的搜尋還開著 —— 那是典型「靜默把功能弄壞」的設定。
+        // 📌 它只影響「表上畫不畫這一列」，不影響分類按鈕上的計數，也不影響自動化挑任務。
+        public static string MissionNameFilter = string.Empty;
+
+        /// <summary>
+        /// 搜尋列的比對：任務名稱含關鍵字（不分大小寫）或任務 ID 含這串數字。
+        /// 空字串一律回 true —— 預設狀態與加這個功能之前逐字相同。
+        /// </summary>
+        public static bool PassesNameFilter(uint id, string? name)
+        {
+            if (string.IsNullOrWhiteSpace(MissionNameFilter))
+                return true;
+
+            var needle = MissionNameFilter.Trim();
+
+            if (!string.IsNullOrEmpty(name) && name.Contains(needle, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return id.ToString().Contains(needle, StringComparison.Ordinal);
+        }
+
         public static void Draw()
         {
             using var style = ImRaii.PushStyle(ImGuiStyleVar.ChildRounding, 10).Push(ImGuiStyleVar.ChildBorderSize, 1);
@@ -51,58 +75,76 @@ namespace ICE.Ui.MainUi.ModeSelect
                     modeIcon = FontAwesomeIcon.Cloud;
                 }
 
-                ImGuiEx.IconWithText(modeIcon, "?? Mode".Loc(modeType));
+                // ── 模式選擇：彈窗改成列上的下拉（2026-08-09 UI 重構第五批）──────────
+                // 原本是「模式選擇」按鈕 → 彈窗 → 三個圓鈕，要三步才換得了模式，
+                // 而且彈窗會蓋住任務表。現在目前模式直接寫在下拉上，換模式一次點兩下。
+                // ⚠️ 三個選項寫進設定的動作與原本的圓鈕**逐字相同**（含
+                //    「選宇宙工具就關掉限定任務」這種互斥副作用），只是換了外觀。
+                // 📌 原本掛在每個圓鈕旁的說明改成「滑鼠移到選項上」才出現 ——
+                //    文字一個字都沒改，所以既有的翻譯照樣命中。
+                ImGuiEx.IconWithText(modeIcon, "Mode".Loc());
 
-                ImGui.SameLine(0, 10 * scale);
+                ImGui.SameLine(0, 8 * scale);
 
-                // Adjust the Y position to center the button vertically with the text
+                // Adjust the Y position to center the combo vertically with the text
                 float textHeight = ImGui.GetTextLineHeight();
                 float buttonHeight = ImGui.GetFrameHeight();
                 float yOffset = (textHeight - buttonHeight) / 2f;
                 ImGui.SetCursorPosY(ImGui.GetCursorPosY() + yOffset);
 
-                if (ImGuiEx.IconButtonWithText(FontAwesomeIcon.Play, "Mode Selection".Loc()))
+                ImGui.SetNextItemWidth(160 * scale);
+                if (ImGui.BeginCombo("###ICEModeSelectCombo", modeType))
                 {
-                    ImGui.OpenPopup("Mode Select | Select Mode Window");
-                }
-                if (ImGui.BeginPopup("Mode Select | Select Mode Window"))
-                {
-                    ImGui.Text("Select Mode".Loc());
-                    ImGui.Separator();
-
-                    if (ImGui.RadioButton("Standard".Loc() + "###ICEModeStandard", standard))
+                    if (ImGui.Selectable("Standard".Loc() + "###ICEModeStandard", standard))
                     {
                         C.XPRelicGrind = false;
                         C.GrindProvisionals = false;
                         C.Save();
                     }
-                    ImGuiEx.HelpMarker(("Stand Mode \n" +
-                                       "-> Used to select which missions you want to grind. It'll priortize in the following order:\n" +
-                                       "-> Critical -> Provisional [Sequence/Timed/Weather] -> Standard [A->D]\n" +
-                                       "-> Select which missions you want to do, and go at it.").Loc());
-                    if (ImGui.RadioButton("Relic Grind".Loc() + "###ICEModeRelicGrind", relicMode))
+                    if (standard)
+                        ImGui.SetItemDefaultFocus();
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.SetTooltip(("Stand Mode \n" +
+                                          "-> Used to select which missions you want to grind. It'll priortize in the following order:\n" +
+                                          "-> Critical -> Provisional [Sequence/Timed/Weather] -> Standard [A->D]\n" +
+                                          "-> Select which missions you want to do, and go at it.").Loc());
+                    }
+
+                    if (ImGui.Selectable("Relic Grind".Loc() + "###ICEModeRelicGrind", relicMode))
                     {
                         C.XPRelicGrind = true;
                         C.GrindProvisionals = false;
                         C.Save();
                     }
-                    ImGuiEx.HelpMarker(("Relic Grind\n" +
-                                       "-> Automatically select which missions that are best to finish up your relic\n" +
-                                       "-> These are weighed based on what is needed to complete the tool to the next step\n" +
-                                       "-> If you want to only do certain missions, enable the option and select which ones you want to do").Loc());
-                    if (ImGui.RadioButton("Provisional Grind".Loc() + "###ICEModeProvisionalGrind", provisionalMode))
+                    if (relicMode)
+                        ImGui.SetItemDefaultFocus();
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.SetTooltip(("Relic Grind\n" +
+                                          "-> Automatically select which missions that are best to finish up your relic\n" +
+                                          "-> These are weighed based on what is needed to complete the tool to the next step\n" +
+                                          "-> If you want to only do certain missions, enable the option and select which ones you want to do").Loc());
+                    }
+
+                    if (ImGui.Selectable("Provisional".Loc() + "###ICEModeProvisionalGrind", provisionalMode))
                     {
                         C.XPRelicGrind = false;
                         C.GrindProvisionals = true;
                         C.Save();
                     }
-                    ImGuiEx.HelpMarker(("Provisional Grind\n" +
-                                       "-> Grind provisional missions [Weather | Timed | Sequence] that you have enabled\n" +
-                                       "-> Use this to grind all classes. You can set the priority for which classes and " +
-                                       "types of missions that you want to do\n" +
-                                       "-> Useful if you're aiming to grind out score/tokens across all classes, or want to do specific missions at certain times").Loc());
+                    if (provisionalMode)
+                        ImGui.SetItemDefaultFocus();
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.SetTooltip(("Provisional Grind\n" +
+                                          "-> Grind provisional missions [Weather | Timed | Sequence] that you have enabled\n" +
+                                          "-> Use this to grind all classes. You can set the priority for which classes and " +
+                                          "types of missions that you want to do\n" +
+                                          "-> Useful if you're aiming to grind out score/tokens across all classes, or want to do specific missions at certain times").Loc());
+                    }
 
-                    ImGui.EndPopup();
+                    ImGui.EndCombo();
                 }
 
                 uint currentJobId = Player.JobId;
@@ -135,7 +177,13 @@ namespace ICE.Ui.MainUi.ModeSelect
                 }
             }
 
-            if (ImGui.BeginTable("modeSelect_TableHeader", 4, ImGuiTableFlags.SizingFixedFit, Vector2.Zero))
+            // ── 任務頁設定：整組收進一個分節（2026-08-09 UI 重構第五批）──────────────
+            // 這一排設定標題原本永遠佔著任務表上方的位置，但裡面九成是「設好就不會再動」
+            // 的東西。常用的三個篩選（隱藏不支援／只顯示所選職業／只顯示未金星）已經
+            // 搬到下面的篩選列，剩下的整組收進這個分節，預設收合。
+            // ⚠️ 分節裡的內容一個字都沒改，只是外面多包一層收合。
+            if (ImGui_Tools.PageSection("Mission Page Settings".Loc(), "ICESecMissionPage")
+                && ImGui.BeginTable("modeSelect_TableHeader", 3, ImGuiTableFlags.SizingFixedFit, Vector2.Zero))
             {
                 ImGui.TableSetupColumn("Class Selector".Loc());
                 ImGui.TableSetupColumn("Other Settings".Loc());
@@ -155,14 +203,11 @@ namespace ICE.Ui.MainUi.ModeSelect
                     relicGrindExpanded = modeSelect_Tools.DrawCompactCategoryHeader("Relic Grind Settings".Loc(), FontAwesomeIcon.ArrowUpRightDots);
                 }
 
-                bool completionExpanded = false;
-                if (C.ShowCompletionWindow)
-                {
-                    ImGui.TableNextColumn();
-                    completionExpanded = modeSelect_Tools.DrawCompactCategoryHeader("Completion Table Settings".Loc(), FontAwesomeIcon.Trophy);
-                }
+                // 📌 這裡原本還有第四欄「完成度表格設定」，裡面就是「只顯示所選職業」與
+                //    「只顯示未金星」兩個勾選項。兩個都搬到篩選列了（只在完成度檢視下出現，
+                //    可達性與原本相同），所以這一欄整個沒有內容可放，不是功能被拿掉。
 
-                bool showNextColumn = tableSettingExpanded || missionSettingExpanded || (relicGrindExpanded && C.XPRelicGrind) || (completionExpanded && C.ShowCompletionWindow);
+                bool showNextColumn = tableSettingExpanded || missionSettingExpanded || (relicGrindExpanded && C.XPRelicGrind);
 
                 if (showNextColumn)
                 {
@@ -183,27 +228,10 @@ namespace ICE.Ui.MainUi.ModeSelect
                     {
                         ImGui.TableNextColumn();
 
-                        bool relicTurnin = C.TurninRelic;
-                        if (ImGui.Checkbox("Turnin if relic is complete".Loc() + "##RelicTurnin_RelicGrind", ref relicTurnin))
-                        {
-                            if (relicTurnin)
-                                C.GrindProvisionals = false;
-
-                            C.TurninRelic = relicTurnin;
-                            C.Save();
-                        }
-                        ImGui.SameLine();
-                        ImGui.TextDisabled("?");
-                        if (ImGui.IsItemHovered())
-                        {
-                            ImGui.SetTooltip(("THIS IS YOUR HEADS UP ON HOW THIS WORKS. If I change this in the future, this tooltip will also change.\n" +
-                                             "1: This will check for your current CLASS [not menu class, actual current class] for relic turnin.\n" +
-                                             "2: You must not have the tool eqipped for this to run full auto. \n" +
-                                             "\t- This is due to the fact that I cba coding this in at this time. (might change my mind in the future *shrugs*)\n" +
-                                             "3: This will take prio over \"Stop @ Relic Turnin\", in the sense that if you have both enabled, it will turnin vs stop. And continue about it's day\n" +
-                                             "4: If you're on a crafting class, it will return you back to the stop you were crafting post turnin. \n" +
-                                             "\t- This is optional, you can disable it at your own free will, I just like this so I can just go back to an isolated area of my choosing").Loc());
-                        }
+                        // 同一個「宇宙工具完成就自動繳交」開關在任務設定欄也有一份。
+                        // 兩份原本是各自寫的複製碼（連 tooltip 都逐字重複）——
+                        // 已收斂成 Settings_TableColumns 的單一實作，控制項 id 逐字保留。
+                        Settings_TableColumns.DrawRelicTurninCheckbox("RelicGrind");
 
                         ImGui.Separator();
 
@@ -269,29 +297,12 @@ namespace ICE.Ui.MainUi.ModeSelect
                         }
                     }
 
-                    if (C.ShowCompletionWindow && completionExpanded)
-                    {
-                        ImGui.TableNextColumn();
-                        bool showSelectedJobOnly = C.ShowSelectedJobOnly;
-                        if (ImGui.Checkbox("Show only selected job".Loc() + "###ICEShowSelectedJobOnly", ref showSelectedJobOnly))
-                        {
-                            C.ShowSelectedJobOnly = showSelectedJobOnly;
-                            if (showSelectedJobOnly)
-                                C.ShowCompletionOnlyJob = false;
-                            C.Save();
-                        }
-
-                        bool nonGold = C.ShowCompletion_MissingGold;
-                        if (ImGui.Checkbox("Show Only Non-Gold Missions".Loc() + "###ICEShowCompletionMissingGold", ref nonGold))
-                        {
-                            C.ShowCompletion_MissingGold = nonGold;
-                            C.Save();
-                        }
-                    }
                 }
 
                 ImGui.EndTable();
             }
+
+            DrawFilterRow(scale);
 
             using (var bodyChild = ImRaii.Child("##modeSelect_Body", new Vector2(0, -1), true, ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse))
             {
@@ -440,6 +451,93 @@ namespace ICE.Ui.MainUi.ModeSelect
                 else
                 {
                     MissionTableInfo();
+                }
+            }
+        }
+
+        /// <summary>
+        /// 篩選列（2026-08-09 UI 重構第五批）。
+        /// 這一列只裝「會改變你現在看到什麼」的控制項，所以永遠可見、就在任務表正上方；
+        /// 「設好就不會再動」的東西留在上面的「任務頁設定」分節裡。
+        /// <br></br>
+        /// 📌 檢視切換（任務清單／完成度）與側欄那兩個項目是**同一件事的兩個入口**：
+        /// 它改的就是側欄目前的選取項，不是另外一份狀態，所以兩邊永遠一致。
+        /// 🔴 這裡**不能**直接寫 <c>C.ShowCompletionWindow</c> —— 那個值每一幀都會被
+        /// <c>MainWindow.MainBody()</c> 依側欄選取項覆寫回去，直接寫會在下一幀被靜默還原
+        /// （看起來就是「點了沒反應」）。
+        /// <br></br>
+        /// 📌 三個勾選項是從「表格設定」／「完成度表格設定」搬上來的，程式碼逐字照搬，
+        /// 包含「只顯示所選職業」會順手關掉 <c>ShowCompletionOnlyJob</c> 這個既有副作用。
+        /// <br></br>
+        /// ⚠️ 整列包在一個開了水平捲軸的子視窗裡（與下面那排分類按鈕同一個作法）：
+        /// 繁中標籤比英文長，視窗窄的時候後面幾項會被切掉而**不會換行** ——
+        /// 有捲軸至少永遠碰得到。
+        /// </summary>
+        private static void DrawFilterRow(float scale)
+        {
+            float scrollbarSize = ImGui.GetStyle().ScrollbarSize;
+            float rowHeight = ImGui.GetFrameHeight() + scrollbarSize + 4 * scale;
+
+            using (var filterRow = ImRaii.Child("##modeSelect_FilterRow", new Vector2(0, rowHeight), false, ImGuiWindowFlags.HorizontalScrollbar))
+            {
+                if (!filterRow.Success)
+                    return;
+
+                bool completionView = SelectableSidebar.currentSelection == "modeSelect_Completion";
+                if (ImGui.RadioButton("Mission List".Loc() + "###ICEViewMissionList", !completionView))
+                    SelectableSidebar.currentSelection = "modeSelect_Standard";
+                ImGui.SameLine(0, 6 * scale);
+                if (ImGui.RadioButton("Completion".Loc() + "###ICEViewCompletion", completionView))
+                    SelectableSidebar.currentSelection = "modeSelect_Completion";
+
+                ImGui.SameLine(0, 14 * scale);
+
+                ImGui.SetNextItemWidth(180 * scale);
+                var needle = MissionNameFilter;
+                if (ImGui.InputTextWithHint("###ICEMissionSearch", "Search by name or ID".Loc(), ref needle, 64))
+                    MissionNameFilter = needle;
+
+                // 清除鈕只在真的有在篩選時出現 —— 它同時是「現在有東西被藏起來」的指示：
+                // 任務表突然變短的時候，這顆按鈕就在旁邊，不必去猜是不是壞了。
+                if (!string.IsNullOrEmpty(MissionNameFilter))
+                {
+                    ImGui.SameLine(0, 4 * scale);
+                    if (ImGuiEx.IconButton(FontAwesomeIcon.Times, "ICEMissionSearchClear"))
+                        MissionNameFilter = string.Empty;
+                    if (ImGui.IsItemHovered())
+                        ImGui.SetTooltip("Clear".Loc());
+                }
+
+                ImGui.SameLine(0, 14 * scale);
+
+                bool hideUnsupported = C.HideUnsupportedMissions;
+                if (ImGui.Checkbox("Hide Unsupported Missions".Loc() + "###ICEHideUnsupportedMissions", ref hideUnsupported))
+                {
+                    C.HideUnsupportedMissions = hideUnsupported;
+                    C.Save();
+                }
+
+                // 這兩個只在完成度檢視下有作用（任務表的列迴圈也是這樣判的），
+                // 所以也只在那時候出現 —— 與它們原本住在「完成度表格設定」欄裡的可達性相同。
+                if (C.ShowCompletionWindow)
+                {
+                    ImGui.SameLine(0, 14 * scale);
+                    bool showSelectedJobOnly = C.ShowSelectedJobOnly;
+                    if (ImGui.Checkbox("Show only selected job".Loc() + "###ICEShowSelectedJobOnly", ref showSelectedJobOnly))
+                    {
+                        C.ShowSelectedJobOnly = showSelectedJobOnly;
+                        if (showSelectedJobOnly)
+                            C.ShowCompletionOnlyJob = false;
+                        C.Save();
+                    }
+
+                    ImGui.SameLine(0, 14 * scale);
+                    bool nonGold = C.ShowCompletion_MissingGold;
+                    if (ImGui.Checkbox("Show Only Non-Gold Missions".Loc() + "###ICEShowCompletionMissingGold", ref nonGold))
+                    {
+                        C.ShowCompletion_MissingGold = nonGold;
+                        C.Save();
+                    }
                 }
             }
         }

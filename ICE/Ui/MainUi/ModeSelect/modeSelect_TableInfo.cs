@@ -546,6 +546,12 @@ namespace ICE.Ui.MainUi.ModeSelect
                     var missionConfig = C.MissionConfig[Id];
                     var missionInfo = CosmicHelper.SheetMissionDict[Id];
 
+                    // 篩選列的搜尋（2026-08-09）：只影響「這一列畫不畫」。
+                    // ⚠️ 刻意放在這裡，不放在建清單的地方 —— 分類按鈕上的計數（「已啟用 [12]」
+                    //    那種）算的是真正啟用的筆數，被搜尋字串改掉會直接誤導人。
+                    if (!modeSelect_Standard.PassesNameFilter(Id, missionInfo.Name))
+                        continue;
+
                     // 判定與自動選任務共用同一個函式，表上顯示的與流程實際會跳過的一定一致。
                     bool unsupported = MissionSupport.IsUnsupported(Id, out var unsupportedReason);
                     bool hideUnsupported = C.HideUnsupportedMissions;

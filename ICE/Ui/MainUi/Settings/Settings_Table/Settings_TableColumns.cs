@@ -38,12 +38,10 @@ public static class Settings_TableColumns
             ImGui.EndCombo();
         }
 
-        bool hideUnsupported = C.HideUnsupportedMissions;
-        if (ImGui.Checkbox("Hide Unsupported Missions".Loc() + "###ICEHideUnsupportedMissions", ref hideUnsupported))
-        {
-            C.HideUnsupportedMissions = hideUnsupported;
-            C.Save();
-        }
+        // 📌「隱藏尚未支援的任務」原本在這裡，2026-08-09 搬到任務頁的篩選列上
+        //    （modeSelect_Standard.DrawFilterRow）—— 它是每天都會切的顯示篩選，
+        //    不該躺在一個預設收合的設定欄裡。設定鍵與控制項 id 都沒有改，
+        //    只是換了畫的位置，所以既有設定照舊生效。
 
         bool showExtraInfo = C.ShowExtraMissionInfo;
         if (ImGui.Checkbox("Show Extra Mission Info Side-Window".Loc() + "###ICEShowExtraMissionInfo", ref showExtraInfo))
@@ -158,27 +156,9 @@ public static class Settings_TableColumns
         }
 
         ImGui.Checkbox("Stop after current mission".Loc() + "###ICEGeneralStopAfterCurrent", ref Mission_Settings.StopAfterCurrent);
-        bool relicTurnin = C.TurninRelic;
-        if (ImGui.Checkbox("Turnin if relic is complete".Loc() + "##RelicTurnin_GeneralSetting", ref relicTurnin))
-        {
-            if (relicTurnin)
-                C.GrindProvisionals = false;
 
-            C.TurninRelic = relicTurnin;
-            C.Save();
-        }
-        ImGui.SameLine();
-        ImGui.TextDisabled("?");
-        if (ImGui.IsItemHovered())
-        {
-            ImGui.SetTooltip(("THIS IS YOUR HEADS UP ON HOW THIS WORKS. If I change this in the future, this tooltip will also change.\n" +
-                             "1: This will check for your current CLASS [not menu class, actual current class] for relic turnin.\n" +
-                             "2: You must not have the tool eqipped for this to run full auto. \n" +
-                             "\t- This is due to the fact that I cba coding this in at this time. (might change my mind in the future *shrugs*)\n" +
-                             "3: This will take prio over \"Stop @ Relic Turnin\", in the sense that if you have both enabled, it will turnin vs stop. And continue about it's day\n" +
-                             "4: If you're on a crafting class, it will return you back to the stop you were crafting post turnin. \n" +
-                             "\t- This is optional, you can disable it at your own free will, I just like this so I can just go back to an isolated area of my choosing").Loc());
-        }
+        DrawRelicTurninCheckbox("GeneralSetting");
+
         // ── 快速套用回報設定（2026-08-09：彈窗改成就地展開）────────────────────────
         // 使用者點名這個彈窗難用：它蓋在任務表上、點到旁邊就整個關掉、
         // 而且按下「套用」之前完全不知道會動到幾個任務 —— 一鍵改掉幾百筆設定卻沒有預覽。
@@ -285,6 +265,41 @@ public static class Settings_TableColumns
             }
 
             ImGui.TreePop();
+        }
+    }
+
+    /// <summary>
+    /// 「宇宙工具完成就自動繳交」的勾選項。
+    /// 🔴 這個開關在畫面上有**兩個**入口（任務設定欄、宇宙工具設定欄），
+    /// 原本是兩份逐字重複的複製碼 —— 連「勾起來時順手關掉限定任務模式」這個副作用
+    /// 與整段 tooltip 都各寫了一次。兩份會漂移，而漂移的失敗形式是
+    /// 「同一個開關在 A 處會關掉限定任務、在 B 處不會」這種沒人查得出來的怪 bug。
+    /// ⚠️ <paramref name="idSuffix"/> 逐字沿用原本兩處的控制項 id 尾巴
+    /// （<c>GeneralSetting</c> / <c>RelicGrind</c>）：ImGui 用 id 認控制項，
+    /// 兩個入口必須是不同 id，否則同一幀畫兩次會互相搶狀態。
+    /// </summary>
+    public static void DrawRelicTurninCheckbox(string idSuffix)
+    {
+        bool relicTurnin = C.TurninRelic;
+        if (ImGui.Checkbox("Turnin if relic is complete".Loc() + "##RelicTurnin_" + idSuffix, ref relicTurnin))
+        {
+            if (relicTurnin)
+                C.GrindProvisionals = false;
+
+            C.TurninRelic = relicTurnin;
+            C.Save();
+        }
+        ImGui.SameLine();
+        ImGui.TextDisabled("?");
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip(("THIS IS YOUR HEADS UP ON HOW THIS WORKS. If I change this in the future, this tooltip will also change.\n" +
+                             "1: This will check for your current CLASS [not menu class, actual current class] for relic turnin.\n" +
+                             "2: You must not have the tool eqipped for this to run full auto. \n" +
+                             "\t- This is due to the fact that I cba coding this in at this time. (might change my mind in the future *shrugs*)\n" +
+                             "3: This will take prio over \"Stop @ Relic Turnin\", in the sense that if you have both enabled, it will turnin vs stop. And continue about it's day\n" +
+                             "4: If you're on a crafting class, it will return you back to the stop you were crafting post turnin. \n" +
+                             "\t- This is optional, you can disable it at your own free will, I just like this so I can just go back to an isolated area of my choosing").Loc());
         }
     }
 
