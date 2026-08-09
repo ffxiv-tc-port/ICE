@@ -191,16 +191,16 @@ namespace ICE.Ui.MainUi.ModeSelect
                 ImGui.TableNextRow();
                 ImGui.TableSetColumnIndex(0);
 
-                bool tableSettingExpanded = modeSelect_Tools.DrawCompactCategoryHeader("Table Settings".Loc(), FontAwesomeIcon.Table);
+                bool tableSettingExpanded = modeSelect_Tools.DrawCompactCategoryHeader("Table Settings".Loc(), FontAwesomeIcon.Table, id: "cat_ModeTableSettings");
 
                 ImGui.TableNextColumn();
-                bool missionSettingExpanded = modeSelect_Tools.DrawCompactCategoryHeader("Mission Settings".Loc(), FontAwesomeIcon.UserCog);
+                bool missionSettingExpanded = modeSelect_Tools.DrawCompactCategoryHeader("Mission Settings".Loc(), FontAwesomeIcon.UserCog, id: "cat_ModeMissionSettings");
 
                 bool relicGrindExpanded = false;
                 if (C.XPRelicGrind)
                 {
                     ImGui.TableNextColumn();
-                    relicGrindExpanded = modeSelect_Tools.DrawCompactCategoryHeader("Relic Grind Settings".Loc(), FontAwesomeIcon.ArrowUpRightDots);
+                    relicGrindExpanded = modeSelect_Tools.DrawCompactCategoryHeader("Relic Grind Settings".Loc(), FontAwesomeIcon.ArrowUpRightDots, id: "cat_ModeRelicGrindSettings");
                 }
 
                 // 📌 這裡原本還有第四欄「完成度表格設定」，裡面就是「只顯示所選職業」與

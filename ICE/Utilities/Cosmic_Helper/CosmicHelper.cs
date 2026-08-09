@@ -35,12 +35,15 @@ public static unsafe partial class CosmicHelper
         [CosmicWeather.Rain] = 60207,
     };
 
-    public static readonly int MinimumLevel = 10;
-    // 📌 這裡原本有 `public static readonly int MaximumLevel = Player.MaxLevel;` ——
-    //    零讀取者的死碼，已刪。它是三個同形快照裡最糟的一個：static 初始化器只跑一次，
-    //    而取的是 `Player.MaxLevel` —— 登入前那個值未必可用，所以它不只是「可能過期」，
-    //    是「可能一開始就取到不對的值，然後永遠是那個值」。
-    //    要用等級上限的話當場問 Player，不要再放一個模組層級的快照。
+    // 📌 這裡原本有一對等級界限常數，兩個都是零讀取者的死碼，已刪：
+    //    ① `public static readonly int MaximumLevel = Player.MaxLevel;` ——
+    //       三個同形快照裡最糟的一個：static 初始化器只跑一次，而取的是 `Player.MaxLevel`，
+    //       登入前那個值未必可用，所以它不只是「可能過期」，是「可能一開始就取到不對的值，
+    //       然後永遠是那個值」。要用等級上限的話當場問 Player，不要再放一個模組層級的快照。
+    //    ② `public static readonly int MinimumLevel = 10;` ——
+    //       單純沒人讀的常數。它不像 ① 有取值時機的問題，但留著會讓人以為「宇宙探索有
+    //       等級下限 10 的判斷」，實際上碼裡沒有任何地方做這個判斷。
+    //       真的要擋等級請去 WKSMission 的資料層取，不要復活這個寫死的 10。
 
     public static readonly int MaxRelicLevel = 14;
 
