@@ -148,6 +148,24 @@ internal static class MechaEventRecorder
     private static readonly Dictionary<ulong, InteractionTally> interactions = [];
 
     /// <summary>
+    /// 這一場你手上技能的<b>最大觸及距離</b>（<c>MechaAoeShape.Primary</c> 的高水位）。
+    /// 0＝整場沒有任何啟用中的機甲技能（例如身份判不出來）⇒ 歸因一律標成「?」不猜。
+    /// </summary>
+    private static float sessionMaxReach;
+
+    /// <summary>上面那個高水位是哪一招給的，寫進 log 讓讀的人可以自己覆核。</summary>
+    private static uint sessionMaxReachAction;
+
+    /// <summary>
+    /// 判「碰不到」時額外留的餘裕（公尺）。
+    /// 🔑 取樣約每秒一次，兩次取樣之間玩家可能移動好幾公尺 ⇒ 觀測到的最近距離是
+    /// 真實最近距離的<b>上界</b>。這個餘裕讓判定寧可少講一句「碰不到」，
+    /// 也不要把「其實你打得到、只是沒被取樣到」誤標成別人打的。
+    /// 5 公尺 ≈ 一秒的跑步距離。
+    /// </summary>
+    private const float OutOfReachMargin = 5f;
+
+    /// <summary>
     /// 一個實體在這一場事件裡的完整生命週期。<b>全部是純值</b>。
     /// </summary>
     private sealed class RecordedEntity
@@ -162,6 +180,23 @@ internal static class MechaEventRecorder
         public DateTime FirstSeen;
         public DateTime LastSeen;
         public int SeenSnapshots;
+
+        /// <summary>
+        /// 這一場看過的<b>最近</b>距離。<c>MaxValue</c>＝一次都沒取樣到（不該發生）。
+        ///
+        /// 🔑 <b>加這一欄的理由</b>（2026-08-09，一次真實的誤判）：只看 <c>lastDist</c>
+        /// 會把「它消失前最後一眼在多遠」當成「我離它多近過」，兩者完全不同 ——
+        /// 一個在你身邊被你打掉的目標，最後一眼也可能是它飄遠之後。
+        /// 反過來更要命：<b>整場都在 20~99 公尺外的東西被讀成「漏預測」</b>，
+        /// 而它其實是同場駕駛員在地圖另一頭打掉的。判「我到底有沒有可能碰到它」
+        /// 只有全程最近距離講得準。
+        /// ⚠️ 取樣是約每秒一次 ⇒ 這是<b>觀測到的</b>最小值，不是真實最小值
+        /// （兩次取樣之間可能更近）。所以拿它做判斷時一定要留餘裕，見 <c>OutOfReachText</c>。
+        /// </summary>
+        public float MinDistance = float.MaxValue;
+
+        /// <summary>看過的最大 hitbox 半徑。觸及判定會把它加進去，所以判「碰不到」時要一併扣掉。</summary>
+        public float MaxHitbox;
 
         /// <summary>被任一啟用中的技能「預測會蓋到」的快照數。</summary>
         public int PredictedSnapshots;
@@ -328,6 +363,8 @@ internal static class MechaEventRecorder
         lastSweepIdSignature = "";
         lastDuplicateOidCount = 0;
         progressBaselineSet = false;
+        sessionMaxReach = 0f;
+        sessionMaxReachAction = 0;
         tracks.Clear();
         interactions.Clear();
         lastRecast.Clear();
@@ -445,6 +482,32 @@ internal static class MechaEventRecorder
     ///
     /// 🔑 兩個方向都要列，而且<b>反方向（實際有但預測無）才是「預測範圍太小」的直接證據</b>。
     /// </summary>
+    /// <summary>
+    /// 「這個東西整場有沒有進過你的技能觸及範圍」。<c>True</c>＝從來沒有
+    /// ⇒ 它消失<b>不可能</b>是你打的（多人內容裡是別人打的，或它只是離開串流範圍）。
+    ///
+    /// 🔴 <b>這一欄是為了擋掉一個真的發生過的誤讀</b>（2026-08-09）：
+    /// 協助員場結束後 <c>vanishedNotPredicted=69</c>，看起來像「預測漏掉 69 個目標」，
+    /// 於是差點被當成預測 bug 去修。實際上那 69 筆裡 55 筆是巨型水晶，
+    /// 全程最近也有 20.68 公尺，而當時手上的宇宙鑽頭只能打 4.5 公尺 ——
+    /// 那是同場<b>駕駛員</b>在地圖另一頭打掉的。
+    /// 判準因此不是「消失時多遠」而是「<b>整場最近</b>多遠」。
+    ///
+    /// ⚠️ 三個都不知道的情況一律回 <c>"?"</c> 而不是 <c>False</c>：
+    /// 沒有任何啟用中的技能（不知道你打得到多遠）、或這一筆從沒被取樣到距離。
+    /// 「不知道」被寫成 False 會讓讀的人以為「你打得到它」，那正是這一欄要防的事。
+    /// </summary>
+    private static string OutOfReachText(RecordedEntity t)
+    {
+        if (sessionMaxReach <= 0f || t.MinDistance == float.MaxValue)
+            return "?";
+
+        // 觸及判定本身會把目標 hitbox 加進去（見 MechaCoverage.IsInReach），
+        // 這裡照樣加，再加取樣間隔的餘裕 —— 兩邊都往「可能碰得到」的方向靠。
+        var reachable = sessionMaxReach + t.MaxHitbox + OutOfReachMargin;
+        return t.MinDistance > reachable ? "True" : "False";
+    }
+
     private static void EmitSummary()
     {
         var predicted = new List<RecordedEntity>();
@@ -483,6 +546,45 @@ internal static class MechaEventRecorder
             + "（機甲事件的 per-player 目標會這樣），seenSnaps 可能大於快照總數，"
             + "而且個別消失偵測不到——那幾筆不要拿來算命中率。");
 
+        // ── 歸因（2026-08-09 新增）────────────────────────────────────────────
+        // 🔑 這一行的存在理由：上面那個 vanishedNotPredicted 的數字**單獨看會騙人**，
+        //    而且已經騙過一次（把 69 筆別人打掉的目標讀成「預測漏了 69 個」）。
+        //    所以把「其中有幾筆你根本碰不到」直接算好放在同一段，不要求讀的人自己去比距離。
+        var outOfReach = vanishedOnly.Count(x => OutOfReachText(x) == "True");
+        var unknownReach = vanishedOnly.Count(x => OutOfReachText(x) == "?");
+        var noPersonalScore = vanishedOnly.Count(x => x.PersonalDeltaAtVanish == 0);
+        var dupTracks = tracks.Values.Count(x => x.DuplicateId);
+
+        EmitRing(
+            $"SUMMARY-ATTRIB;reach={(sessionMaxReach > 0f ? sessionMaxReach.ToString("F1") : "?")}"
+            + $";reachAction={(sessionMaxReachAction != 0 ? sessionMaxReachAction.ToString() : "-")}"
+            + $";margin={OutOfReachMargin:F1}"
+            + $";vanishedNotPredicted={vanishedOnly.Count};outOfReach={outOfReach}"
+            + $";reachUnknown={unknownReach};persDeltaZero={noPersonalScore};dupIdTracks={dupTracks}");
+
+        if (vanishedOnly.Count > 0)
+        {
+            var attribution = outOfReach > 0
+                ? $"vanishedNotPredicted 的 {vanishedOnly.Count} 筆裡有 {outOfReach} 筆"
+                  + $"全程沒進過你的技能觸及範圍（最遠 {sessionMaxReach:F1} 公尺＋餘裕 {OutOfReachMargin:F0}）"
+                  + "＝別人打掉的或離開串流範圍，**不是漏預測**，不要拿去調預測參數。"
+                : "vanishedNotPredicted 這幾筆都曾經進過你的技能觸及範圍，"
+                  + "所以「預測漏掉」這個解釋這一次是站得住的，可以往下查。";
+
+            EmitRing(
+                "SUMMARY-ATTRIB-NOTE;" + attribution
+                + $" 另外有 {noPersonalScore} 筆消失的當下個人分完全沒動（persDelta=0）——"
+                + "多人內容裡這同樣指向「不是你打的」。"
+                + (unknownReach > 0
+                    ? $" ⚠️ 有 {unknownReach} 筆判不出來（整場沒有啟用中的機甲技能，或沒取樣到距離），那幾筆標 ?，不要當成 False 讀。"
+                    : string.Empty)
+                + (dupTracks > 0
+                    ? $" ⚠️ 有 {dupTracks} 筆是 dupId（多個實體共用一個 ObjectId，per-player 目標會這樣）："
+                      + "它們的 predicted／vanished 是合計值而且個別消失偵測不到，"
+                      + "**predicted 數偏低是這個原因，不是預測失準**。"
+                    : string.Empty));
+        }
+
         // 預測有但實際無：預測範圍可能太寬，或那一發根本沒放出去。
         foreach (var t in predictedOnly.OrderBy(x => x.MinPredictedDistance))
         {
@@ -493,12 +595,18 @@ internal static class MechaEventRecorder
                 + $";dupId={t.DuplicateId}");
         }
 
-        // 實際有但預測無：🔑 這一份才是「預測範圍太小／判定漏掉它」的直接證據。
-        foreach (var t in vanishedOnly.OrderBy(x => x.LastDistance))
+        // 實際有但預測無：🔑 這一份**在扣掉 outOfReach=True 之後**才是
+        //    「預測範圍太小／判定漏掉它」的直接證據。
+        // ⚠️ 排序改用 minDist（全程最近）而不是 lastDist：真正值得追的是「離你很近卻沒被預測到」
+        //    的那幾筆，它們現在會排在最前面；整場都在天邊的排最後。
+        foreach (var t in vanishedOnly.OrderBy(x => x.MinDistance))
         {
             EmitRing(
                 $"SUMMARY-VANISH-ONLY;oid=0x{t.ObjectId:X};did={t.BaseId};kind={t.Kind};name={t.Name}"
-                + $";lastDist={t.LastDistance:F2};lastPos={Fmt(t.LastPos)};seenSnaps={t.SeenSnapshots}"
+                + $";lastDist={t.LastDistance:F2}"
+                + $";minDist={(t.MinDistance == float.MaxValue ? "?" : t.MinDistance.ToString("F2"))}"
+                + $";outOfReach={OutOfReachText(t)}"
+                + $";lastPos={Fmt(t.LastPos)};seenSnaps={t.SeenSnapshots}"
                 + $";tier={t.BestTier};iceListed={t.EverIceListed};dupId={t.DuplicateId}"
                 + $";persDelta={t.PersonalDeltaAtVanish};progDelta={t.ProgressDeltaAtVanish}");
         }
@@ -789,6 +897,16 @@ internal static class MechaEventRecorder
             if (!MechaAoeOverlay.IsSkillEnabled(c.ActionId))
                 continue;
             enabledSkills++;
+
+            // 這一場「你最遠打得到多遠」的高水位。用來在總結時判斷某個消失的東西
+            // 到底有沒有可能是你打掉的（見 OutOfReachText）。
+            // 🔑 取高水位而不是取當下：身份判不出來的那幾幀 ActiveCandidates 會是空的
+            //    （實機：事件收尾兩幀 skillsEnabled=0），用當下值會讓判定在最後一刻歸零。
+            if (c.Shape.Primary > sessionMaxReach)
+            {
+                sessionMaxReach = c.Shape.Primary;
+                sessionMaxReachAction = c.ActionId;
+            }
 
             EmitCoverage($"PRED #{seq}", c, origin, rotation, casterHitbox, IceTargetsAsSweep(), predictedNow);
             EmitCoverage($"PRED-RAW #{seq}", c, origin, rotation, casterHitbox, sweep);
@@ -1143,6 +1261,11 @@ internal static class MechaEventRecorder
             track.SeenSnapshots++;
             track.EverIceListed |= listed.Contains(e.ObjectId);
 
+            if (e.Distance < track.MinDistance)
+                track.MinDistance = e.Distance;
+            if (e.HitboxRadius > track.MaxHitbox)
+                track.MaxHitbox = e.HitboxRadius;
+
             var tier = TierOf(e.ObjectId, e.BaseId, e.Kind);
             if (tier > track.BestTier)
                 track.BestTier = tier;
@@ -1168,6 +1291,10 @@ internal static class MechaEventRecorder
             EmitRing(
                 $"VANISH;{TimeFields()};oid=0x{track.ObjectId:X};did={track.BaseId};kind={track.Kind}"
                 + $";name={track.Name};lastPos={Fmt(track.LastPos)};lastDist={track.LastDistance:F2}"
+                // minDist／outOfReach 在這裡就給，不必等總結：追一筆可疑的消失時，
+                // 第一個要問的就是「我到底靠近過它沒有」。
+                + $";minDist={(track.MinDistance == float.MaxValue ? "?" : track.MinDistance.ToString("F2"))}"
+                + $";outOfReach={OutOfReachText(track)}"
                 + $";seenSnaps={track.SeenSnapshots};predictedSnaps={track.PredictedSnapshots}"
                 + $";minPredDist={(track.MinPredictedDistance == float.MaxValue ? "-" : track.MinPredictedDistance.ToString("F2"))}"
                 + $";tier={track.BestTier};iceListed={track.EverIceListed};dupId={track.DuplicateId}"
