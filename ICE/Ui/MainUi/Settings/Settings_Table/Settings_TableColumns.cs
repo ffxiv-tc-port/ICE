@@ -182,6 +182,11 @@ public static class Settings_TableColumns
                 ApplyToAllClasses = false;
                 ApplyToSpecicClass = true;
             }
+            // 🔴 一定要指定寬度：這個下拉原本住在彈出視窗裡（寬度由彈窗決定），
+            //    改成畫在表格欄位裡之後，沒指定寬度的控制項會回頭去問「欄位有多寬」，
+            //    而這個表格是依內容自動決定欄寬的 —— 兩邊互相參照會讓欄寬在每一幀之間跳動。
+            //    用字型大小當基準，使用者調 UI 縮放時會跟著縮放。
+            ImGui.SetNextItemWidth(ImGui.GetFontSize() * 12f);
             if (ImGui.Combo("##ClassSelector", ref selectedClassIndex, classOptions, classOptions.Length))
             {
                 // Update SpecificClass when selection changes
