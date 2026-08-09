@@ -179,12 +179,17 @@ public static class Settings_TableColumns
                              "4: If you're on a crafting class, it will return you back to the stop you were crafting post turnin. \n" +
                              "\t- This is optional, you can disable it at your own free will, I just like this so I can just go back to an isolated area of my choosing").Loc());
         }
-        if (ImGui.Button("Quick Apply Turnins".Loc() + "###ICEQuickApplyTurnins"))
-        {
-            ImGui.OpenPopup("Quick Apply_Mission Turnins");
-        }
-
-        if (ImGui.BeginPopup("Quick Apply_Mission Turnins"))
+        // ── 快速套用回報設定（2026-08-09：彈窗改成就地展開）────────────────────────
+        // 使用者點名這個彈窗難用：它蓋在任務表上、點到旁邊就整個關掉、
+        // 而且按下「套用」之前完全不知道會動到幾個任務 —— 一鍵改掉幾百筆設定卻沒有預覽。
+        // ⇒ ①改成就地展開的收合區塊（不會蓋住別的東西、點旁邊也不會消失）
+        //   ②「套用」上面多一行：目前這組條件會套用到幾個任務。
+        //
+        // ⚠️ 篩選條件只有一份（QuickApplyTargetCount / 實際套用共用 IsQuickApplyTarget），
+        //    預覽數字與真正會被改到的筆數不可能對不上。
+        // 📌 套用之後區塊**不會**自己收起來（原本的彈窗會關掉）：留著才看得到套用後的筆數，
+        //    也方便接著換一個職業再套一次。
+        if (ImGui.TreeNode("Quick Apply Turnins".Loc() + "###ICEQuickApplyTurnins"))
         {
             if (ImGui.RadioButton("Apply to all classes".Loc() + "###ICEApplyToAllClasses", ApplyToAllClasses))
             {
@@ -255,37 +260,64 @@ public static class Settings_TableColumns
 
             ImGui.Separator();
 
+            // 按下去之前先講清楚會動到幾筆。這一行刻意畫在按鈕正上方而不是塞進 tooltip：
+            // 「會改掉幾百個任務的設定」屬於按下去之前一定要看到的資訊，不是起疑才查的。
+            ImGui.TextUnformatted("Will apply to ?? missions".Loc(QuickApplyTargetCount()));
+
             if (ImGui.Button("Apply".Loc() + "###ICEQuickApplyConfirm"))
             {
                 var amountApplied = 0;
                 foreach (var mission in C.MissionConfig)
                 {
-                    if (CosmicHelper.SheetMissionDict.TryGetValue(mission.Key, out var sheetInfo))
-                    {
-                        if (ApplyToSpecicClass && !sheetInfo.Jobs.Contains((uint)SpecificClass))
-                            continue;
+                    if (!IsQuickApplyTarget(mission.Key))
+                        continue;
 
-                        if (sheetInfo.Attributes.HasFlag(MissionAttributes.ScoreTimeRemaining))
-                            continue;
-
-                        if (C.MissionConfig.TryGetValue(mission.Key, out var config))
-                        {
-                            config.AutoTurnin = AnyTurnin;
-                            config.TurninGold = TurninGold;
-                            config.TurninSilver = TurninSilver;
-                            config.TurninBronze = TurninBronze;
-                        }
-                        amountApplied += 1;
-                    }
+                    var config = mission.Value;
+                    config.AutoTurnin = AnyTurnin;
+                    config.TurninGold = TurninGold;
+                    config.TurninSilver = TurninSilver;
+                    config.TurninBronze = TurninBronze;
+                    amountApplied += 1;
                 }
                 C.SaveDebounced();
 
                 Notify.Success("Applied settings to: ?? missions, just for you buddy.".Loc(amountApplied));
-                ImGui.CloseCurrentPopup();
             }
 
-
-            ImGui.EndPopup();
+            ImGui.TreePop();
         }
+    }
+
+    /// <summary>
+    /// 「快速套用回報設定」會不會動到這個任務。
+    /// 🔴 預覽筆數與實際套用**只能有這一份判定** —— 兩邊各寫一次的話，
+    /// 條件哪天改了只改一邊，失敗形式是「預覽說 120 筆、實際改了 300 筆」這種
+    /// 使用者按下去才發現、而且無法復原的靜默錯誤。
+    /// 判定內容與改成收合區塊之前逐字相同：查不到任務資料的跳過、
+    /// 選了特定職業就只算該職業的、計時計分（ScoreTimeRemaining）的任務永遠跳過。
+    /// </summary>
+    private static bool IsQuickApplyTarget(uint missionId)
+    {
+        if (!CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var sheetInfo))
+            return false;
+
+        if (ApplyToSpecicClass && !sheetInfo.Jobs.Contains((uint)SpecificClass))
+            return false;
+
+        if (sheetInfo.Attributes.HasFlag(MissionAttributes.ScoreTimeRemaining))
+            return false;
+
+        return true;
+    }
+
+    private static int QuickApplyTargetCount()
+    {
+        var count = 0;
+        foreach (var mission in C.MissionConfig)
+        {
+            if (IsQuickApplyTarget(mission.Key))
+                count += 1;
+        }
+        return count;
     }
 }
