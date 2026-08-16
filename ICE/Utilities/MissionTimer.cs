@@ -1,4 +1,5 @@
 ﻿using ICE.Config;
+using ICE.Utilities.Cosmic_Helper;
 using System.Collections.Generic;
 using System.Diagnostics;
 using static ICE.Ui.MainUi.ModeSelect.modeSelect_TableInfo;
@@ -18,6 +19,15 @@ public class MissionTimer
 
     public void StartMission(uint missionId)
     {
+        // 🔴 0 不是任何任務的 id（SheetMissionDict 是 1..544）。讓它進來就會在
+        //    C.MissionConfig 裡長出一個 key 0，而且是**存進設定檔的**——
+        //    之後每一個「迭代 MissionConfig 再去索引 SheetMissionDict」的地方都會被它炸掉。
+        if (missionId == 0)
+        {
+            IceLogging.Warning("忽略用任務 ID 0 啟動計時器的要求。", "[Mission Timer]");
+            return;
+        }
+
         currentMission = missionId;
         stopwatch.Restart();
         isRunning = true;
@@ -42,6 +52,13 @@ public class MissionTimer
 
     private void UpdateMissionStats(uint missionId, TimeSpan duration)
     {
+        // 見 StartMission 的說明：key 0 會被寫進設定檔，之後炸在別人身上。
+        if (missionId == 0)
+        {
+            IceLogging.Warning("忽略任務 ID 0 的完成統計。", "[Mission Timer]");
+            return;
+        }
+
         if (!C.MissionConfig.ContainsKey(missionId))
         {
             C.MissionConfig[missionId] = new();
@@ -109,6 +126,10 @@ public class MissionTimer
 
     public void ResetTimers(uint missionId)
     {
+        // 見 StartMission 的說明：這裡也會 new 出一筆並存檔，一樣要擋 0。
+        if (missionId == 0)
+            return;
+
         if (!C.MissionConfig.ContainsKey(missionId))
         {
             C.MissionConfig[missionId] = new();
@@ -226,6 +247,15 @@ public class MissionTimer
         stopwatch.Stop();
         stopwatch.Reset();
         isRunning = false;
+
+        // 🔴 這裡就是 key 0 的來源：任務已經結束（currentMission 早被 CompleteMission
+        //    歸零）之後又走一次放棄流程，就會 new 出 C.MissionConfig[0] 並存檔。
+        //    實測使用者的設定檔裡 key 0 的 failedCounters 已經累積到 118。
+        if (currentMission == 0)
+        {
+            IceLogging.Warning("放棄任務時沒有正在計時的任務，略過失敗計數。", "[Mission Timer]");
+            return;
+        }
 
         if (!C.MissionConfig.ContainsKey(currentMission))
         {

@@ -517,6 +517,18 @@ namespace ICE.Config
 
         public static void UpdateConfigMissionList()
         {
+            // 🔴 key 0 是垃圾資料，而且是**已經存在既有使用者設定檔裡**的垃圾：
+            //    MissionTimer.AbandonMission() 以前會在 currentMission 已歸零時
+            //    new 出 C.MissionConfig[0] 並存檔（實測使用者的檔案裡 failedCounters 已 118）。
+            //    0 不是任務表的 row，任何「迭代 MissionConfig 再索引 SheetMissionDict」
+            //    的地方都會被它炸掉。寫入端的哨兵已經補在 MissionTimer，
+            //    這裡負責清掉既有檔案裡的殘留（Remove 回 false 就不存檔，冪等）。
+            if (C.MissionConfig.Remove(0))
+            {
+                IceLogging.Warning("已從任務設定中移除無效的任務 ID 0。", "[Config Migrator]");
+                C.Save();
+            }
+
             foreach (var entry in CosmicHelper.SheetMissionDict)
             {
                 var id = entry.Key;
