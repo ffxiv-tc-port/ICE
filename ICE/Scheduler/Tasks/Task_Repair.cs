@@ -230,6 +230,10 @@ namespace ICE.Scheduler.Tasks
                 {
                     ECommons.Automation.Callback.Fire(Yesno.Base, true, -1);
                 }
+
+                // 確認框還在＝還沒收乾淨。下面的收尾出口改成 return true 之後，
+                // 這個分支就必須自己明確回 false，否則按下取消的同一幀就會宣告完成。
+                return false;
             }
             else if (GenericHelpers.TryGetAddonByName<AtkUnitBase>("Repair", out var repairWindow))
             {
@@ -240,6 +244,8 @@ namespace ICE.Scheduler.Tasks
                         IceLogging.Debug("Closing the repair window", "[Repair Task]");
                         ECommons.Automation.Callback.Fire(repairWindow, true, -1);
                     }
+
+                    return false;
                 }
                 else
                 {
@@ -247,7 +253,12 @@ namespace ICE.Scheduler.Tasks
                 }
             }
 
-            return false;
+            // 🔴 兩個視窗都已經不在了＝收尾其實已經做完。這裡原本回 false，等於
+            //    「永遠不完成」，而這三步掛的是 Utils.TaskConfig
+            //    （timeLimitMS = 30 分鐘、abortOnTimeout = false）——所以症狀不是報錯，
+            //    是**整個佇列卡在這一步 30 分鐘**，逾時之後才靠 abortOnTimeout = false
+            //    放行下一步。上面兩個分支的 return false 就是為了配這個出口而補的。
+            return true;
         }
     }
 }
