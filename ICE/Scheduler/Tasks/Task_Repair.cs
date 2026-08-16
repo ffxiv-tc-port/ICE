@@ -31,8 +31,17 @@ namespace ICE.Scheduler.Tasks
                         new(CloseRepair, "Closing Self Repair", Utils.TaskConfig)
                     );
                 }
-                P.TaskManager.Enqueue(() =>  SchedulerMain.State = IceState.GrabMission);
             }
+
+            // 🔴 這一行原本在 if (NeedsRepair) 裡面，所以「進來時已經不需要修理」＝什麼都沒排，
+            //    而 Tick 只在佇列排空時才呼叫 Enqueue()，狀態又還停在 Repair
+            //    → 下一個 tick 再進來、再什麼都沒排 → **永遠卡在 Repair 狀態，而且完全沒有 log**。
+            //    觸發條件不只上面註解講的「自我修理逾時把佇列清掉」那一種：
+            //    Task_CheckState 判定要修理、到這裡 Enqueue 之間只要有別的外掛
+            //    （AutoRetainer／Deliveroo／使用者自己按修理）先把裝備修好，就會落進同一個死結。
+            //    這個離開狀態的動作與「要不要修理」無關，所以必須在 if 外面無條件排。
+            //    （移出來也不會多做事：狀態機本來就是「修理這一段結束 → 回去領任務」。）
+            P.TaskManager.Enqueue(() => SchedulerMain.State = IceState.GrabMission);
         }
         public static unsafe bool? HubCheck()
         {
