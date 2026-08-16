@@ -110,7 +110,17 @@ public sealed partial class ICE : IDalamudPlugin
         Init();
         Svc.Framework.Update += Tick;
 
-        TaskManager = new(new(showDebug: false));
+        // 🔴 任務逾時目前在 log 裡查不到「是哪一步逾時」：ECommons 丟的
+        //    TaskTimeoutException 訊息是空的（只剩 e.LogWarning() 的堆疊），
+        //    唯一帶任務名稱的那行在 TaskManager.Tick 裡被 ShowDebug = false 關掉，
+        //    而且就算打開也是 Debug 級 —— 使用者跑 LogLevel 2 收不到。
+        // ⚠️ 事件一定要在 new TaskManager(...) **之前**掛好：建構子做的是
+        //    `new TaskManagerConfiguration{...}.With(defaultConfiguration)`，
+        //    事件被複製進另一個物件，事後再對這個區域變數指派完全沒有效果。
+        var taskManagerConfiguration = new TaskManagerConfiguration(showDebug: false);
+        taskManagerConfiguration.OnTaskTimeout = (TaskManagerTask task, ref long remainingTimeMS) =>
+            IceLogging.Error($"任務逾時：{task.Name}@{task.Location}（remainingTimeMS = {remainingTimeMS}）", "[Task Manager]");
+        TaskManager = new(taskManagerConfiguration);
         Svc.PluginInterface.UiBuilder.Draw += windowSystem.Draw;
         // 機甲行動技能範圍（P1）：PctDrawList 只能在 ImGui frame 內用，必須掛 UiBuilder.Draw。
         Svc.PluginInterface.UiBuilder.Draw += MechaAoeOverlay.Draw;
