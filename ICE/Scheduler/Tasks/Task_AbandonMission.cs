@@ -111,27 +111,20 @@ namespace ICE.Scheduler.Tasks
                         IceLogging.Debug($"Trimmed text: '{select.Text.Trim()}'");
                         IceLogging.Debug($"Trimmed length: {select.Text.Trim().Length}");
 
+                        // 🔴 這裡原本還有一整段作者查法文譯文用的逐字元 dump：把 select.Text 與一句
+                        //    寫死的法文確認句各自跑一次 for 迴圈，每個字元印一行 IceLogging.Error。
+                        //    節流器是 EzThrottler 的預設 500ms，所以那是**每半秒約 110 行 Error**
+                        //    （兩句各約 50 餘字元 ＋ 4 行標頭）。IceLogging.Error 除了寫 dalamud.log
+                        //    還會推進 LogSystem 那個 3000 筆的環形緩衝區 —— 也就是使用者要複製回報的
+                        //    那個視窗，十幾秒就會被這段 dump 洗光，真正有用的上下文全部被擠出去。
+                        //    法文比對的問題後來是靠 NormalizeWhitespace()（下面那個函式，處理 NBSP／
+                        //    細空格）解掉的，這段 dump 只是當時的鷹架，留著純粹是損害。
+                        // ⚠️ 只刪列印，判斷與動作完全不動：認不出來的確認框仍然按 No，
+                        //    仍然留一行 Error 說明是什麼視窗。cycleapple 9d5a8f0 在同一個位置改成
+                        //    「不碰這個視窗、只印 Warning 等它自己關掉」——那是行為變更（可能是別的
+                        //    外掛的確認框），**這一輪刻意不採用**，維持現行按 No。
                         if (EzThrottler.Throttle("Unexpected Abandon Window..."))
                         {
-                            var actualText = select.Text.Trim();
-                            var expectedFrench = "Êtes-vous sûre de vouloir abandonner la mission en cours ?";
-
-                            // Debug the ACTUAL text character by character
-                            IceLogging.Error("=== ACTUAL TEXT BREAKDOWN ===");
-                            for (int i = 0; i < actualText.Length; i++)
-                            {
-                                IceLogging.Error($"Actual char {i}: '{actualText[i]}' (Unicode: {(int)actualText[i]})");
-                            }
-
-                            // Debug the EXPECTED text character by character
-                            IceLogging.Error("=== EXPECTED TEXT BREAKDOWN ===");
-                            IceLogging.Error($"Expected: '{expectedFrench}'");
-                            IceLogging.Error($"Expected length: {expectedFrench.Length}");
-                            for (int i = 0; i < expectedFrench.Length; i++)
-                            {
-                                IceLogging.Error($"Expected char {i}: '{expectedFrench[i]}' (Unicode: {(int)expectedFrench[i]})");
-                            }
-
                             IceLogging.Error($"Unexpected abandon window??? {select.Text}", "[Abandon Mission]");
                             select.No();
                         }
