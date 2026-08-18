@@ -102,7 +102,7 @@ internal static class MechaAoeOverlay
             return;
         }
 
-        var lp = Svc.ClientState.LocalPlayer;
+        var lp = Svc.Objects.LocalPlayer;
         if (lp == null)
         {
             coverage = Empty;

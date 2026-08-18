@@ -29,17 +29,17 @@ public class PlayerHelper
     public static bool IsInSinusArdorum() => IsInZone(1237);
     public static bool IsInPhaenna() => IsInZone(1291);
     public static bool IsInZone(uint zoneID) => Svc.ClientState.TerritoryType == zoneID;
-    private static IPlayerCharacter Object => Svc.ClientState.LocalPlayer;
+    private static IPlayerCharacter Object => Svc.Objects.LocalPlayer;
     private static unsafe float AnimationLock => *(float*)((nint)ActionManager.Instance() + 8);
     public static bool IsAnimationLocked => AnimationLock > 0;
     public static bool CustomIsBusy => GenericHelpers.IsOccupied() || Object.IsCasting || IsAnimationLocked;
 
     public static unsafe bool HasStatusId(params uint[] statusIDs)
     {
-        if (Svc.ClientState.LocalPlayer == null)
+        if (Svc.Objects.LocalPlayer == null)
             return false;
 
-        var statusID = Svc.ClientState.LocalPlayer.StatusList
+        var statusID = Svc.Objects.LocalPlayer.StatusList
             .Select(se => se.StatusId)
             .ToList().Intersect(statusIDs)
             .FirstOrDefault();
@@ -49,13 +49,13 @@ public class PlayerHelper
 
     public static int GetGp()
     {
-        var gp = Svc.ClientState.LocalPlayer?.CurrentGp ?? 0;
+        var gp = Svc.Objects.LocalPlayer?.CurrentGp ?? 0;
         return (int)gp;
     }
 
     public static int MaxGp()
     {
-        var maxGp = Svc.ClientState.LocalPlayer?.MaxGp ?? 0;
+        var maxGp = Svc.Objects.LocalPlayer?.MaxGp ?? 0;
         return (int)maxGp;
     }
 
@@ -215,7 +215,7 @@ public class PlayerHelper
         if (!C.UseGatheringFood || C.GatheringFood == 0)
             return true;
 
-        var foodBuff = Svc.ClientState.LocalPlayer.StatusList.FirstOrDefault(x => x.StatusId == 48 && x.RemainingTime > 10f);
+        var foodBuff = Svc.Objects.LocalPlayer.StatusList.FirstOrDefault(x => x.StatusId == 48 && x.RemainingTime > 10f);
         if (foodBuff == null)
             return false;
         if (Svc.Data.GetExcelSheet<Item>().TryGetRow(C.GatheringFood, out var itemInfo))

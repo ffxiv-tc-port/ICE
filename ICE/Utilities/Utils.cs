@@ -81,23 +81,23 @@ public static unsafe class Utils
         if (x == null)
             return false;
 
-        if (Svc.Targets.Target != null && Svc.Targets.Target.DataId == x.DataId)
+        if (Svc.Targets.Target != null && Svc.Targets.Target.BaseId == x.BaseId)
             return true;
 
         if (!GenericHelpers.IsOccupied())
         {
             if (x != null)
             {
-                if (EzThrottler.Throttle($"Throttle Targeting {x.DataId}"))
+                if (EzThrottler.Throttle($"Throttle Targeting {x.BaseId}"))
                 {
                     Svc.Targets.SetTarget(x);
-                    IceLogging.Info($"Setting the target to {x.DataId}");
+                    IceLogging.Info($"Setting the target to {x.BaseId}");
                 }
             }
         }
         return false;
     }
-    internal static bool TryGetObjectByDataId(ulong dataId, out IGameObject? gameObject) => (gameObject = Svc.Objects.OrderBy(PlayerHelper.GetDistanceToPlayer).FirstOrDefault(x => x.DataId == dataId)) != null;
+    internal static bool TryGetObjectByDataId(ulong dataId, out IGameObject? gameObject) => (gameObject = Svc.Objects.OrderBy(PlayerHelper.GetDistanceToPlayer).FirstOrDefault(x => x.BaseId == dataId)) != null;
     internal static bool TryGetNpcObject(NpcData.NPCInfo npc, out IGameObject? gameObject)
     {
         foreach (var npcId in npc.AlternateNpcIds.Prepend(npc.NpcId))
@@ -114,7 +114,7 @@ public static unsafe class Utils
             gameObject = currentTarget;
             IceLogging.Warning(
                 $"Configured NPC IDs [{configuredIds}] were not found; using targeted NPC " +
-                $"{gameObject.DataId} ({gameObject.Name}) near the configured location.",
+                $"{gameObject.BaseId} ({gameObject.Name}) near the configured location.",
                 "[NPC Resolver]");
             return true;
         }
@@ -128,7 +128,7 @@ public static unsafe class Utils
         {
             IceLogging.Warning(
                 $"Configured NPC IDs [{configuredIds}] were not found; using nearby NPC " +
-                $"{gameObject.DataId} ({gameObject.Name}) at the configured location.",
+                $"{gameObject.BaseId} ({gameObject.Name}) at the configured location.",
                 "[NPC Resolver]");
             return true;
         }
@@ -154,7 +154,7 @@ public static unsafe class Utils
     }
     public static IGameObject? TryGetObjectCollectionPoint()
     {
-        return Svc.Objects.OrderBy(PlayerHelper.GetDistanceToPlayer).FirstOrDefault(x => x.DataId == 2014616 || x.DataId == 2014618);
+        return Svc.Objects.OrderBy(PlayerHelper.GetDistanceToPlayer).FirstOrDefault(x => x.BaseId == 2014616 || x.BaseId == 2014618);
     }
     public static void TargetgameObject(IGameObject? gameObject)
     {
@@ -163,16 +163,16 @@ public static unsafe class Utils
             return;
 
         var currentTarget = Svc.Targets.Target;
-        if (currentTarget != null && currentTarget.DataId == x.DataId)
+        if (currentTarget != null && currentTarget.BaseId == x.BaseId)
             return;
 
         if (!GenericHelpers.IsOccupied())
         {
             if (x != null)
             {
-                if (EzThrottler.Throttle($"Throttle targeting: {x.DataId}"))
+                if (EzThrottler.Throttle($"Throttle targeting: {x.BaseId}"))
                 {
-                    IceLogging.Info($"Attempting to set the target to: {x.DataId} | {x.Name}", "[Target Game Object]");
+                    IceLogging.Info($"Attempting to set the target to: {x.BaseId} | {x.Name}", "[Target Game Object]");
                     // 🔑 機甲事件錄製要分得出「人選的」與「外掛選的」——這裡是 ICE 主動指定目標
                     //    的唯一路徑，先登記再真的設定。錄製沒開時整個方法第一行就 return。
                     MechaEventRecorder.NoteIceAction("target", x);

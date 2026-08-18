@@ -46,7 +46,7 @@ namespace ICE.Ui.DebugWindowTabs
         /// <returns>True if fishable, false otherwise</returns>
         public bool IsFishable(float? rotation = null)
         {
-            if (Svc.ClientState.LocalPlayer is not { } player)
+            if (Svc.Objects.LocalPlayer is not { } player)
                 return false;
 
             if (_raycastSimple == null)
@@ -68,7 +68,7 @@ namespace ICE.Ui.DebugWindowTabs
         {
             fishablePosition = null;
 
-            if (Svc.ClientState.LocalPlayer is not { } player)
+            if (Svc.Objects.LocalPlayer is not { } player)
                 return false;
 
             if (_raycastSimple == null)
@@ -164,7 +164,7 @@ namespace ICE.Ui.DebugWindowTabs
         {
             var fishableLocations = new List<(Vector3, float)>();
 
-            if (Svc.ClientState.LocalPlayer is not { } player)
+            if (Svc.Objects.LocalPlayer is not { } player)
                 return fishableLocations;
 
             if (_raycastSimple == null)
@@ -264,7 +264,7 @@ namespace ICE.Ui.DebugWindowTabs
 
         public void Draw()
         {
-            if (Svc.ClientState.LocalPlayer is not { } player)
+            if (Svc.Objects.LocalPlayer is not { } player)
                 return;
 
             if (!ShowFishRay)

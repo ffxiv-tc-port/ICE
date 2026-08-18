@@ -72,7 +72,7 @@ namespace ICE.Ui.DebugWindowTabs
             }
 
             ImGui.Checkbox("Show fishing spot raycast", ref _fishingDebug.ShowFishRay);
-            if (Svc.ClientState.LocalPlayer is { } player && _fishingDebug.ShowFishRay)
+            if (Svc.Objects.LocalPlayer is { } player && _fishingDebug.ShowFishRay)
             {
                 _fishingDebug.Draw();
             }

@@ -116,7 +116,7 @@ namespace ICE.Scheduler.Tasks
                 {
                     // We're currently close to a node, time to check and see if it's a viable node, or if we need to pathfind to the next
                     var nodeId = closestDistance.NodeId;
-                    var closestNode = Svc.Objects.Where(x => x.DataId == nodeId && x.IsTargetable).FirstOrDefault();
+                    var closestNode = Svc.Objects.Where(x => x.BaseId == nodeId && x.IsTargetable).FirstOrDefault();
 
                     if (closestNode != null)
                     {
@@ -194,7 +194,7 @@ namespace ICE.Scheduler.Tasks
                                 Node = node,
                                 Obj = Svc.Objects.FirstOrDefault(o => o.ObjectKind == ObjectKind.GatheringPoint
                                                                   && o.IsTargetable
-                                                                  && o.DataId == node.NodeId)
+                                                                  && o.BaseId == node.NodeId)
                             })
                             .Where(x => x.Node.NodeId != excludeNodeId && x.Obj != null)
                             .OrderBy(x => Player.DistanceTo(x.Obj!.Position))
@@ -214,7 +214,7 @@ namespace ICE.Scheduler.Tasks
                                     Index = i,
                                     Node = node,
                                     Loaded = Svc.Objects.Any(o => o.ObjectKind == ObjectKind.GatheringPoint
-                                                               && o.DataId == node.NodeId)
+                                                               && o.BaseId == node.NodeId)
                                 })
                                 .Where(x => x.Node.NodeId != excludeNodeId && !x.Loaded)
                                 .OrderBy(x => Player.DistanceTo(x.Node.Position))
@@ -270,7 +270,7 @@ namespace ICE.Scheduler.Tasks
                                 Node = node,
                                 Obj = Svc.Objects.FirstOrDefault(o => o.ObjectKind == ObjectKind.GatheringPoint
                                                                   && o.IsTargetable
-                                                                  && o.DataId == node.NodeId)
+                                                                  && o.BaseId == node.NodeId)
                             })
                             .Where(x => x.Obj != null)
                             .OrderBy(x => Player.DistanceTo(x.Obj!.Position))
