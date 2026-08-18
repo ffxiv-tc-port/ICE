@@ -12,9 +12,15 @@ namespace ICE.Scheduler.Handlers
             if (job == Player.Job || !EzThrottler.Throttle("Gearset", 250) || Player.IsBusy)
                 return;
             var gearsets = RaptureGearsetModule.Instance();
+            // RaptureGearsetModule.Instance() 走 UIModule，未登入／UI 尚未建立時回 null
+            //（CS 手寫實作逐字是 uiModule == null ? null : uiModule->GetRaptureGearsetModule()）。
+            // 取不到就直接 return——與上面三道閘門相同的失敗形式（這次不換裝，下個節流視窗再試）。
+            if (gearsets == null)
+                return;
+
             foreach (ref var gs in gearsets->Entries)
             {
-                if (!RaptureGearsetModule.Instance()->IsValidGearset(gs.Id)) continue;
+                if (!gearsets->IsValidGearset(gs.Id)) continue;
                 if ((Job)gs.ClassJob == job)
                 {
                     if (gs.Flags.HasFlag(RaptureGearsetModule.GearsetFlag.MainHandMissing))
