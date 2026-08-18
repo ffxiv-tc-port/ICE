@@ -107,6 +107,12 @@ public sealed partial class ICE : IDalamudPlugin
             """.Loc());
         EzCmd.Add("/ice", OnCommand);
         EzCmd.Add("/IceCosmic", OnCommand);
+
+        // 把使用者設定的日誌寫入門檻套進 IceLogging。
+        // 📌 預設值是 Verbose（全部寫入）＝現行行為；setter 會把值夾在 Info 以下，
+        //    所以不論設定檔被改成什麼，Information 以上的診斷都關不掉。
+        IceLogging.MinimumLevel = C.LogMinimumLevel;
+
         Init();
         Svc.Framework.Update += Tick;
 

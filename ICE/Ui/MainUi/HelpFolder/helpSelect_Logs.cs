@@ -45,6 +45,45 @@ namespace ICE.Ui.MainUi.HelpFolder
             LogHelperViewer();
         }
 
+        /// <summary>
+        /// 日誌<b>寫入端</b>門檻的選單。放在日誌檢視器上，因為這裡就是這個設定唯一看得到效果的地方。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 只提供 Verbose／Debug／Info 三個選項，因為 <c>IceLogging.MinimumLevel</c> 的 setter
+        /// 就把值夾在 Info 以下 —— Information 以上是回報診斷用的管道，不開放關掉。
+        /// UI 少列幾個選項只是順帶；真正的保證在 setter，不在這裡。
+        /// </remarks>
+        private static void DrawMinimumLevelCombo()
+        {
+            // 等級名稱刻意用列舉原名（跟下面表格的「等級」欄逐字一致），不另外翻譯，
+            // 免得同一個值在同一個視窗裡出現兩種寫法。
+            var levels = new[] { LogLevel.Verbose, LogLevel.Debug, LogLevel.Info };
+            var current = IceLogging.MinimumLevel;
+
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(120);
+            if (ImGui.BeginCombo("Minimum log level".Loc() + "###ICELogMinimumLevel", current.ToString()))
+            {
+                foreach (var level in levels)
+                {
+                    if (ImGui.Selectable(level.ToString(), level == current))
+                    {
+                        IceLogging.MinimumLevel = level;
+                        // 存回設定檔時寫夾擠**之後**的值，免得設定檔留著一個永遠套不上的數字。
+                        C.LogMinimumLevel = IceLogging.MinimumLevel;
+                        C.Save();
+                    }
+                }
+                ImGui.EndCombo();
+            }
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip(
+                    "Entries below this level are not written at all: no string is built and nothing enters the 3000-entry buffer.\nInformation and above can never be filtered out - that is the channel used for asking you to report diagnostics."
+                    .Loc());
+            }
+        }
+
         private static void LogHelperViewer()
         {
             // Search input
@@ -56,6 +95,8 @@ namespace ICE.Ui.MainUi.HelpFolder
             {
                 searchFilter = string.Empty;
             }
+
+            DrawMinimumLevelCombo();
 
             ImGui.Spacing();
 

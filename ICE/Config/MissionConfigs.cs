@@ -602,6 +602,18 @@ namespace ICE.Config
 
         public bool DisablePathfindingToRedAlert { get; set; } = false;
         public bool ShowDebugGatherInfo { get; set; } = false;
+
+        /// <summary>
+        /// 日誌<b>寫入端</b>門檻：低於這個等級的 log 完全不進緩衝區、不組字串、不呼叫 PluginLog。
+        /// </summary>
+        /// <remarks>
+        /// 📌 預設 <c>Verbose</c>＝<b>維持現行行為</b>（全部寫入）。設定檔缺這個鍵的既有使用者
+        /// 拿到的也是全開，沒有人的行為會被這次改動動到。<br/>
+        /// 🔴 <c>IceLogging.MinimumLevel</c> 的 setter 會把值夾在 <c>Info</c> 以下 ——
+        /// Information 是請使用者回報診斷的既定管道，關不掉。
+        /// </remarks>
+        public Utilities.Cosmic_Helper.IceLogging.LogLevel LogMinimumLevel { get; set; }
+            = Utilities.Cosmic_Helper.IceLogging.LogLevel.Verbose;
         public string AuthorName { get; set; } = "Puni.sh Community";
         public string CustomRoutePath { get; set; } = string.Empty;
 

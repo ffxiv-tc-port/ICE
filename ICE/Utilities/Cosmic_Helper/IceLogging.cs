@@ -6,7 +6,11 @@ using System.Runtime.CompilerServices;
 
 namespace ICE.Utilities.Cosmic_Helper;
 
-internal static class IceLogging
+// public（原本是 internal）：MissionConfigs 是 public，而它現在有一個型別為
+// IceLogging.LogLevel 的設定屬性 —— 巢狀列舉跟著外層類別的可及性，不放寬會 CS0053。
+// ⚠️ 設定屬性必須是 public，YamlDotNet 只序列化 public 屬性；改成 internal 的話
+//    設定「存得下去但讀不回來」，而且不會報錯。
+public static class IceLogging
 {
     // 🔴 為什麼要快取：沒帶 prefix 的呼叫點，每一次 log 都要做一次
     //    `new StackFrame(3).GetMethod()` —— 那是一次完整的堆疊走訪加上把 metadata token
@@ -102,17 +106,157 @@ internal static class IceLogging
         return $"{callerPrefix} {message}";
     }
 
+    // ────────────────────────────────────────────────────────────────────────
+    // 寫入端等級閘門
+    // ────────────────────────────────────────────────────────────────────────
+    // 🔴 這裡修的是「Debug 關著就免費」這個**錯的**直覺（與 ECommons InternalLog 同形狀）：
+    //    關掉 Dalamud 的記錄等級只省下**輸出端**，寫入端該付的照付 ——
+    //    ① 呼叫點的內插字串已經組好（配置＋格式化），
+    //    ② FormatMessage 再串一次前綴（再一次配置），
+    //    ③ LogSystem.Log 進 3000 筆環形緩衝區（LogEntry 配置＋DateTime.Now），
+    //    ④ ECommons PluginLog 還會 RunOnFrameworkThread 推一份進它自己的 InternalLog。
+    //    使用者跑 LogLevel 2 時，②③④ 全部是為了一行**沒有人看得到的輸出**在付錢。
+    //
+    // 🔴 上限鎖死在 Info：使用者跑 LogLevel 2，**Information 是請他回報診斷的既定管道**
+    //    （宇宙探索／釣魚／機甲那些中文診斷行）。所以 Info 以上**在結構上就關不掉** ——
+    //    不是靠「UI 不提供那個選項」，是靠這個 setter 夾住。
+    //    ⇒ 底下也只有 Verbose 與 Debug 兩個方法帶閘門，Info/Warning/Error/Chat* 一律不加，
+    //      免得哪天有人放寬上限時，診斷管道跟著被靜默關掉。
+    //
+    // 📌 預設 Verbose＝**維持現行行為**（全部都寫）。LogLevel 的零值就是 Verbose，
+    //    所以設定檔缺這個鍵的既有使用者拿到的也是「全開」，不會有人的行為被改掉。
+    private static LogLevel minimumLevel = LogLevel.Verbose;
+
+    /// <summary>
+    /// 寫入端門檻：低於這個等級的 log <b>完全不進緩衝區、不組字串、不呼叫 PluginLog</b>。
+    /// 預設 <see cref="LogLevel.Verbose"/>（全部寫入＝現行行為）。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 寫入值會被夾在 <see cref="LogLevel.Verbose"/>～<see cref="LogLevel.Info"/> 之間。
+    /// Information 以上是使用者回報診斷用的管道，不接受被關掉。
+    /// </remarks>
+    public static LogLevel MinimumLevel
+    {
+        get => minimumLevel;
+        set => minimumLevel = value < LogLevel.Verbose ? LogLevel.Verbose
+             : value > LogLevel.Info ? LogLevel.Info
+             : value;
+    }
+
+    /// <summary>這個等級現在寫不寫得進去。</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static bool IsEnabled(LogLevel level) => level >= minimumLevel;
+
+    // ────────────────────────────────────────────────────────────────────────
+    // 內插字串處理器 —— 讓閘門擋在「求值之前」
+    // ────────────────────────────────────────────────────────────────────────
+    // 🔴 為什麼光有上面的 if 不夠：`IceLogging.Debug($"x={Foo()} y={bar.Baz}")` 的內插
+    //    **在呼叫點就求值完畢**，方法裡再怎麼早 return，字串也早就組好了。
+    //    C# 10 的 InterpolatedStringHandler 是唯一能在「不改任何呼叫點」的前提下
+    //    把求值本身擋掉的機制：編譯器改成先建構處理器，由建構子的 out shouldAppend
+    //    決定要不要繼續 —— 回 false 時**每一個洞都不會被求值**。
+    // 📌 呼叫端一個字都不用改：對內插字串引數，多載解析規定處理器型別優先於 string；
+    //    傳一般 string 變數的呼叫點則照舊走 string 多載。
+    // ⚠️ 只有 Verbose/Debug 有處理器，因為只有這兩級關得掉（見上面的夾擠）。
+    // ⚠️ 代價：閘門關著時，內插洞裡的副作用不會發生。log 引數本來就不該有副作用，
+    //    而且預設全開，所以只有主動調高門檻的人會遇到。
+    [InterpolatedStringHandler]
+    public ref struct VerboseLogHandler
+    {
+        private DefaultInterpolatedStringHandler inner;
+        public readonly bool Enabled;
+
+        public VerboseLogHandler(int literalLength, int formattedCount, out bool shouldAppend)
+        {
+            if (IsEnabled(LogLevel.Verbose))
+            {
+                inner = new DefaultInterpolatedStringHandler(literalLength, formattedCount);
+                Enabled = shouldAppend = true;
+            }
+            else
+            {
+                inner = default;
+                Enabled = shouldAppend = false;
+            }
+        }
+
+        public void AppendLiteral(string value) => inner.AppendLiteral(value);
+        public void AppendFormatted<T>(T value) => inner.AppendFormatted(value);
+        public void AppendFormatted<T>(T value, string format) => inner.AppendFormatted(value, format);
+        public void AppendFormatted<T>(T value, int alignment) => inner.AppendFormatted(value, alignment);
+        public void AppendFormatted<T>(T value, int alignment, string format) => inner.AppendFormatted(value, alignment, format);
+        public void AppendFormatted(ReadOnlySpan<char> value) => inner.AppendFormatted(value);
+        public void AppendFormatted(ReadOnlySpan<char> value, int alignment = 0, string format = null) => inner.AppendFormatted(value, alignment, format);
+        public void AppendFormatted(string value) => inner.AppendFormatted(value);
+        public void AppendFormatted(string value, int alignment = 0, string format = null) => inner.AppendFormatted(value, alignment, format);
+        public void AppendFormatted(object value, int alignment = 0, string format = null) => inner.AppendFormatted(value, alignment, format);
+        public string ToStringAndClear() => inner.ToStringAndClear();
+    }
+
+    /// <inheritdoc cref="VerboseLogHandler"/>
+    [InterpolatedStringHandler]
+    public ref struct DebugLogHandler
+    {
+        private DefaultInterpolatedStringHandler inner;
+        public readonly bool Enabled;
+
+        public DebugLogHandler(int literalLength, int formattedCount, out bool shouldAppend)
+        {
+            if (IsEnabled(LogLevel.Debug))
+            {
+                inner = new DefaultInterpolatedStringHandler(literalLength, formattedCount);
+                Enabled = shouldAppend = true;
+            }
+            else
+            {
+                inner = default;
+                Enabled = shouldAppend = false;
+            }
+        }
+
+        public void AppendLiteral(string value) => inner.AppendLiteral(value);
+        public void AppendFormatted<T>(T value) => inner.AppendFormatted(value);
+        public void AppendFormatted<T>(T value, string format) => inner.AppendFormatted(value, format);
+        public void AppendFormatted<T>(T value, int alignment) => inner.AppendFormatted(value, alignment);
+        public void AppendFormatted<T>(T value, int alignment, string format) => inner.AppendFormatted(value, alignment, format);
+        public void AppendFormatted(ReadOnlySpan<char> value) => inner.AppendFormatted(value);
+        public void AppendFormatted(ReadOnlySpan<char> value, int alignment = 0, string format = null) => inner.AppendFormatted(value, alignment, format);
+        public void AppendFormatted(string value) => inner.AppendFormatted(value);
+        public void AppendFormatted(string value, int alignment = 0, string format = null) => inner.AppendFormatted(value, alignment, format);
+        public void AppendFormatted(object value, int alignment = 0, string format = null) => inner.AppendFormatted(value, alignment, format);
+        public string ToStringAndClear() => inner.ToStringAndClear();
+    }
+
     public static void Verbose(string message, string prefix = null, bool debugOnly = false,
         [CallerFilePath] string callerFile = null, [CallerLineNumber] int callerLine = 0)
     {
+        if (!IsEnabled(LogLevel.Verbose)) return;
         var formattedMessage = FormatMessage(message, prefix, callerFile, callerLine);
         PluginLog.Verbose(formattedMessage);
         LogSystem.Log(LogLevel.Verbose, message, prefix);
     }
 
+    /// <summary>內插字串專用多載，見 <see cref="VerboseLogHandler"/>。</summary>
+    /// <remarks>
+    /// 🔴 <b>不可以</b>改成轉呼叫上面的 <c>Verbose(string, …)</c>：<see cref="GetCallerPrefix"/>
+    /// 用 <c>StackFrame(3)</c> 數的是<b>實體堆疊層數</b>，中間多一層就會印出 IceLogging 自己的名字，
+    /// 而且會被寫進 <see cref="CallerPrefixCache"/> —— 之後每一次都錯，且不會報錯。
+    /// 所以這裡刻意把本體抄一份，維持「FormatMessage 由公開方法直接呼叫」這個層數。
+    /// </remarks>
+    public static void Verbose(VerboseLogHandler message, string prefix = null, bool debugOnly = false,
+        [CallerFilePath] string callerFile = null, [CallerLineNumber] int callerLine = 0)
+    {
+        if (!message.Enabled) return;
+        var text = message.ToStringAndClear();
+        var formattedMessage = FormatMessage(text, prefix, callerFile, callerLine);
+        PluginLog.Verbose(formattedMessage);
+        LogSystem.Log(LogLevel.Verbose, text, prefix);
+    }
+
     public static void Debug(string message, string prefix = null, bool debugOnly = false,
         [CallerFilePath] string callerFile = null, [CallerLineNumber] int callerLine = 0)
     {
+        if (!IsEnabled(LogLevel.Debug)) return;
         LogSystem.Log(LogLevel.Debug, message, prefix);
         if (debugOnly)
         {
@@ -124,6 +268,28 @@ internal static class IceLogging
         else
         {
             var formattedMessage = FormatMessage(message, prefix, callerFile, callerLine);
+            PluginLog.Debug(formattedMessage);
+        }
+    }
+
+    /// <summary>內插字串專用多載，見 <see cref="DebugLogHandler"/>。</summary>
+    /// <remarks>🔴 同 <see cref="Verbose(VerboseLogHandler, string, bool, string, int)"/>：不可轉呼叫，會弄壞 StackFrame(3)。</remarks>
+    public static void Debug(DebugLogHandler message, string prefix = null, bool debugOnly = false,
+        [CallerFilePath] string callerFile = null, [CallerLineNumber] int callerLine = 0)
+    {
+        if (!message.Enabled) return;
+        var text = message.ToStringAndClear();
+        LogSystem.Log(LogLevel.Debug, text, prefix);
+        if (debugOnly)
+        {
+#if DEBUG
+            var formattedMessage = FormatMessage(text, prefix, callerFile, callerLine);
+            PluginLog.Debug(formattedMessage);
+#endif
+        }
+        else
+        {
+            var formattedMessage = FormatMessage(text, prefix, callerFile, callerLine);
             PluginLog.Debug(formattedMessage);
         }
     }
