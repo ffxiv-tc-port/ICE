@@ -294,6 +294,69 @@ namespace ICE.Scheduler.Tasks
 
             return false;
         }
+        // ────────────────────────────────────────────────────────────────
+        // 輪盤選擇 log 的變化偵測
+        // ────────────────────────────────────────────────────────────────
+        // 🔴 為什麼需要：底下 GamblingTime 的輪盤選擇分支以 `return false` 結尾＝
+        //    NeoTaskManager 下一幀原地重跑（在 NeoTaskManager 裡 false 才是「還沒好，
+        //    再來一次」，null 才是中止整個佇列）。而 SelectWheelLeft/Right 寫回去的 Flags
+        //    兩個值都帶 Enabled 位元（65792 = 0x10100、327936 = 0x50100），所以呼叫端的
+        //    `leftWheelEnabled || rightWheelEnabled` 下一幀依然成立 —— 那五行 Information
+        //    原本每一幀印一次。IceLogging 的環形緩衝區是 3000 筆，60fps 下約 50 秒就被
+        //    同一句話洗光，使用者要回報的診斷反而整段不見 ⇒ 洗版本身就是在毀掉診斷價值。
+        //
+        // ⚠️ 等級維持 Information 不動 —— 使用者跑 LogLevel 2，Information 是請他回報
+        //    診斷的既定管道（IceLogging.MinimumLevel 的上限也鎖死在 Info）。
+        //    這裡改的是「印幾次」，不是「印不印得出來」。
+        //
+        // 🔑 用變化偵測而不是純時間節流：同一個決策只在**內容真的變了**時才印，所以
+        //    停在同一個決策上多久都只有一行，而決策一改變下一幀立刻看得到（時間節流會
+        //    把改變後的第一行延後到節流窗結束，那正好是最想看到的那一行）。
+        //    權重也進指紋，所以同一條分支但權重變了（＝換了一輪、輪盤內容不同）仍會補印。
+        //
+        // 📌 為什麼還要比時間差：連轉多輪時中間會走 GamblingTime 的另外兩條分支
+        //    （確認按鈕、是否對話框），輪盤這條整段不會被進入。時間差就是用來分辨
+        //    「下一幀」與「離開之後又回來」—— 後者是新的一輪，即使決策逐字相同也要
+        //    重新印一次，否則連轉時 log 會整段消失。
+        //    門檻只需要大於一個影格間隔（60fps ≒ 17ms）而小於一次轉盤動畫，取 500ms。
+        //    ⚠️ 已知代價：兩輪之間若真的短於 500ms 且決策逐字相同，會少印一行。
+        //    ⚠️ 反過來也是刻意的：萬一卡在「選輪盤 ↔ 按確認」交替的迴圈，時間差會判成
+        //       同一輪而不是每兩幀補印一次 —— 那正是要壓下來的洗版形狀。
+        //
+        // ⚠️ 下面四個欄位只有 log 讀寫。控制流、選輪盤的 Flags 寫入完全不看它們。
+        private const int WheelPureStellarLeft = 1;
+        private const int WheelPureStellarRight = 2;
+        private const int WheelLeftBetter = 3;
+        private const int WheelRightBetter = 4;
+        private const int WheelBothEqual = 5;
+
+        // 0 ＝ 還沒印過任何一次。五個決策碼都 >= 1，所以第一次呼叫必定印得出來，
+        // 不必依賴 lastWheelDecisionTick 的初始值（那是 0，開機後不久理論上可能 < 500）。
+        private static int lastWheelDecision;
+        private static float lastWheelDecisionLeft;
+        private static float lastWheelDecisionRight;
+        private static long lastWheelDecisionTick;
+
+        /// <summary>這一幀的輪盤決策要不要印出來（同一個決策只在改變時印一次）。</summary>
+        private static bool WheelDecisionChanged(int decision, float leftWeight, float rightWeight)
+        {
+            var now = Environment.TickCount64;
+            var returnedAfterLeaving = now - lastWheelDecisionTick > 500;
+            lastWheelDecisionTick = now;
+
+            // Equals 而不是 == ：NaN.Equals(NaN) 為 true，設定壞掉導致權重變 NaN 時
+            // 才不會每幀都判成「變了」而重新開始洗版。
+            if (!returnedAfterLeaving
+                && decision == lastWheelDecision
+                && leftWeight.Equals(lastWheelDecisionLeft)
+                && rightWeight.Equals(lastWheelDecisionRight))
+                return false;
+
+            lastWheelDecision = decision;
+            lastWheelDecisionLeft = leftWeight;
+            lastWheelDecisionRight = rightWeight;
+            return true;
+        }
         private static unsafe bool? GamblingTime()
         {
             string tag = "Gambling Time Task";
@@ -352,29 +415,36 @@ namespace ICE.Scheduler.Tasks
                         }
                     }
 
+                    // ⚠️ 只有 log 被包起來。判斷式、SelectWheel* 的呼叫、隨機選邊
+                    //    全部原封不動 —— 那是行為，不是診斷。
                     if (gamba.LeftWheelItems.Length == 0)
                     {
-                        IceLogging.Info($"Found a pure stellar mission gamba. Choosing left wheel", tag);
+                        if (WheelDecisionChanged(WheelPureStellarLeft, leftWeight, rightWeight))
+                            IceLogging.Info($"Found a pure stellar mission gamba. Choosing left wheel", tag);
                         SelectWheelLeft(gamba);
                     }
                     else if (gamba.RightWheelItems.Length == 0)
                     {
-                        IceLogging.Info($"Found a pure stellar mission gamba. Choosing right wheel", tag);
+                        if (WheelDecisionChanged(WheelPureStellarRight, leftWeight, rightWeight))
+                            IceLogging.Info($"Found a pure stellar mission gamba. Choosing right wheel", tag);
                         SelectWheelRight(gamba);
                     }
                     else if (leftWeight > rightWeight)
                     {
-                        IceLogging.Info($"[Gamba] First wheel is better with total weight: {leftWeight}");
+                        if (WheelDecisionChanged(WheelLeftBetter, leftWeight, rightWeight))
+                            IceLogging.Info($"[Gamba] First wheel is better with total weight: {leftWeight}");
                         SelectWheelLeft(gamba);
                     }
                     else if (rightWeight > leftWeight)
                     {
-                        IceLogging.Info($"[Gamba] Second wheel is better with total weight: {rightWeight}");
+                        if (WheelDecisionChanged(WheelRightBetter, leftWeight, rightWeight))
+                            IceLogging.Info($"[Gamba] Second wheel is better with total weight: {rightWeight}");
                         SelectWheelRight(gamba);
                     }
                     else
                     {
-                        IceLogging.Info("[Gamba] Both wheels are equal in weight. Randomly selecting one.");
+                        if (WheelDecisionChanged(WheelBothEqual, leftWeight, rightWeight))
+                            IceLogging.Info("[Gamba] Both wheels are equal in weight. Randomly selecting one.");
                         if (new Random().Next(2) == 0)
                             SelectWheelLeft(gamba);
                         else
