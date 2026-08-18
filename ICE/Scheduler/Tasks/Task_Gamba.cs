@@ -411,17 +411,25 @@ namespace ICE.Scheduler.Tasks
                 return true;
             }
         }
+        // 🔴 這兩支的唯一呼叫端（GamblingTime 的輪盤選擇分支）以 `return false` 結尾＝
+        //    NeoTaskManager 下一幀原地重跑。而這裡寫回去的 Flags **兩個值都帶 Enabled 位元**
+        //    （65792 = 0x10100、327936 = 0x50100），所以呼叫端的
+        //    `leftWheelEnabled || rightWheelEnabled` 下一幀依然成立 ⇒ 原本這行每幀都會噴一次。
+        //    ⚠️ 只節流 log，選輪盤的 Flags 寫入完全不動 —— 那是行為，不是診斷。
+        //    左右各自一把鑰匙，免得交替選擇時把對側那行吃掉。
         public static unsafe void SelectWheelLeft(WKSLottery gamba)
         {
             gamba.WheelLeftButton->Flags = 327936U; // Checked, Enabled, Selected
             gamba.WheelRightButton->Flags = 65792U; // Not Checked, Enabled, Not Selected
-            IceLogging.Debug($"[Gamba] Selecting Left Wheel");
+            if (EzThrottler.Throttle("ICE: gamba wheel select left log", 3000))
+                IceLogging.Debug($"[Gamba] Selecting Left Wheel");
         }
         public static unsafe void SelectWheelRight(WKSLottery gamba)
         {
             gamba.WheelLeftButton->Flags = 65792U; // Not Checked, Enabled, Not Selected
             gamba.WheelRightButton->Flags = 327936U; // Checked, Enabled, Selected
-            IceLogging.Debug($"[Gamba] Selecting Right Wheel");
+            if (EzThrottler.Throttle("ICE: gamba wheel select right log", 3000))
+                IceLogging.Debug($"[Gamba] Selecting Right Wheel");
         }
         public static bool BigBangGamba()
         {

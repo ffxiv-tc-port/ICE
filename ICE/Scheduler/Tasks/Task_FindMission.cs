@@ -1243,7 +1243,12 @@ namespace ICE.Scheduler.Tasks
                 }
                 else
                 {
-                    IceLogging.Debug("No valid missions found to abandon");
+                    // 🔴 這條路徑 `return false` ＝ NeoTaskManager **下一幀原地重跑同一個任務**
+                    //    （在 NeoTaskManager 裡 false 才是「還沒好，再來一次」，null 是中止整個佇列）。
+                    //    候選池空掉時條件不會自己改變，所以這行原本會一路噴到任務逾時為止。
+                    //    只節流 log，控制流完全不動。EzThrottler 首次必放行 ⇒ 第一次仍看得到。
+                    if (EzThrottler.Throttle("ICE: findreroll no abandon candidate", 5000))
+                        IceLogging.Debug("No valid missions found to abandon");
                     return false;
                 }
             }
