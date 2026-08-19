@@ -478,21 +478,31 @@ internal static class MissionObjectiveReader
             lines.Add($"IsVisible={addon->IsVisible} IsReady={addon->IsReady} AtkValuesCount={addon->AtkValuesCount} NodeListCount={addon->UldManager.NodeListCount}");
 
             lines.Add("--- AtkValues ---");
-            for (var i = 0; i < addon->AtkValuesCount; i++)
+            // AtkValuesCount 非 0 不保證 AtkValues 指標有效：addon 已建立但值陣列尚未配置
+            // （或已釋放）時，計數仍讀得到舊值而指標是 null，裸索引就是對 null 解參考。
+            // AVE 不是 .NET 攔得到的例外，下面那層 try/catch 接不住，所以必須先判空。
+            if (addon->AtkValues == null)
             {
-                var value = addon->AtkValues[i];
-                var rendered = value.Type switch
+                lines.Add($"(AtkValues 指標為 null，AtkValuesCount={addon->AtkValuesCount}，本節略過)");
+            }
+            else
+            {
+                for (var i = 0; i < addon->AtkValuesCount; i++)
                 {
-                    ValueType.String or ValueType.ManagedString or ValueType.String8 =>
-                        value.String.Value != null ? $"\"{GameTextUtil.EscapeGameIcons(Dalamud.Memory.MemoryHelper.ReadSeStringNullTerminated((nint)value.String.Value).GetText())}\"" : "\"\"",
-                    ValueType.Int => value.Int.ToString(),
-                    ValueType.UInt => value.UInt.ToString(),
-                    ValueType.Bool => value.Byte.ToString(),
-                    _ => value.Type.ToString(),
-                };
-                if (rendered is "\"\"" or "0")
-                    continue; // 空值太多，只印有內容的
-                lines.Add($"[{i}] {value.Type}: {rendered}");
+                    var value = addon->AtkValues[i];
+                    var rendered = value.Type switch
+                    {
+                        ValueType.String or ValueType.ManagedString or ValueType.String8 =>
+                            value.String.Value != null ? $"\"{GameTextUtil.EscapeGameIcons(Dalamud.Memory.MemoryHelper.ReadSeStringNullTerminated((nint)value.String.Value).GetText())}\"" : "\"\"",
+                        ValueType.Int => value.Int.ToString(),
+                        ValueType.UInt => value.UInt.ToString(),
+                        ValueType.Bool => value.Byte.ToString(),
+                        _ => value.Type.ToString(),
+                    };
+                    if (rendered is "\"\"" or "0")
+                        continue; // 空值太多，只印有內容的
+                    lines.Add($"[{i}] {value.Type}: {rendered}");
+                }
             }
 
             lines.Add("--- 文字節點（依父節點分組，按畫面 Y 排序）---");
