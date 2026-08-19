@@ -446,9 +446,10 @@ namespace ICE.Ui
             if (ImGui.IsItemHovered())
             {
                 ImGui.SetTooltip(
-                    "WKSMechaEventModule.Flags = 0x" + ((uint)flags).ToString("X") + "\n" +
-                    "known bits = 0x" + ((uint)(flags & known)).ToString("X") + "\n" +
-                    "other bits = 0x" + ((uint)unknown).ToString("X"));
+                    "WKSMechaEventModule.Flags = 0x??\nknown bits = 0x??\nother bits = 0x??".Loc(
+                        ((uint)flags).ToString("X"),
+                        ((uint)(flags & known)).ToString("X"),
+                        ((uint)unknown).ToString("X")));
             }
 
             return true;
