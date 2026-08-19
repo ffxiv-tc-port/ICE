@@ -286,10 +286,24 @@ internal static unsafe class PlayerHandlers
     /// <summary>
     ///
     /// </summary>
-    /// <returns>Hours[long], Minutes[long]</returns>
-    private static (long, long) GetEorzeaTime()
+    /// <returns>Hours[long], Minutes[long]；Framework 尚未就緒時回 null。</returns>
+    /// <remarks>
+    /// 🔴 Framework.Instance() 是 [StaticAddress(..., isPointer: true)]：產生器讀「指標的位址」
+    /// 再解參考一層，遊戲尚未建立單例時回 null（非 isPointer 的那種才保證不回 null，是擲例外）。
+    /// 裸解參考 null 原生指標是 AVE，屬 corrupted-state exception，try/catch 攔不到。
+    /// <para>
+    /// 📌 這裡回 <c>null</c> 而不是 <c>(0, 0)</c>：退回 0 點會讓呼叫端靜默排出一列
+    /// 看起來完全正常、實際上是錯時段的任務，比「沒有資料」更難被察覺。
+    /// 判空從呼叫端移進本函式，是為了不讓「安全」依賴「唯一呼叫端記得先擋」這個會過期的前提。
+    /// </para>
+    /// </remarks>
+    private static (long, long)? GetEorzeaTime()
     {
-        var eorzeaTime = Framework.Instance()->ClientTime.EorzeaTime;
+        var framework = Framework.Instance();
+        if (framework == null)
+            return null;
+
+        var eorzeaTime = framework->ClientTime.EorzeaTime;
         long hours = eorzeaTime / 3600 % 24;
         long minutes = eorzeaTime / 60 % 60;
         return (hours, minutes);
@@ -299,10 +313,11 @@ internal static unsafe class PlayerHandlers
     {
         // 🔴 GetEorzeaTime() 會解參考 Framework.Instance()。null 解參考是 AccessViolationException，
         //    在 .NET Core 屬 corrupted-state exception，try/catch 與 HookSafety.ExecuteSafe 都攔不到
-        //    —— 只能事前擋。
+        //    —— 只能事前擋。判空已移進 GetEorzeaTime() 本身（取不到回 null），
+        //    這樣防護就不再依賴「呼叫端記得先擋」這個會隨新增呼叫端而過期的前提。
         //    刻意「回空清單並記一次 Information」而不是退回 0 點：退回 0 點會靜默排出一列
         //    看起來完全正常、實際上是錯時段的任務，比空白更難被察覺。
-        if (Framework.Instance() == null)
+        if (GetEorzeaTime() is not { } EzTime)
         {
             if (EzThrottler.Throttle("ICE: eorzea clock unavailable", 60000))
                 IceLogging.Info(
@@ -311,7 +326,6 @@ internal static unsafe class PlayerHandlers
             return (new List<TimedInfo>(), new List<TimedInfo>());
         }
 
-        var EzTime = GetEorzeaTime();
         var currentHour = (int)EzTime.Item1; // Current hour
         var territoryId = Player.Territory;
 
