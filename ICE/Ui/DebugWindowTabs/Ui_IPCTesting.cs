@@ -41,9 +41,12 @@ namespace ICE.Ui.DebugWindowTabs
 
             if (ImGui.Button($"Test Radius"))
             {
+                // AgentMap 取得器合法回 null；這裡要讀 CurrentTerritoryId。
                 var agent = AgentMap.Instance();
-
-                Utils.SetGatheringRing(agent->CurrentTerritoryId, XLoc, YLoc, Radius);
+                if (agent == null)
+                    IceLogging.Info("AgentMap 尚未就緒，不執行採集圈測試。", "[Ui_IPCTesting]");
+                else
+                    Utils.SetGatheringRing(agent->CurrentTerritoryId, XLoc, YLoc, Radius);
             }
 
             ImGui.Separator();

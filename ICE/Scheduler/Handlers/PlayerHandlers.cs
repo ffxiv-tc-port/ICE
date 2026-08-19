@@ -174,7 +174,11 @@ internal static unsafe class PlayerHandlers
     }
     public static unsafe bool IsMoving()
     {
-        return AgentMap.Instance()->IsPlayerMoving;
+        // AgentMap.Instance() 是產生器產出的兩層可空取得器（agentModule 或代理人任一為 null
+        // 就回 null），裸解參考是攔不到的 AVE。唯一的呼叫端拿它當「要不要放月面衝刺」的閘門，
+        // 所以讀不到就回 false ＝ 不放技能（fail-closed）。
+        var agent = AgentMap.Instance();
+        return agent != null && agent->IsPlayerMoving;
     }
 
     internal static unsafe void Tick()

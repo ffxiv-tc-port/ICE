@@ -371,9 +371,21 @@ namespace ICE.Scheduler.Tasks
 
             if (EzThrottler.Throttle("Facing toward the fishing hole"))
             {
+                // 🔴 Framework.Instance() 是 [StaticAddress(..., isPointer: true)]，合法回 null；
+                //    GetConfigOption 找不到選項時也回 null。原本兩層都沒判，而下面是**寫入**
+                //    （把自動面向暫時開起來再還原）—— 裸寫等於往位址 0 寫，是攔不到的 AVE。
+                //    拿不到就不動設定、也不轉向，回 false 讓這個任務下一輪重試。
                 var fwk = FFXIVClientStructs.FFXIV.Client.System.Framework.Framework.Instance();
+                if (fwk == null)
+                    return false;
 
                 var autoRotateConfig = fwk->SystemConfig.GetConfigOption((uint)ConfigOption.AutoFaceTargetOnAction);
+                if (autoRotateConfig == null)
+                {
+                    IceLogging.Info("讀不到「自動面向目標」設定，這一輪不轉向。", "[Task_Fishing]");
+                    return false;
+                }
+
                 var autoRotateOriginal = autoRotateConfig->Value.UInt;
 
                 autoRotateConfig->Value.UInt = 1;

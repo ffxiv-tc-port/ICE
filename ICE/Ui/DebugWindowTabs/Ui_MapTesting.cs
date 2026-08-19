@@ -48,12 +48,16 @@ namespace ICE.Ui.DebugWindowTabs
             ImGui.InputInt("Map Radius", ref posRadius);
             if (ImGui.Button($"Test Map Marker from coords"))
             {
+                // AgentMap 取得器合法回 null；這裡要讀 CurrentTerritoryId。
                 var agent = AgentMap.Instance();
                 int _x = posX - 1024;
                 int _y = posY - 1024;
                 IceLogging.Debug($"X: {_x} Y: {_y}");
 
-                Utils.SetGatheringRing(agent->CurrentTerritoryId, _x, _y, posRadius);
+                if (agent == null)
+                    IceLogging.Info("AgentMap 尚未就緒，不執行地圖標記測試。", "[Ui_MapTesting]");
+                else
+                    Utils.SetGatheringRing(agent->CurrentTerritoryId, _x, _y, posRadius);
             }
         }
     }

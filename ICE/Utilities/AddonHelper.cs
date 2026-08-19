@@ -1,5 +1,6 @@
 ﻿using ECommons.GameHelpers;
 using FFXIVClientStructs.FFXIV.Client.UI;
+using ICE.Utilities.Cosmic_Helper;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using System.Collections.Generic;
@@ -18,7 +19,17 @@ public static class AddonHelper
         int[] basicCrafts = [1008, 1, 170, 663, 302, 464, 1101, 901];
         uint recipeId = (uint)basicCrafts[Player.JobId-8];
 
-        AgentRecipeNote.Instance()->OpenRecipeByRecipeId(ExcelHelper.RecipeSheet.GetRow(recipeId).RowId);
+        // AgentRecipeNote.Instance() 是產生器產出的兩層可空取得器，合法回 null。
+        // 取不到就當作「這次開不起來」——與上面 IsAddonActive 的失敗形式一致，
+        // 呼叫端本來就要處理「視窗沒開」（下一輪會再呼叫一次）。
+        var agent = AgentRecipeNote.Instance();
+        if (agent == null)
+        {
+            IceLogging.Info("AgentRecipeNote 尚未就緒，這次不開製作筆記。", "[AddonHelper]");
+            return;
+        }
+
+        agent->OpenRecipeByRecipeId(ExcelHelper.RecipeSheet.GetRow(recipeId).RowId);
     }
     public static unsafe bool IsAddonActive(string AddonName) // Used to see if the addon is active/ready to be fired on
     {

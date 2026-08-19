@@ -40,7 +40,16 @@ public static unsafe class Utils
     {
         var map = ExcelHelper.TerritorySheet.GetRow(territoryId).Map.Value;
 
+        // 🔴 AgentMap.Instance() 是 AgentGetterGenerator 產出的兩層可空取得器
+        //    （agentModule == null ? null : GetAgentByInternalId(...)），合法回 null。
+        //    下面第一件事就是 `agent->FlagMarkerCount = 0` —— 那是**寫入**，
+        //    裸寫等於往位址 0 寫，是攔不到的 AVE。拿不到就整個不插旗。
         var agent = AgentMap.Instance();
+        if (agent == null)
+        {
+            IceLogging.Info($"AgentMap 尚未就緒，不設定 NPC 旗標（territory {territoryId}）。", "[Utils]");
+            return;
+        }
 
         Vector2 pos = MapToWorld(new Vector2(x, y), map.SizeFactor, map.OffsetX, map.OffsetY);
 
@@ -53,7 +62,13 @@ public static unsafe class Utils
     {
         var map = ExcelHelper.TerritorySheet.GetRow(territoryId).Map.Value;
 
+        // 同 SetFlagForNPC：取得器合法回 null，而下一行是寫入。
         var agent = AgentMap.Instance();
+        if (agent == null)
+        {
+            IceLogging.Info($"AgentMap 尚未就緒，不設定 NPC 旗標（territory {territoryId}）。", "[Utils]");
+            return;
+        }
 
         agent->FlagMarkerCount = 0;
         agent->SetFlagMapMarker(territoryId, map.RowId, x, y);
@@ -200,7 +215,13 @@ public static unsafe class Utils
     public static unsafe void SetGatheringRing(uint territoryId, int x, int y, int radius, string? tooltip = "Node Location")
     {
         var map = ExcelHelper.TerritorySheet.GetRow(territoryId).Map.Value;
+        // 同 SetFlagForNPC：取得器合法回 null，而下面第一件事是寫 FlagMarkerCount。
         var agent = AgentMap.Instance();
+        if (agent == null)
+        {
+            IceLogging.Info($"AgentMap 尚未就緒，不畫採集圈（territory {territoryId}）。", "[Utils]");
+            return;
+        }
 
         Vector2 pos = MapToWorld(new Vector2(x, y), map.SizeFactor, map.OffsetX, map.OffsetY);
         IceLogging.Debug($"Current map: {map.RowId} {territoryId} | {map.PlaceName.Value.Name} | {pos.X} {pos.Y} | {x} {y} | {radius} | {tooltip}");
