@@ -90,6 +90,18 @@ namespace ICE.Ui.MainUi.ModeSelect
                 ? i.RelicXpInfo.Where(exp => exp.Key == type).Sum(exp => exp.Value)
                 : 0d;
 
+            // 實測「有效」每分成果：加權總分 ÷（交件耗時＋放棄耗時）。
+            // 沒有實測記錄（或查不到任務資料）一律回 0 —— 降冪排序下自然落到最後，
+            // 與這個函式既有的「查不到就排最後」慣例一致。
+            double EffectiveScoreOf(T m)
+            {
+                var id = idSelector(m);
+                if (!missionInfo.TryGetValue(id, out var i)) return 0;
+                if (!C.MissionConfig.TryGetValue(id, out var cfg)) return 0;
+                return MissionStatsCalculator.CalculateEffectiveScorePerMinute(
+                    cfg.TurninRecords, i.ClassScore, cfg.AbandonedTimeSeconds, cfg.TotalCompletions);
+            }
+
             return C.TableSortOption switch
             {
                 1 => items.OrderBy(NameOf),
@@ -102,8 +114,23 @@ namespace ICE.Ui.MainUi.ModeSelect
                 8 => items.OrderByDescending(m => ExpOf(m, 5)),
                 9 => items.OrderBy(MarkerOf),
                 10 => items.OrderByDescending(ScoreOf),
+                11 => items.OrderByDescending(EffectiveScoreOf),
                 _ => items,   // 0 = 依 ID，也就是維持原本的順序
             };
+        }
+
+        /// <summary>
+        /// 把秒數格式化成 h:mm:ss（小時不進位成天）。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 不要用 <c>TimeSpan.ToString("hh\:mm\:ss")</c> —— 那個 <c>hh</c> 是「一天之內的
+        /// 小時數」(0~23)，超過 24 小時會**靜默**把天數丟掉：30 小時會顯示成 06:00:00，
+        /// 看起來像個正常數字，不像壞掉。放棄耗時是長期累積值，一定會走到那個範圍。
+        /// </remarks>
+        private static string FormatTotalTime(double seconds)
+        {
+            var ts = TimeSpan.FromSeconds(seconds > 0 ? seconds : 0);
+            return $"{(int)ts.TotalHours:D2}:{ts.Minutes:D2}:{ts.Seconds:D2}";
         }
 
         // 🔴 死碼（不可達，但**不是**零呼叫端 —— 差別要說清楚）：
@@ -1394,6 +1421,31 @@ namespace ICE.Ui.MainUi.ModeSelect
                     ImGui.Text("Amount of times completed: ??".Loc(config.TotalCompletions));
                     ImGui.Text("Amount of timed abandoned: ??".Loc(config.FailedCounters));
 
+                    // 金星穩定度。分母是「含放棄」的嘗試次數 —— 放棄掉的那幾次也花了時間，
+                    // 只除以完成次數會把不穩的任務看成穩的。
+                    // ⚠️「不知道」要在列上看得見：樣本數 0 顯示 "--"，不要畫成 0%（那會誤導成「試過都沒中」）。
+                    var goldAttempts = config.TotalCompletions + config.FailedCounters;
+                    if (goldAttempts > 0)
+                    {
+                        var goldRate = 100.0 * config.GoldCompletions / goldAttempts;
+                        ImGui.Text("Gold rate: ??% (??/?? attempts, ?? abandoned)".Loc(
+                            goldRate.ToString("F0"), config.GoldCompletions, goldAttempts, config.FailedCounters));
+                    }
+                    else
+                    {
+                        ImGui.Text("Gold rate: -- (no attempts recorded yet)".Loc());
+                    }
+                    ImGui.SameLine();
+                    ImGui.TextDisabled("?");
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.SetTooltip(("Share of attempts that ended in a gold turn-in, counting abandoned runs as attempts.\n" +
+                                         "Time lost to abandons so far: ??\n" +
+                                         "Used by the optional 'Minimum gold rate' rule in Mission Picking Rules, and by the " +
+                                         "'Effective Score/Min' sort order. Display is never filtered by that rule.").Loc(
+                            FormatTotalTime(config.AbandonedTimeSeconds)));
+                    }
+
                     if (CosmicHelper.SheetMissionDict.TryGetValue(selectedMission, out var missionInfo))
                     {
                         var baseScore = missionInfo.ClassScore;
@@ -1555,7 +1607,35 @@ namespace ICE.Ui.MainUi.ModeSelect
                                 var planet = MissionStatsCalculator.CalculateActualScorePerMinute(config.TurninRecords, planetCredit);
                                 ImGui.Text($"{planet:N2}");
 
+                                // 「有效」＝把放棄掉的時間也算進分母。上面那列「平均」只除交件耗時，
+                                // 兩列並排就能一眼看出放棄成本吃掉多少效率。
+                                // ⚠️ 與「平均」那列一樣固定是每分鐘（不隨 ShowSPM 切換），兩列才可直接比較。
+                                ImGui.TableNextRow();
+                                ImGui.TableSetColumnIndex(0);
+                                ImGui.Text("Effective".Loc());
+                                ImGui.SameLine();
+                                ImGui.TextDisabled("?");
+                                if (ImGui.IsItemHovered())
+                                {
+                                    ImGui.SetTooltip(("Same as Average, but the time spent on abandoned runs is added to the denominator.\n" +
+                                                     "If you abandon when gold becomes unreachable, that time is a real cost of your farming loop, " +
+                                                     "and leaving it out systematically overrates missions you gold inconsistently.\n" +
+                                                     "Time lost to abandons so far: ??\n" +
+                                                     "This is what the 'Effective Score/Min' sort order ranks by.").Loc(
+                                        FormatTotalTime(config.AbandonedTimeSeconds)));
+                                }
 
+                                ImGui.TableNextColumn();
+                                var effScore = MissionStatsCalculator.CalculateEffectiveScorePerMinute(config.TurninRecords, baseScore, config.AbandonedTimeSeconds, config.TotalCompletions);
+                                ImGui.Text($"{effScore:N2}");
+
+                                ImGui.TableNextColumn();
+                                var effCredits = MissionStatsCalculator.CalculateEffectiveScorePerMinute(config.TurninRecords, comsoCredit, config.AbandonedTimeSeconds, config.TotalCompletions);
+                                ImGui.Text($"{effCredits:N2}");
+
+                                ImGui.TableNextColumn();
+                                var effPlanet = MissionStatsCalculator.CalculateEffectiveScorePerMinute(config.TurninRecords, planetCredit, config.AbandonedTimeSeconds, config.TotalCompletions);
+                                ImGui.Text($"{effPlanet:N2}");
 
                                 ImGui.EndTable();
                             }

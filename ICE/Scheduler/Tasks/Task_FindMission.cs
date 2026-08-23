@@ -595,6 +595,47 @@ namespace ICE.Scheduler.Tasks
                         }
                     }
 
+                    // 「最低金星率」門檻：把金星率不達標的任務排到同階級隊尾。
+                    // 🔴 是「降級」不是「過濾」—— 移除會把候選池掏空，讓 CheckReroll 無限重骰
+                    //    （見 MissionConfigs.MaxConsecutiveRerolls 的說明），那是行為回退不是保護。
+                    // ⚠️ 只在「依表格排序方式挑任務」開著時生效，門檻 0 = 關閉（預設）。
+                    // ⚠️ 放在最後一個排序步驟，所以它蓋過上面的「沒金星優先」：一個任務試了 3 次
+                    //    以上都沒金星，就算它還沒金星也不該再優先塞給使用者。
+                    if (C.UseTableSortForMissionOrder && C.MinGoldRatePercentForPicking > 0 && candidates.Count > 1)
+                    {
+                        int GoldRateRank(uint missionId)
+                        {
+                            if (!C.MissionConfig.TryGetValue(missionId, out var cfg)) return 0;
+                            var attempts = cfg.TotalCompletions + cfg.FailedCounters;
+                            // 樣本不足一律視為達標，否則第一次失敗就把任務永久打入冷宮，
+                            // 連累積數據的機會都沒有。
+                            // ⚠️ 一定要寫 global:: —— 在 ICE.Scheduler.Tasks 這個命名空間裡，
+                            //    裸寫的 ICE 會先綁到 ICE.ICE 這個類別（global using static 帶進來的），
+                            //    再取 .Config 就變成存取它的非公開成員，編譯錯誤看起來像「保護層級」問題。
+                            if (attempts < global::ICE.Config.MissionConfigs.MinGoldRateSampleSize) return 0;
+                            var rate = 100.0 * cfg.GoldCompletions / attempts;
+                            return rate < C.MinGoldRatePercentForPicking ? 1 : 0;
+                        }
+
+                        var demoted = candidates.Count(m => GoldRateRank(m.MissionId) == 1);
+                        if (demoted > 0 && demoted < candidates.Count)
+                        {
+                            // OrderBy 是穩定排序：達標的維持原順序，不達標的整批推到後面。
+                            candidates = candidates.OrderBy(m => GoldRateRank(m.MissionId)).ToList();
+                            IceLogging.Info(
+                                $"最低金星率 {C.MinGoldRatePercentForPicking}%：{demoted}/{candidates.Count} 個任務金星率不足，已排到隊尾（未移除）",
+                                "[FindMission: CheckStandard]");
+                        }
+                        else if (demoted > 0)
+                        {
+                            // 全部都不達標：重排等於沒排，但使用者需要知道門檻正在空轉，
+                            // 否則會以為門檻沒生效。
+                            IceLogging.Info(
+                                $"最低金星率 {C.MinGoldRatePercentForPicking}%：本階級 {demoted} 個候選全部不達標，維持原順序",
+                                "[FindMission: CheckStandard]");
+                        }
+                    }
+
                     foreach (var mission in candidates)
                     {
                         mission.Select();

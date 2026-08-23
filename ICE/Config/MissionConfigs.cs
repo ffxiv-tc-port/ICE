@@ -42,6 +42,20 @@ namespace ICE.Config
         // 與 PrioritizeUngoldedMissions 可以並用：先套表格排序，再把未金星的穩定排到前面。
         public bool UseTableSortForMissionOrder { get; set; } = false;
 
+        // 挑任務時要求的最低金星率（百分比；0 = 關閉，維持現行行為）。
+        // 金星率＝GoldCompletions ÷（TotalCompletions + FailedCounters），也就是「含放棄」的嘗試次數。
+        // ⚠️ 只在 UseTableSortForMissionOrder 開啟的挑任務路徑上生效，而且**只是把不達標的任務
+        //    排到同階級隊尾，不是把它從候選池移除**。移除會把候選池掏空，觸發 CheckReroll 無限
+        //    重骰（見上面 MaxConsecutiveRerolls 的說明）——那是行為回退，不是保護。
+        // ⚠️ 樣本數不足（嘗試次數 < MinGoldRateSampleSize）的任務一律視為達標，避免「試一次失敗
+        //    就被判死」而永遠拿不到累積數據。
+        // ⚠️ 表格顯示完全不受這個門檻影響：顯示歸顯示、挑選歸挑選。
+        public int MinGoldRatePercentForPicking { get; set; } = 0;
+
+        // 上面那個門檻開始生效所需的最少嘗試次數。刻意不做成 UI 選項（避免再多一顆旋鈕），
+        // 但留成具名常數而不是散在程式碼裡的魔術數字。
+        public const int MinGoldRateSampleSize = 3;
+
         // 連續重骰幾次都找不到可接任務就停下來（0 = 不限制，維持舊行為）。
         // 沒有這個上限時，只要候選池空了（例如開了「取得金星後自動停用」而目前
         // 可接的全都拿過金星），CheckReroll 就會無限重骰、卡在原地不會有任何提示。
@@ -707,6 +721,11 @@ namespace ICE.Config
         public int GoldCompletions { get; set; } = 0;
         public int CriticalCompletions { get; set; } = 0;
         public int FailedCounters { get; set; } = 0;
+        // 放棄任務累積耗時（秒）。刷職業成果時「金星不可達就放棄」（craftGoldUnreachable: Abandon）
+        // 是迴圈裡的真實成本，但既有的每分成果只除以「交件耗時」，會系統性高估不穩金星的任務。
+        // ⚠️ 這是**純新增**欄位：舊設定檔沒有這個鍵，反序列化時吃初始值 0，對既有使用者無害。
+        //    既有欄位的預設值一律不動 —— 改預設對既有使用者無效而且是靜默的。
+        public double AbandonedTimeSeconds { get; set; } = 0;
         public List<TurninData> TurninRecords { get; set; } = new();
         // Old References to time below for migration
         [YamlIgnore]

@@ -11,7 +11,9 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table;
 
 public static class Settings_TableColumns
 {
-    private static string[] missionSortOptions => ["Id", "Name".Loc(), "Cosmo Credits".Loc(), "Lunar Credits".Loc(), "Exp I".Loc(), "Exp II".Loc(), "Exp III".Loc(), "Exp IV".Loc(), "Exp V".Loc(), "Map Location".Loc(), "Class Score".Loc()];
+    // ⚠️ 索引即 C.TableSortOption 的值，也是 modeSelect_TableInfo.SortByTableOption 的 switch case。
+    //    只能往尾端加，不要插中間 —— 既有使用者存的是數字，插中間會靜默改掉他們選的排序。
+    private static string[] missionSortOptions => ["Id", "Name".Loc(), "Cosmo Credits".Loc(), "Lunar Credits".Loc(), "Exp I".Loc(), "Exp II".Loc(), "Exp III".Loc(), "Exp IV".Loc(), "Exp V".Loc(), "Map Location".Loc(), "Class Score".Loc(), "Effective Score/Min".Loc()];
 
     public static void ColumnSettings()
     {
@@ -37,6 +39,11 @@ public static class Settings_TableColumns
             }
             ImGui.EndCombo();
         }
+        ImGuiEx.HelpMarker(
+            ("'Effective Score/Min' ranks by your own recorded results, including the time lost to abandoned runs. " +
+            "Missions with no records yet count as 0 and sort last, so run a few rounds on a normal order first to build up data.\n" +
+            "A silver turn-in is worth 80% of a gold one (4x vs 5x), so a fast silver can beat a slow gold - this order reflects that automatically.\n" +
+            "Every other option ranks by fixed sheet data and needs no history.").Loc());
 
         // 📌「隱藏尚未支援的任務」原本在這裡，2026-08-09 搬到任務頁的篩選列上
         //    （modeSelect_Standard.DrawFilterRow）—— 它是每天都會切的顯示篩選，

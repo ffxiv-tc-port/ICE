@@ -1,4 +1,6 @@
 ﻿using Dalamud.Interface;
+using Dalamud.Interface.Utility;
+using Dalamud.Interface.Utility.Raii;
 using ICE.Utilities.ImGuiTools;
 using System;
 using System.Collections.Generic;
@@ -81,6 +83,31 @@ namespace ICE.Ui.SettingTabs
                     "(Exp I-V, Cosmo/Lunar credits, map location, class score...). Off means the game's own list order.\n" +
                     "Can be combined with the gold star option above: the table order applies first, then missions " +
                     "without a gold star are moved to the front.").Loc());
+
+                // 最低金星率門檻。只在「依表格排序方式挑任務」開啟時生效，而且只是把不達標的
+                // 任務排到隊尾（不是移除）—— 見 MissionConfigs.MinGoldRatePercentForPicking 的說明。
+                using (ImRaii.Disabled(!C.UseTableSortForMissionOrder))
+                {
+                    var minGoldRate = C.MinGoldRatePercentForPicking;
+                    // 🔴 ImGui 的 format 參數會走原生 printf。翻譯字串裡若混進 %，就會被當成
+                    //    格式指示字元去讀一個根本不存在的參數 —— 那是原生層的未定義行為，
+                    //    而且成因藏在 ini 裡，看起來完全不像程式碼的錯。所以先把 % 濾掉。
+                    var sliderFormat = minGoldRate == 0 ? "Off".Loc().Replace("%", "") : "%d%%";
+                    ImGui.SetNextItemWidth(200f * ImGuiHelpers.GlobalScale);
+                    if (ImGui.SliderInt("Minimum gold rate".Loc() + "###ICEMinGoldRate", ref minGoldRate, 0, 100, sliderFormat))
+                    {
+                        C.MinGoldRatePercentForPicking = Math.Clamp(minGoldRate, 0, 100);
+                        C.Save();
+                    }
+                }
+                ImGuiEx.HelpMarker(
+                    ("Missions you gold less often than this are moved to the BACK of their rank when picking, so they are " +
+                    "only taken when nothing better is available. 0 turns this off.\n" +
+                    "Gold rate counts abandoned runs as attempts, and only applies once a mission has at least 3 recorded " +
+                    "attempts - one bad run never sinks a mission.\n" +
+                    "They are demoted, never removed: removing them could empty the candidate pool and send the plugin into " +
+                    "endless rerolling.\n" +
+                    "Requires 'Pick missions using the table sort order' above. The mission table itself is never filtered by this.").Loc());
             }
 
             DrawMissionTypePriority();
