@@ -167,9 +167,39 @@ public static unsafe class Utils
     {
         return Svc.Objects.OrderBy(PlayerHelper.GetDistanceToPlayer).FirstOrDefault(x => x.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventObj);
     }
-    public static IGameObject? TryGetObjectCollectionPoint()
+    /// <summary>
+    /// 找緊急任務（紅色警報）的繳交點。
+    /// </summary>
+    /// <param name="expectedLocation">
+    /// 這個任務的繳交點**應該**在哪（<c>GatheringUtil.CriticalLocations</c> 的原始座標）。
+    /// 不給就是舊行為：只按「離玩家最近」挑。
+    /// </param>
+    /// <param name="maxDistanceFromExpected">離 <paramref name="expectedLocation"/> 多遠以內才算數。</param>
+    /// <remarks>
+    /// 舊版只做「BaseId 對得上就挑最近的」，有兩個問題（cycleapple <c>65a5806</c> 修）：
+    /// <list type="number">
+    /// <item>沒有過濾 <c>IsTargetable</c> —— 已經被別隊收掉／還沒生成的繳交點仍然在
+    /// ObjectTable 裡，挑到它就會走過去對著一個點不了的東西一直互動。</item>
+    /// <item>只按「離玩家最近」排序 —— 同一張地圖上其他區域的繳交點也是同樣的 BaseId，
+    /// 玩家人在兩者中間時會被導去**別區**的那一個。失敗形式是「跑很遠然後繳不掉」。</item>
+    /// </list>
+    /// 🔴 這裡刻意用 <c>BaseId</c> 而不是上游的 <c>DataId</c>：<c>IGameObject.DataId</c> 拿來做
+    /// 身分比對在艦隊裡已經統一換成 <c>BaseId</c>（<c>DataId</c> 只留給查表用）。
+    /// </remarks>
+    public static IGameObject? TryGetObjectCollectionPoint(Vector3? expectedLocation = null, float maxDistanceFromExpected = 100f)
     {
-        return Svc.Objects.OrderBy(PlayerHelper.GetDistanceToPlayer).FirstOrDefault(x => x.BaseId == 2014616 || x.BaseId == 2014618);
+        var candidates = Svc.Objects.Where(x => x.IsTargetable && (x.BaseId == 2014616 || x.BaseId == 2014618));
+
+        if (expectedLocation is { } location)
+        {
+            return candidates
+                .Where(x => Vector3.Distance(x.Position, location) <= maxDistanceFromExpected)
+                .OrderBy(PlayerHelper.GetDistanceToPlayer)
+                .ThenBy(x => Vector3.Distance(x.Position, location))
+                .FirstOrDefault();
+        }
+
+        return candidates.OrderBy(PlayerHelper.GetDistanceToPlayer).FirstOrDefault();
     }
     public static void TargetgameObject(IGameObject? gameObject)
     {
