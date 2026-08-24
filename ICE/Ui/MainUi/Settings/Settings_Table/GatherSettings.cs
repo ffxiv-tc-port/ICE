@@ -161,9 +161,12 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                             UpdateMissions();
                         else if (type == "boonChain" && ChainedMission && BoonMission)
                             UpdateMissions();
-                        else if (type == "dualCraft" && craftMission)
-                            UpdateMissions();
+                        // ⚠️ 這條鏈裡的 dualCraft／gatherX 順序**在單次呼叫內沒有語意差別**
+                        //    （type 是固定值，兩個分支不可能同時成立）；排成與 SetupAllProfiles()
+                        //    的呼叫順序一致，只是為了讓兩處讀起來對得上。真正決定勝負的是那邊。
                         else if (type == "gatherX" && GatherX)
+                            UpdateMissions();
+                        else if (type == "dualCraft" && craftMission)
                             UpdateMissions();
                     }
                 }
@@ -443,9 +446,11 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                                 UpdateMissions();
                             else if (MissionIndex == 5 && ChainedMission && BoonMission)
                                 UpdateMissions();
-                            else if (MissionIndex == 6 && craftMission)
-                                UpdateMissions();
+                            // 同上：MissionIndex 是固定值，這裡的先後同樣不影響結果，
+                            // 排成與 SetupAllProfiles() 一致純粹是為了對照方便。
                             else if (MissionIndex == 1 && GatherX)
+                                UpdateMissions();
+                            else if (MissionIndex == 6 && craftMission)
                                 UpdateMissions();
                         }
                     }
@@ -1074,8 +1079,15 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             GatherSettings.InitialSetupProfile(chainedMissions, "chained", out var _);
             GatherSettings.InitialSetupProfile(boonMissions, "boon", out var _);
             GatherSettings.InitialSetupProfile(ChainBoonMission, "boonChain", out var _);
-            GatherSettings.InitialSetupProfile(DualClass, "dualCraft", out var _);
+            // 🔴 dualCraft 必須排在 gatherX **後面**。
+            //    InitialSetupProfile 是「符合條件就把 GProfileId 覆寫成這一份的 id」，
+            //    而 GatherX 的條件（!採集品 !還元 !恩惠 !連鎖 !限時 !限量）**沒有排除 craft**，
+            //    所以雙職（採集＋製作）任務會同時落在 dualCraft 與 gatherX 兩桶裡，
+            //    **後呼叫的那一個贏**。原本的順序讓 gatherX 蓋掉 dualCraft ⇒ 雙職任務永遠拿不到
+            //    「Dual Class」設定檔（那份的 DualClassCraftAmount 是 2，其餘都是 1），
+            //    而使用者只會看到雙職任務的採集量不對，沒有任何錯誤訊息。
             GatherSettings.InitialSetupProfile(GatherXAmount, "gatherX", out var _);
+            GatherSettings.InitialSetupProfile(DualClass, "dualCraft", out var _);
         }
     }
 }
