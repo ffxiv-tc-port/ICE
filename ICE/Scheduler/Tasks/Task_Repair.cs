@@ -45,15 +45,42 @@ namespace ICE.Scheduler.Tasks
         }
         public static unsafe bool? HubCheck()
         {
-            Vector2 HubCenter = Vector2.Zero;
-            if (PlayerHelper.IsInPhaenna())
+            // 各月面的據點中心（世界座標）。座標取自 cycleapple api13-tw `65a5806`。
+            //
+            // 舊寫法只在 Phaenna 設過中心點，Sinus Ardorum 那一邊 HubCenter 留在 Vector2.Zero，
+            // 也就是「離世界原點 45 公尺內」。那在 1237 剛好會動——真正的據點中心是
+            // (2.84, -0.06)，離原點不到 3 公尺，整個判定圈只偏了 3 公尺 ——
+            // 但它是**碰巧成立**，不是有意的，而且對 1237/1291 以外的任何區域都是錯的。
+            //
+            // ⚠️ 舊寫法還有一行 `PlayerPos = new Vector2(Player.Position.Z, Player.Position.Z)`
+            //    （Z 打了兩次，而且從頭到尾沒有被用到）——那是壞掉的死碼，一併移除。
+            Vector3? hubCenter = Player.Territory switch
             {
-                HubCenter = new Vector2(340.0f, -420.0f);
+                1237 => new Vector3(2.84f, 1.55f, -0.06f),   // 渴望灣 / Sinus Ardorum
+                1291 => new Vector3(339.90f, 52.60f, -412.10f), // Phaenna（台服 7.20 尚未開放）
+                _ => null,
+            };
+
+            // 🔴 刻意**不**照上游用 Vector3.Distance：那會把高度算進距離。
+            //    這個判定要問的是「人在不在據點這一塊地上」，而玩家在據點上空飛行時
+            //    高度差可以輕鬆超過 45 —— 用三維距離就會在人明明在據點正上方時判成
+            //    「不在據點」，然後開始重複施放「返回月面基地」。
+            //    ECommons 的 Player.DistanceTo(Vector2) 走的是 Position.ToVector2() = (X, Z)，
+            //    也就是水平距離，正是舊寫法一直在用的語意，保持不變。
+            if (hubCenter is not { } center)
+            {
+                // 不認得的區域＝算不出據點在哪。這裡**故意 fail-open**（當成已經在據點內）：
+                // 判 false 會讓這個步驟一直重試並持續施放返回動作，而 ICE 在這個檔裡
+                // 已經有兩次「狀態機無聲卡死」的前科。下游的 PathToRepair 自己有
+                // TryGetMoonNpc 守衛，走到那裡會乾淨地 AbortToStateCheck。
+                // 📌 這一行寫 Information：使用者跑 LogLevel 2，Debug 收不到，
+                //    而「我人不在月面卻在跑據點流程」正是需要被回報的狀況。
+                if (EzThrottler.Throttle("ICE: hub check unknown territory", 5000))
+                    IceLogging.Info($"目前區域 {Player.Territory} 沒有登記據點中心座標（可能已經被傳送離開月面），據點範圍檢查直接放行。", "[Vendor Repair Check]");
+                return true;
             }
 
-            Vector2 PlayerPos = new Vector2(Player.Position.Z, Player.Position.Z);
-
-            if (Player.DistanceTo(HubCenter) < 45)
+            if (Player.DistanceTo(new Vector2(center.X, center.Z)) < 45)
             {
                 IceLogging.Info("Player is in the range of the main hub area right now", "[Vendor Repair Check]");
                 return true;
