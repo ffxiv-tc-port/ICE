@@ -42,7 +42,7 @@ namespace ICE.Ui.DebugWindowTabs
                     ImGui.TableNextRow();
 
                     ImGui.TableSetColumnIndex(0);
-                    ImGui.Text("Current Score:");
+                    ImGui.Text("Current Score:".Loc());
 
                     ImGui.TableNextColumn();
                     ImGui.Text($"{currentScore}");
@@ -50,7 +50,7 @@ namespace ICE.Ui.DebugWindowTabs
                     ImGui.TableNextRow();
 
                     ImGui.TableSetColumnIndex(0);
-                    ImGui.Text("Silver Score:");
+                    ImGui.Text("Silver Score:".Loc());
 
                     ImGui.TableNextColumn();
                     ImGui.Text($"{silverScore}");
@@ -58,28 +58,28 @@ namespace ICE.Ui.DebugWindowTabs
                     ImGui.TableNextRow();
 
                     ImGui.TableSetColumnIndex(0);
-                    ImGui.Text("Gold Score:");
+                    ImGui.Text("Gold Score:".Loc());
 
                     ImGui.TableNextColumn();
                     ImGui.Text($"{goldScore}");
 
                     ImGui.TableNextRow();
                     ImGui.TableSetColumnIndex(0);
-                    ImGui.Text("Critical Value:");
+                    ImGui.Text("Critical Value:".Loc());
 
                     ImGui.TableNextColumn();
                     ImGui.Text($"{x.CriticalScore}");
 
                     ImGui.TableNextRow();
                     ImGui.TableSetColumnIndex(0);
-                    if (ImGui.Button("Cosmo Pouch"))
+                    if (ImGui.Button("Cosmo Pouch".Loc()))
                     {
                         x.CosmoPouch();
                     }
 
                     ImGui.TableNextRow();
                     ImGui.TableSetColumnIndex(0);
-                    if (ImGui.Button("Cosmo Crafting Log"))
+                    if (ImGui.Button("Cosmo Crafting Log".Loc()))
                     {
                         x.CosmoCraftingLog();
                     }
@@ -93,14 +93,14 @@ namespace ICE.Ui.DebugWindowTabs
 
                     ImGui.TableNextRow();
                     ImGui.TableSetColumnIndex(0);
-                    if (ImGui.Button("Report"))
+                    if (ImGui.Button("Report".Loc()))
                     {
                         x.Report();
                     }
 
                     ImGui.TableNextRow();
                     ImGui.TableSetColumnIndex(0);
-                    if (ImGui.Button("Abandon"))
+                    if (ImGui.Button("Abandon".Loc()))
                     {
                         x.Abandon();
                     }
@@ -115,13 +115,13 @@ namespace ICE.Ui.DebugWindowTabs
                     {
                         ImGui.TableNextRow();
                         ImGui.TableSetColumnIndex(0);
-                        ImGui.Text("Scores");
+                        ImGui.Text("Scores".Loc());
                         ImGui.TableNextColumn();
                         ImGui.Text("?（讀不到 WKSManager，不在宇宙探索內容裡）");
 
                         ImGui.TableNextRow();
                         ImGui.TableSetColumnIndex(0);
-                        ImGui.Text("Bait:");
+                        ImGui.Text("Bait:".Loc());
                         ImGui.TableNextColumn();
                         ImGui.Text("?");
                     }
@@ -129,7 +129,7 @@ namespace ICE.Ui.DebugWindowTabs
                     {
                         ImGui.TableNextRow();
                         ImGui.TableSetColumnIndex(0);
-                        ImGui.Text("Score 1");
+                        ImGui.Text("Score 1".Loc());
                         ImGui.TableNextColumn();
                         ImGui.Text($"{wks->Scores.Length}");
 
@@ -149,7 +149,7 @@ namespace ICE.Ui.DebugWindowTabs
 
                         ImGui.TableNextRow();
                         ImGui.TableSetColumnIndex(0);
-                        ImGui.Text("Bait:");
+                        ImGui.Text("Bait:".Loc());
                         ImGui.TableNextColumn();
                         ImGui.Text($"{currentlyEquippped}");
                     }
@@ -162,21 +162,21 @@ namespace ICE.Ui.DebugWindowTabs
                 // AtkValue 索引（比較便宜），就靠這裡的輸出來校準 —— 不要用猜的。
                 if (ImGui.CollapsingHeader("Objective progress raw dump###ICEObjectiveDump"))
                 {
-                    if (ImGui.Button("Copy to clipboard###ICEObjectiveDumpCopy"))
+                    if (ImGui.Button("Copy to clipboard###ICEObjectiveDumpCopy".Loc()))
                         ImGui.SetClipboardText(string.Join("\n", MissionObjectiveReader.DumpDiagnostics()));
 
                     foreach (var line in MissionObjectiveReader.DumpDiagnostics())
                         ImGui.TextUnformatted(line);
 
                     ImGui.Separator();
-                    ImGui.TextUnformatted("Parsed objectives:");
+                    ImGui.TextUnformatted("Parsed objectives:".Loc());
                     foreach (var objective in MissionObjectiveReader.Get(CosmicHelper.CurrentLunarMission))
                         ImGui.TextUnformatted($"  {objective.Text} = {objective.Current}/{objective.Required} (done={objective.Done})");
                 }
             }
             else
             {
-                ImGui.Text("Waiting for \"WKSMissionInfomation\" to be visible");
+                ImGui.Text("Waiting for \"WKSMissionInfomation\" to be visible".Loc());
             }
         }
     }

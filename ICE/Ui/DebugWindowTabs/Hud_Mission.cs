@@ -19,7 +19,7 @@ namespace ICE.Ui.DebugWindowTabs
         {
             if (GenericHelpers.TryGetAddonMaster<WKSMission>("WKSMission", out var x) && x.IsAddonReady)
             {
-                ImGui.Text("List of Visible Missions");
+                ImGui.Text("List of Visible Missions".Loc());
                 ImGui.Text($"Selected Mission Name: {x.SelectedMissionName}");
                 ImGui.Text($"Selected Mission ID: {x.SelectedMissionId}");
 
@@ -29,37 +29,37 @@ namespace ICE.Ui.DebugWindowTabs
                 }
                 ImGui.SameLine();
 
-                if (ImGui.Button("Mission Selection"))
+                if (ImGui.Button("Mission Selection".Loc()))
                 {
                     x.MissionSelection();
                 }
                 ImGui.SameLine();
 
-                if (ImGui.Button("Mission Log"))
+                if (ImGui.Button("Mission Log".Loc()))
                 {
                     x.MissionLog();
                 }
                 ImGui.SameLine();
 
-                if (ImGui.Button("Basic Missions"))
+                if (ImGui.Button("Basic Missions".Loc()))
                 {
                     x.BasicMissions();
                 }
                 ImGui.SameLine();
 
-                if (ImGui.Button("Provisional Missions"))
+                if (ImGui.Button("Provisional Missions".Loc()))
                 {
                     x.ProvisionalMissions();
                 }
                 ImGui.SameLine();
 
-                if (ImGui.Button("Critical Missions"))
+                if (ImGui.Button("Critical Missions".Loc()))
                 {
                     x.CriticalMissions();
                 }
 
                 bool EnableDummyXp = C.UseDummyXp;
-                if (ImGui.Checkbox("Enable Dummy XP", ref EnableDummyXp))
+                if (ImGui.Checkbox("Enable Dummy XP".Loc(), ref EnableDummyXp))
                 {
                     C.UseDummyXp = EnableDummyXp;
                     C.Save();
@@ -69,17 +69,17 @@ namespace ICE.Ui.DebugWindowTabs
                 bool IgnoreManual = C.XPRelicIgnoreManual;
                 bool onlyEnabled = C.XPRelicOnlyEnabled;
 
-                if (ImGui.Checkbox("Relic XP Grind", ref EnableDummyXp))
+                if (ImGui.Checkbox("Relic XP Grind".Loc(), ref EnableDummyXp))
                 {
                     C.XPRelicGrind = EnableDummyXp;
                     C.Save();
                 }
-                if (ImGui.Checkbox("Ignore Manual Mode", ref IgnoreManual))
+                if (ImGui.Checkbox("Ignore Manual Mode".Loc(), ref IgnoreManual))
                 {
                     C.XPRelicIgnoreManual = IgnoreManual;
                     C.Save();
                 }
-                if (ImGui.Checkbox("Only Enabled Missions", ref onlyEnabled))
+                if (ImGui.Checkbox("Only Enabled Missions".Loc(), ref onlyEnabled))
                 {
                     C.XPRelicOnlyEnabled = onlyEnabled;
                     C.Save();
@@ -93,34 +93,34 @@ namespace ICE.Ui.DebugWindowTabs
                     bool useDummyC = C.ShowDummyC;
                     bool useDummyD = C.ShowDummyD;
 
-                    if (ImGui.Checkbox("Use Dummy Ranks", ref useDummyRank))
+                    if (ImGui.Checkbox("Use Dummy Ranks".Loc(), ref useDummyRank))
                     {
                         C.UseDummyRanks = useDummyRank;
                         C.Save();
                     }
-                    if (ImGui.Checkbox("Show A Ranks", ref useDummyA))
+                    if (ImGui.Checkbox("Show A Ranks".Loc(), ref useDummyA))
                     {
                         C.ShowDummyA = useDummyA;
                         C.Save();
                     }
-                    if (ImGui.Checkbox("Show B Ranks", ref useDummyB))
+                    if (ImGui.Checkbox("Show B Ranks".Loc(), ref useDummyB))
                     {
                         C.ShowDummyB = useDummyB;
                         C.Save();
                     }
-                    if (ImGui.Checkbox("Show C Ranks", ref useDummyC))
+                    if (ImGui.Checkbox("Show C Ranks".Loc(), ref useDummyC))
                     {
                         C.ShowDummyC = useDummyC;
                         C.Save();
                     }
-                    if (ImGui.Checkbox("Show D Ranks", ref useDummyD))
+                    if (ImGui.Checkbox("Show D Ranks".Loc(), ref useDummyD))
                     {
                         C.ShowDummyD = useDummyD;
                         C.Save();
                     }
                 }
 
-                if (ImGui.Button("Update Dummy XP"))
+                if (ImGui.Button("Update Dummy XP".Loc()))
                 {
                     foreach (var kind in XpKinds)
                     {
@@ -182,7 +182,7 @@ namespace ICE.Ui.DebugWindowTabs
                 }
 
                 ImGui.Text($"Best Relic Mission: {BestMission} | {MissionName}");
-                if (ImGui.Button("Update Best Mission"))
+                if (ImGui.Button("Update Best Mission".Loc()))
                 {
                     BestMission = (int)RelicMissionFinder();
                     if (BestMission < 1)
@@ -201,7 +201,7 @@ namespace ICE.Ui.DebugWindowTabs
             }
             else
             {
-                ImGui.Text("Waiting for \"WKSMission\" to be visible");
+                ImGui.Text("Waiting for \"WKSMission\" to be visible".Loc());
             }
         }
 

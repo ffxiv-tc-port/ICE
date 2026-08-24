@@ -23,7 +23,7 @@ namespace ICE.Ui.DebugWindowTabs
 
         public static void Draw()
         {
-            if (ImGui.Button("Import missing missions"))
+            if (ImGui.Button("Import missing missions".Loc()))
             {
                 foreach (var mission in CosmicHelper.SheetMissionDict.Where(x => x.Value.Jobs.Contains(18)))
                 {
@@ -41,7 +41,7 @@ namespace ICE.Ui.DebugWindowTabs
             }
 
             ImGui.SameLine();
-            if (ImGui.Button("Export All Fishing Presets"))
+            if (ImGui.Button("Export All Fishing Presets".Loc()))
             {
                 var exportData = ExportAllFishingPresets();
                 ImGui.SetClipboardText(exportData);
@@ -51,7 +51,7 @@ namespace ICE.Ui.DebugWindowTabs
             ImGui.SameLine();
             using (ImRaii.Disabled(SelectedMission == 0))
             {
-                if (ImGui.Button("Export Selected Mission"))
+                if (ImGui.Button("Export Selected Mission".Loc()))
                 {
                     var exportData = ExportSingleFishingPreset(SelectedMission);
                     ImGui.SetClipboardText(exportData);
@@ -60,7 +60,7 @@ namespace ICE.Ui.DebugWindowTabs
             }
 
             ImGui.SameLine();
-            if (ImGui.Button("Copy All Mission IDs"))
+            if (ImGui.Button("Copy All Mission IDs".Loc()))
             {
                 var missionIds = string.Join(",", GatheringUtil.FishingPreset.Keys.OrderBy(x => x));
                 ImGui.SetClipboardText(missionIds);
@@ -118,7 +118,7 @@ namespace ICE.Ui.DebugWindowTabs
                             }
                             if (ImGui.BeginPopup("Delete Mission"))
                             {
-                                if (ImGui.MenuItem("Delete Mission Preset"))
+                                if (ImGui.MenuItem("Delete Mission Preset".Loc()))
                                 {
                                     GatheringUtil.FishingPreset.Remove(id);
                                     if (SelectedMission == id) SelectedMission = 0;
@@ -145,24 +145,24 @@ namespace ICE.Ui.DebugWindowTabs
                         {
                             Utils.SetGatheringRing(mission.TerritoryId, (int)mission.MapPosition.X, (int)mission.MapPosition.Y, mission.Radius, mission.Name);
                         }
-                        if (ImGui.Button("Move To Spot"))
+                        if (ImGui.Button("Move To Spot".Loc()))
                         {
 
                         }
                         ImGui.Separator();
 
                         // Amount Required Section
-                        ImGui.Text("Amount Required:");
+                        ImGui.Text("Amount Required:".Loc());
                         ImGui.SetNextItemWidth(100);
                         ImGui.InputInt("##AmountRequired", ref missionData.AmountRequired);
-                        ImGui.Text("Unique Fish:");
+                        ImGui.Text("Unique Fish:".Loc());
                         ImGui.SameLine();
                         ImGui.Checkbox("##UniqueFish", ref missionData.UniqueFish);
                         ImGui.Separator();
 
                         // Fishing Preset Section
-                        ImGui.Text("Fishing Preset Items:");
-                        if (ImGui.Button("Import all presets"))
+                        ImGui.Text("Fishing Preset Items:".Loc());
+                        if (ImGui.Button("Import all presets".Loc()))
                         {
                             P.AutoHook.DeleteAllAnonymousPresets();
                             foreach (var preset in missionData.FishingPreset)
@@ -176,7 +176,7 @@ namespace ICE.Ui.DebugWindowTabs
                         ImGui.SetNextItemWidth(200);
                         ImGui.InputText("##NewPresetItem", ref newPresetItem, 3000);
                         ImGui.SameLine();
-                        if (ImGui.Button("Add Preset Item") && !string.IsNullOrEmpty(newPresetItem))
+                        if (ImGui.Button("Add Preset Item".Loc()) && !string.IsNullOrEmpty(newPresetItem))
                         {
                             missionData.FishingPreset.Add(newPresetItem);
                             newPresetItem = "";
@@ -206,22 +206,22 @@ namespace ICE.Ui.DebugWindowTabs
                         ImGui.Separator();
 
                         // Baits Section
-                        ImGui.Text("Baits by Name:");
+                        ImGui.Text("Baits by Name:".Loc());
                         ImGui.Indent();
 
                         // Add bait from dictionary
-                        ImGui.Text("Add from MoonBaits Dictionary:");
+                        ImGui.Text("Add from MoonBaits Dictionary:".Loc());
                         ImGui.SetNextItemWidth(250);
                         ImGui.InputText("##BaitSearch", ref baitSearchText, 100);
                         ImGui.SameLine();
-                        if (ImGui.Button("Search Baits"))
+                        if (ImGui.Button("Search Baits".Loc()))
                         {
                             ImGui.OpenPopup("BaitSelector");
                         }
 
                         if (ImGui.BeginPopup("BaitSelector"))
                         {
-                            ImGui.Text("Search and select bait:");
+                            ImGui.Text("Search and select bait:".Loc());
                             ImGui.SetNextItemWidth(300);
                             ImGui.InputText("##BaitSearchInPopup", ref baitSearchText, 100);
 
@@ -260,22 +260,22 @@ namespace ICE.Ui.DebugWindowTabs
                             // Pagination controls
                             ImGui.Text($"Page {baitCurrentPage + 1} of {totalPages} ({filteredBaits.Count} total results)");
 
-                            if (ImGui.Button("< Previous") && baitCurrentPage > 0)
+                            if (ImGui.Button("< Previous".Loc()) && baitCurrentPage > 0)
                             {
                                 baitCurrentPage--;
                             }
                             ImGui.SameLine();
-                            if (ImGui.Button("Next >") && baitCurrentPage < totalPages - 1)
+                            if (ImGui.Button("Next >".Loc()) && baitCurrentPage < totalPages - 1)
                             {
                                 baitCurrentPage++;
                             }
                             ImGui.SameLine();
-                            if (ImGui.Button("First"))
+                            if (ImGui.Button("First".Loc()))
                             {
                                 baitCurrentPage = 0;
                             }
                             ImGui.SameLine();
-                            if (ImGui.Button("Last"))
+                            if (ImGui.Button("Last".Loc()))
                             {
                                 baitCurrentPage = totalPages - 1;
                             }
@@ -288,7 +288,7 @@ namespace ICE.Ui.DebugWindowTabs
                         {
                             ImGui.Text($"Selected: {selectedBaitFromDict}");
                             ImGui.SameLine();
-                            if (ImGui.Button("Add Selected Bait"))
+                            if (ImGui.Button("Add Selected Bait".Loc()))
                             {
                                 if (GatheringUtil.MoonBaits.TryGetValue(selectedBaitFromDict, out var baitIds))
                                 {
@@ -310,7 +310,7 @@ namespace ICE.Ui.DebugWindowTabs
                                 }
                             }
                             ImGui.SameLine();
-                            if (ImGui.Button("Clear Selection"))
+                            if (ImGui.Button("Clear Selection".Loc()))
                             {
                                 selectedBaitFromDict = "";
                                 baitSearchText = "";
@@ -386,18 +386,18 @@ namespace ICE.Ui.DebugWindowTabs
                         ImGui.Separator();
 
                         // Required Fish Section
-                        ImGui.Text("Required Fish by Category:");
+                        ImGui.Text("Required Fish by Category:".Loc());
                         ImGui.Indent();
 
                         // Add fish from dictionary
-                        ImGui.Text("Add from MoonFish Dictionary:");
+                        ImGui.Text("Add from MoonFish Dictionary:".Loc());
                         ImGui.SetNextItemWidth(150);
                         ImGui.InputText("Category##NewCategoryForDict", ref newFishCategory, 50);
                         ImGui.SameLine();
                         ImGui.SetNextItemWidth(250);
                         ImGui.InputText("##FishSearch", ref fishSearchText, 100);
                         ImGui.SameLine();
-                        if (ImGui.Button("Search Fish"))
+                        if (ImGui.Button("Search Fish".Loc()))
                         {
                             ImGui.OpenPopup("FishSelector");
                         }
@@ -405,7 +405,7 @@ namespace ICE.Ui.DebugWindowTabs
                         // Replace the FishSelector popup section with this:
                         if (ImGui.BeginPopup("FishSelector"))
                         {
-                            ImGui.Text("Search and select fish:");
+                            ImGui.Text("Search and select fish:".Loc());
                             ImGui.SetNextItemWidth(300);
                             ImGui.InputText("##FishSearchInPopup", ref fishSearchText, 100);
 
@@ -444,22 +444,22 @@ namespace ICE.Ui.DebugWindowTabs
                             // Pagination controls
                             ImGui.Text($"Page {fishCurrentPage + 1} of {totalPages} ({filteredFish.Count} total results)");
 
-                            if (ImGui.Button("< Previous##Fish") && fishCurrentPage > 0)
+                            if (ImGui.Button("< Previous##Fish".Loc()) && fishCurrentPage > 0)
                             {
                                 fishCurrentPage--;
                             }
                             ImGui.SameLine();
-                            if (ImGui.Button("Next >##Fish") && fishCurrentPage < totalPages - 1)
+                            if (ImGui.Button("Next >##Fish".Loc()) && fishCurrentPage < totalPages - 1)
                             {
                                 fishCurrentPage++;
                             }
                             ImGui.SameLine();
-                            if (ImGui.Button("First##Fish"))
+                            if (ImGui.Button("First##Fish".Loc()))
                             {
                                 fishCurrentPage = 0;
                             }
                             ImGui.SameLine();
-                            if (ImGui.Button("Last##Fish"))
+                            if (ImGui.Button("Last##Fish".Loc()))
                             {
                                 fishCurrentPage = totalPages - 1;
                             }
@@ -474,7 +474,7 @@ namespace ICE.Ui.DebugWindowTabs
                             ImGui.Text($"Selected: {selectedFishFromDict}");
 
                             ImGui.SameLine();
-                            if (ImGui.Button("Add Selected Fish"))
+                            if (ImGui.Button("Add Selected Fish".Loc()))
                             {
                                 if (GatheringUtil.MoonFish.TryGetValue(selectedFishFromDict, out var fishIds))
                                 {
@@ -514,7 +514,7 @@ namespace ICE.Ui.DebugWindowTabs
                             }
 
                             ImGui.SameLine();
-                            if (ImGui.Button("Clear Selection##Fish"))
+                            if (ImGui.Button("Clear Selection##Fish".Loc()))
                             {
                                 selectedFishFromDict = "";
                                 fishSearchText = "";
@@ -590,11 +590,11 @@ namespace ICE.Ui.DebugWindowTabs
                     }
                     else if (SelectedMission != 0)
                     {
-                        ImGui.Text("Mission data not found or mission not in sheet dictionary.");
+                        ImGui.Text("Mission data not found or mission not in sheet dictionary.".Loc());
                     }
                     else
                     {
-                        ImGui.Text("Select a mission to edit its fishing preset.");
+                        ImGui.Text("Select a mission to edit its fishing preset.".Loc());
                     }
                 }
                 ImGui.EndChild();

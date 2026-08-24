@@ -59,7 +59,7 @@ namespace ICE.Ui.DebugWindowTabs
                         }
                         ImGui.Text($"{cost}");
                         ImGui.SameLine();
-                        if (ImGui.Button("Buy Item"))
+                        if (ImGui.Button("Buy Item".Loc()))
                         {
                             entry.Select();
                         }
@@ -78,7 +78,7 @@ namespace ICE.Ui.DebugWindowTabs
 
                 // 這一行本來就是唯一能看出「寫死的 AtkValue 索引在台服對不對」的地方，把數字補齊。
                 ImGui.Text($"{shopExchange.CurrencyAmount}  (AtkValue 總數 {shopExchange.AtkValueCount}／回報 {shopExchange.NumEntries} 件／解析到 {shopExchange.BasicShopItems.Length} 件)");
-                if (ImGui.Button("Copy Item List"))
+                if (ImGui.Button("Copy Item List".Loc()))
                 {
                     var sb = new StringBuilder();
                     foreach (var entry in shopExchange.BasicShopItems)
@@ -128,13 +128,13 @@ namespace ICE.Ui.DebugWindowTabs
                         ImGui.Text($"{entry.CostAmount}");
 
                         ImGui.TableNextColumn();
-                        if (ImGui.Button("Buy 1 Item"))
+                        if (ImGui.Button("Buy 1 Item".Loc()))
                         {
                             entry.Select();
                         }
 
                         ImGui.TableNextColumn();
-                        if (ImGui.Button("Buy Max"))
+                        if (ImGui.Button("Buy Max".Loc()))
                         {
                             if (cost == 0)
                             {
@@ -172,7 +172,7 @@ namespace ICE.Ui.DebugWindowTabs
                 ImGui.AlignTextToFramePadding();
                 ImGui.Text($"{amount}");
 
-                if (ImGui.Button("Copy Item List"))
+                if (ImGui.Button("Copy Item List".Loc()))
                 {
                     var sb = new StringBuilder();
                     foreach (var entry in Shop.ShopItems)
@@ -222,13 +222,13 @@ namespace ICE.Ui.DebugWindowTabs
                         ImGui.Text($"{entry.CostAmount}");
 
                         ImGui.TableNextColumn();
-                        if (ImGui.Button("Buy 1 Item"))
+                        if (ImGui.Button("Buy 1 Item".Loc()))
                         {
                             entry.Select();
                         }
 
                         ImGui.TableNextColumn();
-                        if (ImGui.Button("Buy Max"))
+                        if (ImGui.Button("Buy Max".Loc()))
                         {
                             if (cost == 0)
                             {
@@ -248,7 +248,7 @@ namespace ICE.Ui.DebugWindowTabs
             }
             else
             {
-                ImGui.Text("Waiting for a shop exchange window to be open");
+                ImGui.Text("Waiting for a shop exchange window to be open".Loc());
             }
         }
     }

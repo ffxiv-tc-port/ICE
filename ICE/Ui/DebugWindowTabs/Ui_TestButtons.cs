@@ -224,15 +224,15 @@ namespace ICE.Ui.DebugWindowTabs
             var testButtonsManager = WKSManager.Instance();
             ImGui.Text(testButtonsManager == null ? "?" : $"{testButtonsManager->CurrentMissionUnitRowId}");
 
-            if (ImGui.Button("Find Mission"))
+            if (ImGui.Button("Find Mission".Loc()))
             {
                 // TaskMissionFind.Enqueue();
             }
-            if (ImGui.Button("Clear Task"))
+            if (ImGui.Button("Clear Task".Loc()))
             {
                 P.TaskManager.Abort();
             }
-            if (ImGui.Button("Artisan Craft"))
+            if (ImGui.Button("Artisan Craft".Loc()))
             {
                 P.Artisan.CraftItem(36176, 1);
             }
@@ -263,7 +263,7 @@ namespace ICE.Ui.DebugWindowTabs
             float gameObjectDistance = 0;
             if (gameObject is not null)
                 gameObjectDistance = PlayerHelper.GetDistanceToPlayer(gameObject);
-            if (ImGui.Button("Click Nearest EventObject"))
+            if (ImGui.Button("Click Nearest EventObject".Loc()))
             {
                 Utils.TargetgameObjectTask(gameObject);
                 Utils.InteractWithObject(gameObject);
@@ -275,7 +275,7 @@ namespace ICE.Ui.DebugWindowTabs
             float collectionPointDistance = 0;
             if (collectionPoint is not null)
                 collectionPointDistance = PlayerHelper.GetDistanceToPlayer(collectionPoint);
-            if (ImGui.Button("Click Nearest Collection Point"))
+            if (ImGui.Button("Click Nearest Collection Point".Loc()))
             {
                 Utils.TargetgameObjectTask(collectionPoint);
                 Utils.InteractWithObject(collectionPoint);
@@ -283,7 +283,7 @@ namespace ICE.Ui.DebugWindowTabs
             ImGui.SameLine();
             ImGui.Text($"Distance to nearest: {collectionPointDistance}");
 
-            if (ImGui.Button("Print GatheringPoint Info"))
+            if (ImGui.Button("Print GatheringPoint Info".Loc()))
             {
                 var gatheringPoint = Svc.Objects.LocalPlayer.TargetObject;
                 if (gatheringPoint is not null)
@@ -310,15 +310,15 @@ namespace ICE.Ui.DebugWindowTabs
                 }
             }
 
-            if (ImGui.Button("Switch class to CRP"))
+            if (ImGui.Button("Switch class to CRP".Loc()))
             {
                 GearsetHandler.TaskClassChange(Job.CRP);
             }
-            if (ImGui.Button("Switch class to MIN"))
+            if (ImGui.Button("Switch class to MIN".Loc()))
             {
                 GearsetHandler.TaskClassChange(Job.MIN);
             }
-            if (ImGui.Button("Relic Turnin"))
+            if (ImGui.Button("Relic Turnin".Loc()))
             {
                 Task_RelicTurnin.Enqueue();
             }
@@ -361,7 +361,7 @@ namespace ICE.Ui.DebugWindowTabs
                 }
             }
             ImGui.Text($"Mission Timer: {AddonHelper.GetNodeText("WKSMissionInfomation", 24)}");
-            if (ImGui.Button("Move Item"))
+            if (ImGui.Button("Move Item".Loc()))
             {
                 MoveItem();
             }
@@ -369,14 +369,14 @@ namespace ICE.Ui.DebugWindowTabs
 
         private static void DrawIconSelector()
         {
-            if (ImGui.Button("Export Selected to Dictionary"))
+            if (ImGui.Button("Export Selected to Dictionary".Loc()))
             {
                 ExportSelectedIcons();
                 showExportWindow = true;
             }
 
             ImGui.SameLine();
-            if (ImGui.Button("Clear All Selections"))
+            if (ImGui.Button("Clear All Selections".Loc()))
             {
                 selectedIcons.Clear();
                 iconNames.Clear();
@@ -429,11 +429,11 @@ namespace ICE.Ui.DebugWindowTabs
                         iconNames[i] = name;
                     }
                     ImGui.SameLine();
-                    ImGui.TextDisabled("(optional custom name)");
+                    ImGui.TextDisabled("(optional custom name)".Loc());
                 }
                 else
                 {
-                    ImGui.TextDisabled("(select to add optional name)");
+                    ImGui.TextDisabled("(select to add optional name)".Loc());
                 }
             }
 
@@ -472,7 +472,7 @@ namespace ICE.Ui.DebugWindowTabs
         {
             ImGui.Begin("Exported Icon Dictionary", ref showExportWindow);
 
-            if (ImGui.Button("Copy to Clipboard"))
+            if (ImGui.Button("Copy to Clipboard".Loc()))
             {
                 ImGui.SetClipboardText(exportedCode);
                 Svc.Chat.Print("Dictionary code copied to clipboard!");

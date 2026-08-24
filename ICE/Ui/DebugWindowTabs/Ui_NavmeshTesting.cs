@@ -29,7 +29,7 @@ namespace ICE.Ui.DebugWindowTabs
 
             ImGui.Text($"Current pos: {currentPos.X:N2} | {currentPos.Y:N2} | {currentPos.Z:N2}");
 
-            if (ImGui.Button("Add Position"))
+            if (ImGui.Button("Add Position".Loc()))
             {
                 finalPath.Add(currentPos);
             }

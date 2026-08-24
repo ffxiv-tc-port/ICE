@@ -12,11 +12,11 @@ namespace ICE.Ui.DebugWindowTabs
         public static void Draw()
         {
             // Search filter input
-            ImGui.Text("Search missions:");
+            ImGui.Text("Search missions:".Loc());
             ImGui.SetNextItemWidth(200);
             ImGui.InputText("##searchFilter", ref searchFilter, 256);
 
-            if (ImGui.Button("Update all mission text"))
+            if (ImGui.Button("Update all mission text".Loc()))
             {
                 UpdateText();
             }

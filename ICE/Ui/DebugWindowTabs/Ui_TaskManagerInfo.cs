@@ -18,12 +18,12 @@ namespace ICE.Ui.DebugWindowTabs
             ImGui.Text($"Current task running: {currentTask}");
             ImGui.Text($"Current State: {SchedulerMain.State}");
             ImGui.Text($"Task Count: {P.TaskManager.Tasks.Count}");
-            if (ImGui.Button("Set State to Idle"))
+            if (ImGui.Button("Set State to Idle".Loc()))
             {
                 SchedulerMain.State = IceState.Idle; 
             }
 
-            if (ImGui.Button("Stop Task"))
+            if (ImGui.Button("Stop Task".Loc()))
             {
                 P.TaskManager.Tasks.Clear();
                 P.TaskManager.Abort();
@@ -32,24 +32,24 @@ namespace ICE.Ui.DebugWindowTabs
             ImGui.SetNextItemWidth(100);
             ImGui.InputUInt("Mission", ref mission);
 
-            if (ImGui.Button("Path to mission"))
+            if (ImGui.Button("Path to mission".Loc()))
             {
                 P.TaskManager.Enqueue(() => Task_FindMission.Navmesh_MoveToMission(mission), "Testing Moveto Task", Utils.TaskConfig);
             }
             ImGui.InputInt("Frame Delay", ref frameDelay);
-            if (ImGui.Button("Running Mission Test"))
+            if (ImGui.Button("Running Mission Test".Loc()))
             {
                 Task_FindMission.Enqueue();
             }
-            if (ImGui.Button("Abandon Mission"))
+            if (ImGui.Button("Abandon Mission".Loc()))
             {
                 Task_AbandonMission.Enqueue();
             }
-            if (ImGui.Button("Path to repair NPC"))
+            if (ImGui.Button("Path to repair NPC".Loc()))
             {
                 P.TaskManager.Enqueue(() => Task_Repair.PathToRepair(), "Pathing to repair NPC");
             }
-            if (ImGui.Button("Test Repair Function"))
+            if (ImGui.Button("Test Repair Function".Loc()))
             {
                 Task_Repair.Enqueue();
             }
@@ -57,11 +57,11 @@ namespace ICE.Ui.DebugWindowTabs
 
             ImGui.SetNextItemWidth(250);
             ImGui.InputFloat3("Destination", ref pathToArea);
-            if (ImGui.Button("Set Area"))
+            if (ImGui.Button("Set Area".Loc()))
             {
                 pathToArea = ECommons.GameHelpers.Player.Position;
             }
-            if (ImGui.Button("Create waypoint list"))
+            if (ImGui.Button("Create waypoint list".Loc()))
             {
                 Vector3 currentPos = ECommons.GameHelpers.Player.Position;
 
@@ -71,19 +71,19 @@ namespace ICE.Ui.DebugWindowTabs
                     pathTo = await FindTask(currentPos);
                 });
             }
-            if (ImGui.Button("Test Fishing Moveto"))
+            if (ImGui.Button("Test Fishing Moveto".Loc()))
             {
                 P.TaskManager.Enqueue(() => Task_FindMission.Navmesh_MoveToMission(mission), "Testing fishing moveto",configuration: Utils.TaskConfig);
             }
-            if (ImGui.Button("Test Crafting"))
+            if (ImGui.Button("Test Crafting".Loc()))
             {
                 Task_Craft.Enqueue();
             }
-            if (ImGui.Button("Test Gather Targeting"))
+            if (ImGui.Button("Test Gather Targeting".Loc()))
             {
                 Task_Gather.Enqueue();
             }
-            if (ImGui.Button("Buy Items from shop"))
+            if (ImGui.Button("Buy Items from shop".Loc()))
             {
                 Task_BuyCosmoItems.Enqueue();
             }

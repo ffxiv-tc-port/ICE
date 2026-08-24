@@ -47,13 +47,13 @@ namespace ICE.Ui.DebugWindowTabs
             ImGui.SliderUInt("Rank ID", ref RankSearch, 0, 6);
             ImGui.SetNextItemWidth(250);
             ImGui.SliderUInt("Class Selection", ref jobSearch, 7, 18);
-            if (ImGui.Button("Copy Scores"))
+            if (ImGui.Button("Copy Scores".Loc()))
             {
                 ImGui.SetClipboardText(GenerateMissionScoreDictionaryCode());
             }
             ImGui.SameLine();
 
-            if (ImGui.Button("Export Fishing Missions"))
+            if (ImGui.Button("Export Fishing Missions".Loc()))
             {
                 var fishingMissions = CosmicHelper.SheetMissionDict
                     .Where(kvp => kvp.Value.Attributes.HasFlag(MissionAttributes.Fish)) // Adjust flag name as needed
@@ -74,13 +74,13 @@ namespace ICE.Ui.DebugWindowTabs
                 }
                 else
                 {
-                    ImGui.SetTooltip("No fishing missions found!");
+                    ImGui.SetTooltip("No fishing missions found!".Loc());
                 }
             }
 
             ImGui.SameLine();
 
-            if (ImGui.Button("Clear stored scores"))
+            if (ImGui.Button("Clear stored scores".Loc()))
             {
                 C.ScoreKeeper.Clear();
                 C.Save();
@@ -90,7 +90,7 @@ namespace ICE.Ui.DebugWindowTabs
             ImGui.InputText("##ExportPath", ref exportPath, 500);
 
             ImGui.SameLine();
-            if (ImGui.Button("Browse..."))
+            if (ImGui.Button("Browse...".Loc()))
             {
                 fileDialogManager.SaveFileDialog(
                     "Select Export Location",
@@ -108,7 +108,7 @@ namespace ICE.Ui.DebugWindowTabs
             }
 
             ImGui.SameLine();
-            if (ImGui.Button("Export CSV"))
+            if (ImGui.Button("Export CSV".Loc()))
             {
                 ExportToCsv();
             }
@@ -361,7 +361,7 @@ namespace ICE.Ui.DebugWindowTabs
                         if (ImGui.IsItemHovered())
                         {
                             ImGui.BeginTooltip();
-                            ImGui.Text("Export this fishing mission entry");
+                            ImGui.Text("Export this fishing mission entry".Loc());
                             ImGui.EndTooltip();
                         }
                     }

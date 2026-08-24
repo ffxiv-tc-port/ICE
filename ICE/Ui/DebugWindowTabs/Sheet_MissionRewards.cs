@@ -52,7 +52,7 @@ namespace ICE.Ui.DebugWindowTabs
                 if (ImGui.IsItemHovered())
                 {
                     ImGui.BeginTooltip();
-                    ImGui.Text("Row ID");
+                    ImGui.Text("Row ID".Loc());
                     ImGui.EndTooltip();
                 }
 

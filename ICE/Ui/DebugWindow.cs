@@ -82,7 +82,7 @@ internal class DebugWindow : Window
             for (int i = 0; i < DebugTypes.Length; i++)
             {
                 bool isSelected = (selectedDebugIndex == i);
-                string label = isSelected ? $"→ {DebugTypes[i]}" : $"   {DebugTypes[i]}";
+                string label = isSelected ? $"→ {DebugTypes[i].Loc()}" : $"   {DebugTypes[i].Loc()}";
 
                 if (ImGui.Selectable(label, isSelected))
                 {
@@ -136,7 +136,7 @@ internal class DebugWindow : Window
                 // 機甲事件錄製（Utilities/MechaOps/MechaEventRecorder.cs）
                 case 26: Ui_MechaRecorder.Draw(); break;
 
-                default: ImGui.Text("Unknown Debug View"); break;
+                default: ImGui.Text("Unknown Debug View".Loc()); break;
             }
         }
         ImGui.EndChild();
