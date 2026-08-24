@@ -287,6 +287,56 @@ public class PlayerHelper
         [15] = new ManipInfo { ActionId = 4581, HasUnlocked = true },
     };
 
+    // 技能 ID → Action.UnlockLink 的快取。資料是靜態的，查一次就夠；
+    // UpdateHasManip 有一個呼叫點在除錯視窗的繪製迴圈裡（每幀都會進來）。
+    private static readonly Dictionary<uint, uint> ManipUnlockLinks = new();
+
+    /// <summary>
+    /// 用「技能的解鎖連結有沒有解開」判斷這個職業學會工程管理了沒。
+    /// 回 <c>null</c> ＝ 判不出來（查不到技能列，或該技能沒有解鎖連結），呼叫端要當成「不知道」。
+    /// </summary>
+    private static unsafe bool? IsManipUnlockedByUnlockLink(uint actionId)
+    {
+        if (!ManipUnlockLinks.TryGetValue(actionId, out var unlockLink))
+        {
+            if (!Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.Action>().TryGetRow(actionId, out var action))
+                return null;
+
+            unlockLink = action.UnlockLink.RowId;
+            ManipUnlockLinks[actionId] = unlockLink;
+        }
+
+        // 0 ＝ 這個技能沒有解鎖連結，那就不是這條路能回答的問題。
+        if (unlockLink == 0)
+            return null;
+
+        // 📌 UIState.Instance() 沒有判空：CS 宣告是 [StaticAddress(sig, 3)] **沒有** isPointer:true
+        //    ⇒ 解出來的就是物件本身的位址（lea），永不為 null，判空是死碼。
+        //    （上游那一版寫了 `uiState != null`，那一行在我方這份 CS pin 上不會有任何作用。）
+        return UIState.Instance()->IsUnlockLinkUnlockedOrQuestCompleted(unlockLink, 0);
+    }
+
+    // 「這個職業學會工程管理了嗎」的兩套判定並跑。
+    //
+    // 舊判定（**目前仍是權威**）：GetActionStatus 回 574 或 586 就算已解鎖。
+    //   那兩個是「你現在又沒在製作」這一類的狀態碼 —— 也就是說「不能用的唯一理由是時機不對」
+    //   ⇒ 技能本身是學過的；沒學過會回別的碼。
+    //   ⚠️ 它依賴 Player.IsBusy 為 false（忙碌時狀態碼會變成別的東西），
+    //      所以下面那個提前 return **不能拿掉**（上游那一版把它刪了）。
+    //   ⚠️ 574／586 這兩個數字是照國際服寫死的，台服對不對從來沒有被證明過。
+    //
+    // 新判定（cycleapple `65a5806`）：UIState.IsUnlockLinkUnlockedOrQuestCompleted(Action.UnlockLink)。
+    //   不吃寫死的狀態碼，也與忙碌狀態無關。
+    //   ✅ 台服離線驗過：exd-tc/7.20 的 Action 4574~4581 八列全在、名稱都是「掌握」、
+    //      UnlockLink 全部非 0（67969~68153）⇒ 這條路在台服有真資料可用。
+    //   ✅ CS 特徵碼離線驗過：IsUnlockLinkUnlockedOrQuestCompleted 的
+    //      `E8 ?? ?? ?? ?? 84 C0 74 A2` 在台服執行檔 .text 上**唯一命中**（不是歧義也不是斷裂）。
+    //
+    // 🔑 這一版**刻意還不切換**：兩套一起算，只在**不一致**時印一行 Information
+    //    （使用者跑 LogLevel 2，Debug／Verbose 收不到）。
+    //    直接切過去的風險是——新判定若在台服也不對，失敗形式是「以為沒學會工程管理」，
+    //    製作流程就靜默地少一個技能，不會有任何錯誤訊息，跟「本來就沒學」分不出來。
+    //    等實機跑過一輪、log 裡沒有不一致（或確認新的才對），再把權威換成新判定並移掉舊的。
     public static unsafe void UpdateHasManip()
     {
         if (Player.IsBusy)
@@ -296,7 +346,20 @@ public class PlayerHelper
         {
             if (ManipClassInfo.TryGetValue(jobId, out var info))
             {
-                info.HasUnlocked = ActionManager.Instance()->GetActionStatus(ActionType.Action, info.ActionId, checkRecastActive: false, checkCastingActive: false) is 574 or 586;
+                var byActionStatus = ActionManager.Instance()->GetActionStatus(ActionType.Action, info.ActionId, checkRecastActive: false, checkCastingActive: false) is 574 or 586;
+                info.HasUnlocked = byActionStatus;
+
+                var byUnlockLink = IsManipUnlockedByUnlockLink(info.ActionId);
+                if (byUnlockLink is { } viaLink && viaLink != byActionStatus)
+                {
+                    // 節流 key 帶 jobId：八個職業各自獨立，共用一個 key 會讓其中七個永遠印不出來。
+                    if (EzThrottler.Throttle($"ICE: manip unlock mismatch {jobId}", 60000))
+                        IceLogging.Info(
+                            $"工程管理解鎖判定不一致：職業 {jobId}（技能 {info.ActionId}）—— " +
+                            $"GetActionStatus 判定 {byActionStatus}、UnlockLink 判定 {viaLink}。" +
+                            $"目前採用 GetActionStatus 的結果。請把這一行回報給開發者。",
+                            "[Manip Unlock Check]");
+                }
             }
         }
     }
