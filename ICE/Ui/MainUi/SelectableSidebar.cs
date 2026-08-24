@@ -401,6 +401,15 @@ namespace ICE.Ui.MainUi
                 // 一整列空白（實機：據點活動底下的「賭博設定」，圖示 65127 在台服載不到，
                 // 而同一區的 65112「點數購物」載得到、顯示正常）。
                 // 改成自己把游標挪到圖示原本會佔的寬度之後 —— 失敗形式變成「有字沒圖」。
+                //
+                // 📌 補記（2026-08-24，來自 cycleapple api13-tw `8a7c91ac`）：那顆圖示的
+                //    台服可用版本是 **65126**，上游直接把 65127 換成它。我方走的是上面這條
+                //    fallback，而且 2026-08-08 的側欄重構已經把整個側欄改成 FontAwesome 圖示
+                //    （`DrawSelectableWithIcon`），全 repo 已經沒有任何一處傳圖示 ID 進來
+                //    ⇒ **上游那顆在我方沒有對應的呼叫點可改，只留這行紀錄。**
+                //    ⚠️ 這個方法（`DrawSelectableWithImage`）目前沒有任何呼叫者（沒有刪，
+                //    因為它是「要用圖示側欄時的既有實作」），哪天要重新用圖示，
+                //    請直接寫 65126、不要再寫 65127。
                 ImGui.SetCursorScreenPos(new Vector2(
                     ImGui.GetItemRectMin().X + (8 + 25 + 8) * scale,
                     itemY + 4 * scale));
