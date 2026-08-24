@@ -166,7 +166,8 @@ internal static unsafe class PlayerHandlers
         }
     };
 
-    private static readonly uint stellarSprintID = 4398;
+    // stellarSprintID (= 4398) 已移到 StellarSprintHandler.StellarSprintStatusId，
+    // 與它真正對應的技能 ID 放在一起。
 
     public static float Distance(this Vector3 v, Vector3 v2)
     {
@@ -175,7 +176,8 @@ internal static unsafe class PlayerHandlers
     public static unsafe bool IsMoving()
     {
         // AgentMap.Instance() 是產生器產出的兩層可空取得器（agentModule 或代理人任一為 null
-        // 就回 null），裸解參考是攔不到的 AVE。唯一的呼叫端拿它當「要不要放月面衝刺」的閘門，
+        // 就回 null），裸解參考是攔不到的 AVE。唯一的呼叫端（StellarSprintHandler）
+        // 拿它當「要不要放宇宙衝刺」的閘門，
         // 所以讀不到就回 false ＝ 不放技能（fail-closed）。
         var agent = AgentMap.Instance();
         return agent != null && agent->IsPlayerMoving;
@@ -205,12 +207,10 @@ internal static unsafe class PlayerHandlers
         if (!P.mechaOpsWindow.IsOpen && PlayerHelper.IsInCosmicZone() && C.ShowMechaAoeOverlay)
             P.mechaOpsWindow.IsOpen = true;
 
-        if (C.MoonSprint 
-         && PlayerHelper.IsInCosmicZone() 
-         && !PlayerHelper.HasStatusId(stellarSprintID) 
-         && Svc.Condition[ConditionFlag.NormalConditions] 
-         && IsMoving()) 
-            UseSprint();
+        // 宇宙衝刺（原本寫在這裡的 C.MoonSprint 判斷式）搬進 StellarSprintHandler。
+        // 搬家的理由不是整潔：原本這段等的是「宇宙衝刺」的狀態（4398），
+        // 送出去的卻是一般衝刺（GeneralAction 4），細節與退路見該檔的註解。
+        StellarSprintHandler.Tick();
 
         if ((!PlayerHelper.IsInCosmicZone() || !PlayerHelper.UsingSupportedJob()) && SchedulerMain.State != IceState.Idle)
         {
@@ -279,13 +279,8 @@ internal static unsafe class PlayerHandlers
         }
     }
 
-    private static void UseSprint()
-    {
-        var am = ActionManager.Instance();
-        var isSprintReady = am->GetActionStatus(ActionType.GeneralAction, 4) == 0;
-
-        if (isSprintReady) am->UseAction(ActionType.GeneralAction, 4);
-    }
+    // UseSprint() 已移到 StellarSprintHandler：那裡先試「宇宙衝刺」(Action 43357)，
+    // 用不了時原封不動地退回這裡原本的 GeneralAction 4。
 
     /// <summary>
     ///

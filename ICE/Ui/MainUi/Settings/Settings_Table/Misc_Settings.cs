@@ -870,11 +870,23 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             ImGuiEx.IconWithText(FontAwesomeIcon.PersonRays, "Auto-Use".Loc());
             ImGui.Dummy(new Vector2(0, 5));
 
+            // 📌 英文鍵刻意維持 "Auto-Use Moon Sprint" 不改：那是 ini 的查找鍵，
+            //    改掉會讓既有的繁中條目與上游合併同時失配。要修的是中文譯名
+            //    （官方術語是「宇宙衝刺」，不是「月面疾跑」），已在 ini 那一側修好。
             bool AutoMoonSprint = C.MoonSprint;
             if (ImGui.Checkbox("Auto-Use Moon Sprint".Loc() + "###ICEAutoMoonSprint", ref AutoMoonSprint))
             {
                 C.MoonSprint = AutoMoonSprint;
                 C.Save();
+            }
+            ImGui.SameLine();
+            ImGui.TextDisabled("?");
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip(("In a Cosmic Exploration zone, keeps Stellar Sprint up while you are moving.\n" +
+                                  "Crafters and gatherers get Stellar Sprint (the 1-second-recast one). " +
+                                  "Any other job falls back to the ordinary Sprint, exactly as before.\n" +
+                                  "It never fires while mounted, casting, gathering, crafting, in a cutscene, or between areas.").Loc());
             }
 
             bool DisableLunarAura = C.RemoveStellarStatus;
