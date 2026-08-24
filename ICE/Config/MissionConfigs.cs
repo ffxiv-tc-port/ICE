@@ -640,6 +640,18 @@ namespace ICE.Config
         private static CancellationTokenSource? _saveCts;
         private static readonly object _saveLock = new();
 
+        // 這份設定自己的存檔閘門。
+        //
+        // ⚠️ 它**不是**用來擋 IOException 的 —— 那一層已經在 YamlConfig 裡（`LockFor(path)`
+        //    的 per-path SemaphoreSlim），而且涵蓋範圍更廣（所有 yaml 設定都走它）。
+        //    這一層擋的是 YamlConfig 擋不到的另一件事：那邊的 `Serializer.Serialize(config)`
+        //    在閘門**外面**，所以兩個存檔可以先各自序列化出快照、再排隊寫檔 ——
+        //    先序列化的那份有可能**後**寫，於是磁碟上留下的是比較舊的快照。
+        //    把序列化與寫檔一起圈進來，這份 330 KB 的設定就不會出現「存了但存到舊的」。
+        // ⚠️ 兩層閘門的取得順序永遠是「先 _saveGate 再 YamlConfig」（SaveAsync 與 SaveSync
+        //    都是），順序一致所以不會死結。
+        private static readonly SemaphoreSlim _saveGate = new(1, 1);
+
         // Standard save. Deliberately routed through the debounced path.
         //
         // This used to be a bare fire-and-forget Task.Run with no serialisation
@@ -689,10 +701,32 @@ namespace ICE.Config
         }
 
         // Core async implementation
-        public async Task SaveAsync() => await YamlConfig.SaveAsync(this, ConfigPath);
+        public async Task SaveAsync()
+        {
+            await _saveGate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                await YamlConfig.SaveAsync(this, ConfigPath).ConfigureAwait(false);
+            }
+            finally
+            {
+                _saveGate.Release();
+            }
+        }
 
         // Synchronous for migrations/critical paths
-        public void SaveSync() => YamlConfig.SaveSync(this, ConfigPath);
+        public void SaveSync()
+        {
+            _saveGate.Wait();
+            try
+            {
+                YamlConfig.SaveSync(this, ConfigPath);
+            }
+            finally
+            {
+                _saveGate.Release();
+            }
+        }
 
         #endregion
     }
