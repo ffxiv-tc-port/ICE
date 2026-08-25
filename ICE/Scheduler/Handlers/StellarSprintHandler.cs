@@ -54,9 +54,8 @@ internal static unsafe class StellarSprintHandler
     /// Action 43357 的 ClassJobCategory ＝ 35 ＝「能工巧匠 大地使者」
     /// （CRP BSM ARM GSM LTW WVR ALC CUL MIN BTN FSH），
     /// 剛好等於 ICE 既有的 <c>CrafterJobList</c>(8~15) ＋ <c>GatheringJobList</c>(16~18)。<br/>
-    /// ⚠️ 刻意<b>不用</b> <c>PlayerHelper.UsingSupportedJob()</c>：那個函式寫的是
-    /// <c>jobId >= 8 || jobId &lt;= 18</c>（是 <c>||</c> 不是 <c>&amp;&amp;</c>），恆為 true，
-    /// 拿來當職業過濾等於沒過濾。這裡不動它，只是不依賴它。
+    /// 📌 <c>PlayerHelper.UsingSupportedJob()</c> 現已改用同一組清單（過去是 <c>||</c> 恆 true 的 bug，已修），
+    /// 兩者語意等價；這裡仍直接用清單，不繞經那個函式。
     /// </remarks>
     private static bool IsCosmicJob(uint jobId)
         => CosmicHelper.CrafterJobList.Contains(jobId) || CosmicHelper.GatheringJobList.Contains(jobId);

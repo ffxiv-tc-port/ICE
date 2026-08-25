@@ -19,10 +19,13 @@ public class PlayerHelper
     // -> Less Reduntant in code
     // -> Just genereally better 
 
+    // 宇宙探索支援的職業＝能工巧匠(8~15)＋大地使者(16~18)，即 CosmicHelper 的兩份清單。
+    // 台服 7.20 EXD 實查：Action 43357 的 ClassJobCategory ＝ 35(CRP…FSH)，剛好等於這 11 個職業。
+    // 舊寫法 jobId >= 8 || jobId <= 18 是 || 恆為 true＝過濾失效，改用權威清單。
     public static bool UsingSupportedJob()
     {
         var jobId = Player.JobId;
-        return jobId >= 8 || jobId <= 18;
+        return CosmicHelper.CrafterJobList.Contains(jobId) || CosmicHelper.GatheringJobList.Contains(jobId);
     }
 
     public static bool IsInCosmicZone() => IsInSinusArdorum() || IsInPhaenna();
