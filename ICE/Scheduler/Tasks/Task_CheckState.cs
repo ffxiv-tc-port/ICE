@@ -145,6 +145,10 @@ namespace ICE.Scheduler.Tasks
                         }
                     }
                 }
+                if (TryStopWhenStandardMissionsGolded())
+                {
+                    return true;
+                }
                 if (currentMissionId != 0)
                 {
                     IceLogging.Debug($"Current mission id is not 0, which means we're in the middle of a mission");
@@ -313,6 +317,64 @@ namespace ICE.Scheduler.Tasks
                     return true;
                 }
             }
+        }
+
+        // 「本區、目前所選職業的普通任務全部金評就停」。cycleapple 2e270b6d 的
+        // StopOnceStandardMissionsGolded 子集（原本綁在整套 Cosmic Agenda 上，這裡只抽停手邏輯）。
+        // 改寫重點：
+        //   ① 金評旗標走我方 MissionStatusHelper.GetStatus（CustomCs.cs 原生 IsMissionGolded），
+        //      不重新引入已移除的 WKSManagerCustom。
+        //   ② 只有在宇宙探索區內才判——區外 WKSManager 為 null，且「本區任務」的概念不成立。
+        //   ③ total == 0 一律不停（本區、本職一個普通任務都沒有＝資料還沒載入或條件不成立，
+        //      「不知道」不該觸發停手，跟其他停手門檻讀不到就跳過的原則一致）。
+        private static unsafe bool TryStopWhenStandardMissionsGolded()
+        {
+            if (!C.StopOnceStandardMissionsGolded || !PlayerHelper.IsInCosmicZone())
+            {
+                return false;
+            }
+
+            int golded = 0;
+            int total = 0;
+
+            foreach (var mission in CosmicHelper.SheetMissionDict)
+            {
+                var info = mission.Value;
+                if (info.TerritoryId != Player.Territory || !info.Jobs.Contains(C.SelectedJob))
+                {
+                    continue;
+                }
+
+                var attributes = info.Attributes;
+                if (attributes.HasFlag(MissionAttributes.Critical)
+                    || attributes.HasFlag(MissionAttributes.ProvisionalTimed)
+                    || attributes.HasFlag(MissionAttributes.ProvisionalWeather)
+                    || attributes.HasFlag(MissionAttributes.ProvisionalSequential))
+                {
+                    continue;
+                }
+
+                total++;
+                if (MissionStatusHelper.GetStatus(mission.Key).Gold)
+                {
+                    golded++;
+                }
+            }
+
+            if (total == 0 || golded != total)
+            {
+                return false;
+            }
+
+            IceLogging.ChatInfo("All standard missions have been graded gold (??/??). Stopping I.C.E.".Loc(golded, total), "[I.C.E.]");
+            SchedulerMain.State = IceState.Idle;
+            P.TaskManager.Tasks.Clear();
+            if (C.PlaySoundAlert)
+            {
+                _ = SoundPlayer.PlaySoundAsync();
+            }
+
+            return true;
         }
 
         private static void UpdateMissionState(uint missionId)

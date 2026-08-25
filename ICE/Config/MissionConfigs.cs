@@ -352,6 +352,12 @@ namespace ICE.Config
         public bool StopOnceHitCosmicScore { get; set; } = false;
         public int CosmicScoreCap { get; set; } = 500000;
         public bool StopOnceRelicFinished { get; set; } = false;
+
+        // 「本區、目前所選職業的普通任務全部拿到金評就停」。判別「普通任務」＝排除 Critical
+        // 與三種 Provisional（限時／天候／連續）；金評旗標一律走 MissionStatusHelper 原生讀取
+        // （CustomCs.cs），不重新引入已移除的 WKSManagerCustom。預設 false＝維持現行行為。
+        public bool StopOnceStandardMissionsGolded { get; set; } = false;
+
         public byte SequenceMissionPriority { get; set; } = 1;
         public byte WeatherMissionPriority { get; set; } = 2;
         public byte TimedMissionPriority { get; set; } = 3;
