@@ -353,9 +353,45 @@ namespace ICE.Scheduler.Tasks
                 {
                     if (CosmicHandler.IsMissionTimedOut())
                     {
-                        IceLogging.Debug("Mission is timed out, attempting to abandon", tag);
-                        SchedulerMain.State = IceState.AbandonMission;
-                        P.TaskManager.Tasks.Clear();
+                        // B1(cycleapple 65a5806b/5e480bd2 決策邏輯改寫)：逾時先驗分再決定交件/放棄，
+                        //    不要無條件放棄把已經做好、分數也夠的成品一起丟掉。
+                        if (SchedulerMain.CurrentMissionUnavailable(tag, out var timeoutMission))
+                            return true;
+
+                        bool canTurnin;
+                        if (timeoutMission.Attributes.HasFlag(MissionAttributes.Critical))
+                        {
+                            // 判空沿用我方 uint? CriticalScore：null＝讀不到，絕不當達標；逾時但讀不到就先不決定，等面板可讀。
+                            var criticalScore = missionInfo.CriticalScore;
+                            if (criticalScore == null)
+                            {
+                                if (EzThrottler.Throttle("ICE: timeout critical unreadable (craft)", 10000))
+                                    IceLogging.Info($"任務逾時但高難進度讀不出來，本輪先不決定交件/放棄，等面板可讀。" +
+                                                    $"（面板原字串：「{missionInfo.CriticalScoreRaw ?? "<面板尚未載入>"}」）", tag);
+                                return false;
+                            }
+                            canTurnin = criticalScore == 1;
+                        }
+                        else if (timeoutMission.BronzeScore == 0)
+                        {
+                            // BronzeScore==0＝沒有分數門檻，改看成品數量是否備齊。
+                            // 🔴 傳送/換區途中 GetItemCount 一律回 0，會把「其實做好了」誤判成「沒做」而放棄。讀不到就先等。
+                            if (!PlayerHelper.InventoryReadable())
+                            {
+                                if (EzThrottler.Throttle("ICE: timeout inventory unreadable (craft)", 5000))
+                                    IceLogging.Info("任務逾時，但玩家處於傳送/讀取中，道具數量讀出來會全是 0，暫緩交件/放棄判定。", tag);
+                                return false;
+                            }
+                            canTurnin = timeoutMission.Crafts_Main.All(item =>
+                                PlayerHelper.GetItemCount(item.Value.ItemId, out var count)
+                                && count >= item.Value.RequiredAmount);
+                        }
+                        else
+                        {
+                            canTurnin = (missionInfo.CurrentScore ?? 0) >= timeoutMission.BronzeScore;
+                        }
+
+                        ApplyTimeoutDecision(canTurnin, timeoutMission, missionInfo.CurrentScore ?? 0, tag);
                         return true;
                     }
 
@@ -559,8 +595,42 @@ namespace ICE.Scheduler.Tasks
                 {
                     if (CosmicHandler.IsMissionTimedOut())
                     {
-                        SchedulerMain.State = IceState.AbandonMission;
-                        P.TaskManager.Tasks.Clear();
+                        // B1(cycleapple 65a5806b/5e480bd2 決策邏輯改寫)：逾時先驗分再決定交件/放棄。
+                        if (SchedulerMain.CurrentMissionUnavailable("[Check Score: Gather]", out var timeoutMission))
+                            return true;
+
+                        bool canTurnin;
+                        if (timeoutMission.Attributes.HasFlag(MissionAttributes.Critical))
+                        {
+                            var criticalScore = missionInfo.CriticalScore;
+                            if (criticalScore == null)
+                            {
+                                if (EzThrottler.Throttle("ICE: timeout critical unreadable (gather)", 10000))
+                                    IceLogging.Info($"任務逾時但高難進度讀不出來，本輪先不決定交件/放棄，等面板可讀。" +
+                                                    $"（面板原字串：「{missionInfo.CriticalScoreRaw ?? "<面板尚未載入>"}」）", "[Check Score: Gather]");
+                                return false;
+                            }
+                            canTurnin = criticalScore == 1;
+                        }
+                        else if (timeoutMission.Attributes.HasFlag(MissionAttributes.ScoreTimeRemaining) || timeoutMission.BronzeScore == 0)
+                        {
+                            // 時間型或無分數門檻：改看採集道具數量是否備齊。
+                            if (!PlayerHelper.InventoryReadable())
+                            {
+                                if (EzThrottler.Throttle("ICE: timeout inventory unreadable (gather)", 5000))
+                                    IceLogging.Info("任務逾時，但玩家處於傳送/讀取中，道具數量讀出來會全是 0，暫緩交件/放棄判定。", "[Check Score: Gather]");
+                                return false;
+                            }
+                            canTurnin = timeoutMission.Gathering_Min.All(item =>
+                                PlayerHelper.GetItemCount(item.Key, out var count)
+                                && count >= item.Value);
+                        }
+                        else
+                        {
+                            canTurnin = (missionInfo.CurrentScore ?? 0) >= timeoutMission.BronzeScore;
+                        }
+
+                        ApplyTimeoutDecision(canTurnin, timeoutMission, missionInfo.CurrentScore ?? 0, "[Check Score: Gather]");
                         return true;
                     }
 
@@ -763,8 +833,30 @@ namespace ICE.Scheduler.Tasks
                 {
                     if (CosmicHandler.IsMissionTimedOut())
                     {
-                        SchedulerMain.State = IceState.AbandonMission;
-                        P.TaskManager.Tasks.Clear();
+                        // B1(cycleapple 65a5806b/5e480bd2 決策邏輯改寫)：逾時先驗分再決定交件/放棄。
+                        //    雙職任務只看評價/銅門檻（與其正常計分一致，不另查 Crafts_Main/Gathering_Min）。
+                        if (SchedulerMain.CurrentMissionUnavailable(tag, out var timeoutMission))
+                            return true;
+
+                        bool canTurnin;
+                        if (timeoutMission.Attributes.HasFlag(MissionAttributes.Critical))
+                        {
+                            var criticalScore = missionInfo.CriticalScore;
+                            if (criticalScore == null)
+                            {
+                                if (EzThrottler.Throttle("ICE: timeout critical unreadable (dual)", 10000))
+                                    IceLogging.Info($"任務逾時但高難進度讀不出來，本輪先不決定交件/放棄，等面板可讀。" +
+                                                    $"（面板原字串：「{missionInfo.CriticalScoreRaw ?? "<面板尚未載入>"}」）", tag);
+                                return false;
+                            }
+                            canTurnin = criticalScore == 1;
+                        }
+                        else
+                        {
+                            canTurnin = timeoutMission.BronzeScore == 0 || (missionInfo.CurrentScore ?? 0) >= timeoutMission.BronzeScore;
+                        }
+
+                        ApplyTimeoutDecision(canTurnin, timeoutMission, missionInfo.CurrentScore ?? 0, tag);
                         return true;
                     }
 
@@ -890,6 +982,33 @@ namespace ICE.Scheduler.Tasks
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// 任務逾時後的統一收尾：已達交件門檻就交件、否則放棄。
+        /// </summary>
+        /// <remarks>
+        /// B1（cycleapple 65a5806b/5e480bd2 決策邏輯改寫）：原本三個逾時出口
+        /// （<see cref="Crafts"/>／<see cref="Gather"/>／<see cref="DualClass"/>）都無條件放棄，
+        /// 把「其實已經做完、分數也夠」的任務連同成品一起丟掉；<see cref="Fish"/> 早就先驗分再決定，
+        /// 這裡把另外三個補齊。<br/>
+        /// 🔑 交件/放棄的<b>統計計數不在這裡</b>：那是 <see cref="Task_AbandonMission"/> 於任務真正結束
+        /// （CurrentLunarMission==0）時依 <c>WasAbandoned</c> 記一次，這裡只切狀態，不會雙記。<br/>
+        /// 獎章判定沿用我方 <see cref="MedalChecker"/>（內部自行處理時間型任務走 DetermineTurninState），
+        /// 因此不需要上游那條額外的 ScoreTimeRemaining 分支。
+        /// </remarks>
+        private static void ApplyTimeoutDecision(bool canTurnin, CosmicHelper.CosmicInfo mission, uint currentScore, string tag)
+        {
+            SchedulerMain.State = canTurnin ? IceState.TurninMission : IceState.AbandonMission;
+            if (canTurnin)
+            {
+                if (mission.Attributes.HasFlag(MissionAttributes.Critical))
+                    Mission_Settings.TurninState = TurninState.Critical;
+                else
+                    MedalChecker(mission, currentScore);
+            }
+            IceLogging.Info($"任務逾時：{(canTurnin ? "已達交件門檻，改為交件" : "未達交件門檻，放棄任務")}。", tag);
+            P.TaskManager.Tasks.Clear();
         }
 
         /// <param name="logDetails">
