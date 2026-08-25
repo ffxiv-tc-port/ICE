@@ -19,8 +19,18 @@ namespace ICE.Scheduler.Tasks
     internal static class Task_Gather
     {
 
+        // B2：剛採完的採集點就是這一幀的 activeGatherNode；離開採集狀態時回頭確認它是否已採光。
+        private static uint activeGatherNodeId;
+        private static uint activeGatherMissionId;
+        private static bool activeGatherWindowOpened;
+
         public static void Enqueue()
         {
+            // B2：剛結束一次限量採集點的採集，先把它記進耗盡集合；若整條路線都採光了，
+            //     RecordCompletedLimitedNode 會直接把狀態切到 ScoreCheck 並清佇列，這裡就不再往下排。
+            if (!Svc.Condition[ConditionFlag.Gathering] && RecordCompletedLimitedNode())
+                return;
+
             if (GenericHelpers.TryGetAddonMaster<Gathering>("Gathering", out var gather) && gather.IsAddonReady || GenericHelpers.TryGetAddonMaster<GatheringMasterpiece>("GatheringMasterpiece", out var collectable) && collectable.IsAddonReady)
             {
                 IceLogging.Debug("Current in a gathering session");
@@ -196,7 +206,8 @@ namespace ICE.Scheduler.Tasks
                                                                   && o.IsTargetable
                                                                   && o.BaseId == node.NodeId)
                             })
-                            .Where(x => x.Node.NodeId != excludeNodeId && x.Obj != null)
+                            .Where(x => x.Node.NodeId != excludeNodeId && x.Obj != null
+                                        && !Mission_Settings.ExhaustedGatheringNodes.Contains(x.Node.NodeId))
                             .OrderBy(x => Player.DistanceTo(x.Obj!.Position))
                             .FirstOrDefault();
 
@@ -216,7 +227,8 @@ namespace ICE.Scheduler.Tasks
                                     Loaded = Svc.Objects.Any(o => o.ObjectKind == ObjectKind.GatheringPoint
                                                                && o.BaseId == node.NodeId)
                                 })
-                                .Where(x => x.Node.NodeId != excludeNodeId && !x.Loaded)
+                                .Where(x => x.Node.NodeId != excludeNodeId && !x.Loaded
+                                            && !Mission_Settings.ExhaustedGatheringNodes.Contains(x.Node.NodeId))
                                 .OrderBy(x => Player.DistanceTo(x.Node.Position))
                                 .FirstOrDefault();
 
@@ -272,7 +284,8 @@ namespace ICE.Scheduler.Tasks
                                                                   && o.IsTargetable
                                                                   && o.BaseId == node.NodeId)
                             })
-                            .Where(x => x.Obj != null)
+                            .Where(x => x.Obj != null
+                                        && !Mission_Settings.ExhaustedGatheringNodes.Contains(x.Node.NodeId))
                             .OrderBy(x => Player.DistanceTo(x.Obj!.Position))
                             .ToList();
 
@@ -285,9 +298,16 @@ namespace ICE.Scheduler.Tasks
                 return best.Index;
             }
 
-            var fallback = route.Select((node, index) => new { Index = index, Node = node })
-                                .OrderBy(x => Player.DistanceTo(x.Node.Position))
-                                .First();
+            // B2：優先排除已採光的限量節點；若全數採光（不該走到這裡，會先被耗盡收尾攔下）則退回不過濾，避免 .First() 例外。
+            var notExhausted = route.Select((node, index) => new { Index = index, Node = node })
+                                    .Where(x => !Mission_Settings.ExhaustedGatheringNodes.Contains(x.Node.NodeId))
+                                    .OrderBy(x => Player.DistanceTo(x.Node.Position))
+                                    .ToList();
+            var fallback = notExhausted.Count > 0
+                ? notExhausted[0]
+                : route.Select((node, index) => new { Index = index, Node = node })
+                       .OrderBy(x => Player.DistanceTo(x.Node.Position))
+                       .First();
 
             IceLogging.Info($"挑起始採集點：ObjectTable 一個都沒命中（共 {route.Count} 個點，" +
                             "採集點還沒載入或目前不可選取），改用路線檔的座標挑最近 —— " +
@@ -319,6 +339,10 @@ namespace ICE.Scheduler.Tasks
                 return true;
             }
 
+            // B2：限量任務且整條路線已採光時，直接收手去驗分（避免對著採光的節點原地打轉）。
+            if (missionEntry.Attributes.HasFlag(MissionAttributes.Limited) && Mission_Settings.GatheringNodesDepleted)
+                return FinishDepletedLimitedRoute(gatherInfo);
+
             if (Mission_Settings.nodeCounter < 0 || Mission_Settings.nodeCounter >= gatherInfo.Count)
             {
                 IceLogging.Info($"採集點索引 {Mission_Settings.nodeCounter} 超出這條路線的範圍" +
@@ -337,13 +361,17 @@ namespace ICE.Scheduler.Tasks
             {
                 if (CosmicHandler.IsMissionTimedOut())
                 {
-                    IceLogging.Info($"We've managed to time out the mission. Going to attempt to turnin, and abandon if not", "[Gathering: Open Gathering Menu]");
-                    SchedulerMain.State = IceState.AbandonMission;
+                    // B1/B2：逾時不再無條件放棄，改走 ScoreCheck 先驗分再決定交件/放棄。
+                    IceLogging.Info("Mission timed out, checking score before turning in or abandoning", "[Gathering: Open Gathering Menu]");
+                    SchedulerMain.State = IceState.ScoreCheck;
                     P.TaskManager.Tasks.Clear();
                     return true;
                 }
                 else if (Svc.Condition[ConditionFlag.Gathering] && GenericHelpers.TryGetAddonMaster<Gathering>("Gathering", out var gather) && gather.IsAddonReady || GenericHelpers.TryGetAddonMaster<GatheringMasterpiece>("GatheringMasterpiece", out var collectable) && collectable.IsAddonReady)
                 {
+                    // B2：記錄「這一幀正在採的節點」，離開採集狀態時 RecordCompletedLimitedNode 用它判斷採光。
+                    SetActiveGatherNode(location.NodeId);
+                    activeGatherWindowOpened = true;
                     Mission_Settings.CollectableStep = 0;
 
                     IceLogging.Info($"Gathering window is now visible, continuing onto GatheringInteraction Task", "[Gathering: OpenGatheringMenu]");
@@ -365,7 +393,11 @@ namespace ICE.Scheduler.Tasks
                         }
                         else
                         {
-                            // Node doesn't exist/isn't targetable. 
+                            // Node doesn't exist/isn't targetable.
+                            // B2：對限量任務而言，走到這個點卻不可選取＝它已採光，記進耗盡集合。
+                            //     若整條路線都採光了，MarkLimitedNodeExhausted 會切到 ScoreCheck 並回 true。
+                            if (MarkLimitedNodeExhausted(location.NodeId, gatherInfo))
+                                return true;
                             IceLogging.Info($"The current node doesn't exist, continuing onto the next", "[Gathering: OpenGatheringMenu]");
                             return true;
                         }
@@ -374,6 +406,105 @@ namespace ICE.Scheduler.Tasks
             }
 
             return false;
+        }
+
+        // - - - B2：限量採集點耗盡追蹤的輔助方法（cycleapple 65a5806b 機制改寫；不含其環狀掃描選點） - - -
+
+        private static void SetActiveGatherNode(uint nodeId)
+        {
+            var missionId = CosmicHelper.CurrentLunarMission;
+            if (activeGatherNodeId == nodeId && activeGatherMissionId == missionId)
+                return;
+
+            activeGatherNodeId = nodeId;
+            activeGatherMissionId = missionId;
+            activeGatherWindowOpened = false;
+        }
+
+        private static void ClearActiveGatherNode()
+        {
+            activeGatherNodeId = 0;
+            activeGatherMissionId = 0;
+            activeGatherWindowOpened = false;
+        }
+
+        /// <summary>
+        /// 剛採完一個限量採集點（採集視窗開過、現在已離開採集狀態、且該節點已不可選取）就把它記進耗盡集合。
+        /// 只對限量任務生效——一般任務的節點會重生，不能當耗盡。回 <c>true</c>＝整條路線已採光、狀態已切到
+        /// ScoreCheck，呼叫端（Enqueue）要直接 return。
+        /// </summary>
+        private static bool RecordCompletedLimitedNode()
+        {
+            if (activeGatherNodeId == 0
+                || !activeGatherWindowOpened
+                || Svc.Condition[ConditionFlag.Gathering]
+                || CosmicHelper.CurrentLunarMission == 0)
+                return false;
+
+            if (activeGatherMissionId != CosmicHelper.CurrentLunarMission)
+            {
+                // 換任務了，上一個任務殘留的 activeGatherNode 一律作廢，不能拿去記到新任務頭上。
+                ClearActiveGatherNode();
+                return false;
+            }
+
+            if (!CosmicHelper.SheetMissionDict.TryGetValue(CosmicHelper.CurrentLunarMission, out var missionEntry)
+                || !missionEntry.Attributes.HasFlag(MissionAttributes.Limited))
+            {
+                ClearActiveGatherNode();
+                return false;
+            }
+
+            // 🔴 節點身分比對用 BaseId 不是 DataId（DataId 查表安全，身分比對要用 BaseId）。
+            //    節點還可選取＝還沒採光（可能只是暫時關了視窗），不記。
+            if (Svc.Objects.Any(obj => obj.ObjectKind == ObjectKind.GatheringPoint
+                                    && obj.BaseId == activeGatherNodeId
+                                    && obj.IsTargetable))
+                return false;
+
+            var completedNodeId = activeGatherNodeId;
+            ClearActiveGatherNode();
+            var gatherInfo = GatheringRouteLoader.GetRoute(Player.Territory, missionEntry.MapPosition);
+            if (gatherInfo == null || gatherInfo.Count == 0)
+                return false;
+            return MarkLimitedNodeExhausted(completedNodeId, gatherInfo);
+        }
+
+        /// <summary>
+        /// 把一個限量採集點記進耗盡集合；若整條路線都採光了就收手走 ScoreCheck。
+        /// 回 <c>true</c>＝路線已採光、狀態已切到 ScoreCheck。
+        /// </summary>
+        private static bool MarkLimitedNodeExhausted(uint nodeId, List<GathNodeInfo> gatherInfo)
+        {
+            if (!CosmicHelper.SheetMissionDict.TryGetValue(CosmicHelper.CurrentLunarMission, out var missionEntry)
+                || !missionEntry.Attributes.HasFlag(MissionAttributes.Limited)
+                || !Mission_Settings.ExhaustedGatheringNodes.Add(nodeId))
+                return false;
+
+            Mission_Settings.nodeTotal = Mission_Settings.ExhaustedGatheringNodes.Count;
+            IceLogging.Info($"限量採集點 {nodeId} 已採光（{Mission_Settings.ExhaustedGatheringNodes.Count}/{gatherInfo.Count}）。",
+                            "[Gathering: Limited Nodes]");
+
+            if (!gatherInfo.All(routeNode => Mission_Settings.ExhaustedGatheringNodes.Contains(routeNode.NodeId)))
+                return false;
+
+            return FinishDepletedLimitedRoute(gatherInfo);
+        }
+
+        /// <summary>
+        /// 整條限量路線都採光時的收尾：停下導航、切到 ScoreCheck 讓 B1 的驗分決策決定交件或放棄。
+        /// </summary>
+        private static bool FinishDepletedLimitedRoute(List<GathNodeInfo> gatherInfo)
+        {
+            Mission_Settings.GatheringNodesDepleted = true;
+            if (P.Navmesh.IsRunning())
+                P.Navmesh.Stop();
+
+            IceLogging.Info($"這條路線的 {gatherInfo.Count} 個限量採集點都採光了，改去驗分決定交件/放棄。",
+                            "[Gathering: Limited Nodes]");
+            SchedulerMain.State = IceState.ScoreCheck;
+            P.TaskManager.Tasks.Clear();
+            return true;
         }
         public static unsafe bool? GatheringInteraction()
         {

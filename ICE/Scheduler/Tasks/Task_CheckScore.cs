@@ -691,12 +691,30 @@ namespace ICE.Scheduler.Tasks
                     {
                         if (mission.Attributes.HasFlag(MissionAttributes.Limited))
                         {
-                            if (Mission_Settings.nodeTotal >= 7 && !Svc.Condition[ConditionFlag.Gathering])
+                            // B2：改用「整條路線已採光」旗標取代原本的 nodeTotal>=7——後者的 nodeTotal
+                            //     在我方從未被遞增（恆為死碼），這個閘門過去其實從不觸發，全靠逾時收手。
+                            //     採光後不再無條件放棄：改走 B1 的驗分決策（達標交件、否則放棄）。
+                            if (Mission_Settings.GatheringNodesDepleted && !Svc.Condition[ConditionFlag.Gathering])
                             {
-                                // We've hit the node total, and can't gather anymore. Just going to try and turnin/abandon
-                                SchedulerMain.State = IceState.AbandonMission;
-                                Mission_Settings.nodeTotal = 0;
-                                P.TaskManager.Tasks.Clear();
+                                bool depletedCanTurnin;
+                                if (mission.BronzeScore == 0)
+                                {
+                                    // 無分數門檻＝看採集道具數量是否備齊。傳送/換區途中 GetItemCount 全回 0，讀不到就先等。
+                                    if (!PlayerHelper.InventoryReadable())
+                                    {
+                                        if (EzThrottler.Throttle("ICE: depleted inventory unreadable (gather)", 5000))
+                                            IceLogging.Info("限量採集點已採光，但玩家處於傳送/讀取中，道具數量讀出來會全是 0，暫緩交件/放棄判定。", "[Check Score: Gather]");
+                                        return true;
+                                    }
+                                    depletedCanTurnin = mission.Gathering_Min.All(item =>
+                                        PlayerHelper.GetItemCount(item.Key, out var count) && count >= item.Value);
+                                }
+                                else
+                                {
+                                    depletedCanTurnin = (missionInfo.CurrentScore ?? 0) >= mission.BronzeScore;
+                                }
+
+                                ApplyTimeoutDecision(depletedCanTurnin, mission, missionInfo.CurrentScore ?? 0, "[Check Score: Gather]");
                                 return true;
                             }
                         }
