@@ -1474,6 +1474,19 @@ namespace ICE.Scheduler.Tasks
                 //    不依賴採集點有沒有載進 ObjectTable。
                 var entryNode = gatherInfo.OrderBy(x => Player.DistanceTo(x.LandZone)).First();
                 Vector3 closestNode = entryNode.LandZone;
+
+                // B4：套一層採集接近角。用 A8 補的角度資料（radius_start/end + max_distance）算出「從允許
+                //     角度接近」的點；只有當它確實落在導航網格上（NearestPoint）才採用，否則維持原本的
+                //     LandZone。🔴 fail-open 必須——角度資料是國際服作者標的、台服未驗，不讓它成為必經路徑。
+                var approach = Task_Gather.GetGatherApproachPosition(entryNode, entryNode.Position);
+                if (Task_Gather.TryResolveApproachOnMesh(approach, out var meshApproach))
+                {
+                    closestNode = meshApproach;
+                    if (EzThrottler.Throttle("ICE: gather approach angle", 5000))
+                        IceLogging.Info($"採集接近角：採集點 {entryNode.NodeId} 依角度資料算出接近點並吸附到導航網格，改用它當入口。",
+                                        "[FindMission: NavmeshMoveTo]");
+                }
+
                 if (EzThrottler.Throttle("ICE: gather route entry node", 5000))
                     IceLogging.Info($"前往採集區域：路線共 {gatherInfo.Count} 個點，" +
                                     $"選最近的採集點 {entryNode.NodeId}（距離 {Player.DistanceTo(entryNode.LandZone):N1}）當入口。",

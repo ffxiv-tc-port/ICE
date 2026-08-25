@@ -24,6 +24,13 @@ namespace ICE.Scheduler.Tasks
         private static uint activeGatherMissionId;
         private static bool activeGatherWindowOpened;
 
+        // B4：採集接近角（cycleapple 57b5018 的純函式抽取；不含其 CosmicTravelPlanner 主體）。
+        private const float GatheringRange = 3.5f;
+        private const float GatherApproachTolerance = 0.5f;
+        private static uint approachNodeId;
+        private static Vector3 approachCenter;
+        private static Vector3 approachPosition;
+
         public static void Enqueue()
         {
             // B2：剛結束一次限量採集點的採集，先把它記進耗盡集合；若整條路線都採光了，
@@ -505,6 +512,87 @@ namespace ICE.Scheduler.Tasks
             SchedulerMain.State = IceState.ScoreCheck;
             P.TaskManager.Tasks.Clear();
             return true;
+        }
+
+        // - - - B4：採集接近角（cycleapple 57b5018 的純函式抽取） - - -
+
+        /// <summary>
+        /// 依採集點的允許接近角（radius_start/end）與距離（min/max_distance）算出一個「從允許方向靠近」的點。
+        /// 純函式，資料全來自路線 yaml（A8 補的角度資料）。<b>不驗證這個點在不在導航網格上</b>——那由
+        /// <see cref="TryResolveApproachOnMesh"/> 負責，且找不到就退回原本的落點（fail-open）。
+        /// </summary>
+        /// <remarks>
+        /// 出處：cycleapple api13-tw 的 <c>Task_Gather.GetGatherApproachPosition</c>（commit 57b5018）。
+        /// 只抽這兩個純函式，<b>不採用</b>其 CosmicTravelPlanner 主體（我方 vnavmesh 沒有 PathfindScore、
+        /// 且它寫死 69 個任務 ID 並全面接管 NavToDestination——見同步計畫 C 類）。
+        /// </remarks>
+        internal static Vector3 GetGatherApproachPosition(GathNodeInfo node, Vector3 center)
+        {
+            if (approachNodeId == node.NodeId && Vector3.DistanceSquared(approachCenter, center) <= 0.25f)
+                return approachPosition;
+
+            var angle = GetClosestAllowedAngle(center, node.RadiusStart, node.RadiusEnd);
+            var maxDistance = MathF.Min(node.MaxDistance, GatheringRange - GatherApproachTolerance);
+            var minDistance = MathF.Min(node.MinDistance, maxDistance);
+            var distance = minDistance + Random.Shared.NextSingle() * (maxDistance - minDistance);
+            var radians = (180f - angle) * (MathF.PI / 180f);
+
+            approachNodeId = node.NodeId;
+            approachCenter = center;
+            approachPosition = new Vector3(
+                center.X + distance * MathF.Sin(radians),
+                center.Y,
+                center.Z + distance * MathF.Cos(radians));
+            return approachPosition;
+        }
+
+        private static float GetClosestAllowedAngle(Vector3 center, float minAngle, float maxAngle)
+        {
+            var playerAngle = 180f - MathF.Atan2(Player.Position.X - center.X, Player.Position.Z - center.Z) * (180f / MathF.PI);
+            playerAngle = NormalizeAngle(playerAngle);
+            minAngle = NormalizeAngle(minAngle);
+            maxAngle = NormalizeAngle(maxAngle);
+
+            if (MathF.Abs(minAngle - maxAngle) < 0.01f || IsAngleInRange(playerAngle, minAngle, maxAngle))
+                return playerAngle;
+
+            return AngularDistance(playerAngle, minAngle) <= AngularDistance(playerAngle, maxAngle) ? minAngle : maxAngle;
+        }
+
+        private static float NormalizeAngle(float angle) => (angle % 360f + 360f) % 360f;
+
+        private static bool IsAngleInRange(float angle, float minAngle, float maxAngle)
+            => minAngle <= maxAngle ? angle >= minAngle && angle <= maxAngle : angle >= minAngle || angle <= maxAngle;
+
+        private static float AngularDistance(float first, float second)
+            => MathF.Abs((second - first + 540f) % 360f - 180f);
+
+        /// <summary>
+        /// 把接近點吸附到導航網格上。找不到就回 <c>false</c>，讓呼叫端退回原本的落點。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 <b>fail-open 必須</b>：角度資料是國際服作者標的、台服未驗，算出來的接近點很可能落在
+        /// 牆裡／水裡／網格外——絕不能讓它成為必經路徑，否則採集任務會靜默卡在一個到不了的點。
+        /// halfExtentXZ 給 2、halfExtentY 給 5：只接受接近點附近確實有網格的情形；高度容差放寬是因為
+        /// 角度資料只給了 X/Z，Y 沿用節點中心高度可能有落差。
+        /// </remarks>
+        internal static bool TryResolveApproachOnMesh(Vector3 approach, out Vector3 resolved)
+        {
+            resolved = approach;
+            if (!P.Navmesh.Installed)
+                return false;
+            try
+            {
+                var nearest = P.Navmesh.NearestPoint(approach, 2f, 5f);
+                if (nearest == null)
+                    return false;
+                resolved = nearest.Value;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
         }
         public static unsafe bool? GatheringInteraction()
         {
