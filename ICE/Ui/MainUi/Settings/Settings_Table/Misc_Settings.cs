@@ -51,6 +51,9 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             if (ImGui_Tools.PageSection("Post Mission Commands".Loc(), "ICESecPostMission"))
                 PostMissionCommands();
 
+            if (ImGui_Tools.PageSection("Mission Playlists".Loc(), "ICESecMissionPlaylists"))
+                MissionPlaylists();
+
             if (ImGui_Tools.PageSection("Overlay Window".Loc(), "ICESecOverlay"))
                 OverlaySettings();
 
@@ -1103,6 +1106,73 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     PictoService.VfxRenderer.AddCircle("Mount_Radius Circle", playerPos, C.MountRadius, Utils.FromUintABGR(2616716297));
                 if (visualizeDismountRadius)
                     PictoService.VfxRenderer.AddCircle("Dismount_Radius Circle", playerPos, C.DismountRadius, Utils.FromUintABGR(2601121571));
+            }
+        }
+
+        // B5（cycleapple 5ecca374）：任務預設組。儲存目前啟用的任務組合，載入時只切各任務的
+        //    Enabled，不動優先順序或個別任務設定。搬進我方分節架構（DrawSettingsPage 的
+        //    ICESecMissionPlaylists 節），內文沿用上游已翻好的繁中。
+        private static string playlistName = string.Empty;
+
+        private static void MissionPlaylists()
+        {
+            C.MissionPlaylists ??= new();
+
+            ImGuiEx.IconWithText(FontAwesomeIcon.List, "任務預設");
+            ImGui.Dummy(new Vector2(0, 5));
+            ImGui.TextWrapped("儲存目前啟用的任務組合。載入預設會關閉未列入的任務，但不會改變任務優先順序或個別任務設定。");
+
+            ImGui.SetNextItemWidth(220);
+            ImGui.InputText("預設名稱", ref playlistName, 100);
+            ImGui.SameLine();
+
+            var normalizedName = playlistName.Trim();
+            using (ImRaii.Disabled(normalizedName.Length == 0))
+            {
+                if (ImGui.Button("儲存目前啟用項目"))
+                {
+                    C.MissionPlaylists[normalizedName] = C.MissionConfig
+                        .Where(entry => entry.Value.Enabled)
+                        .Select(entry => entry.Key)
+                        .Distinct()
+                        .Order()
+                        .ToList();
+                    playlistName = string.Empty;
+                    C.Save();
+                }
+            }
+
+            if (C.MissionPlaylists.Count == 0)
+            {
+                ImGui.TextDisabled("尚未建立任務預設。");
+                return;
+            }
+
+            string? deletePlaylist = null;
+            foreach (var (name, missionIds) in C.MissionPlaylists)
+            {
+                var savedMissionIds = missionIds ?? [];
+                ImGui.PushID(name);
+                var knownMissionCount = savedMissionIds.Distinct().Count(C.MissionConfig.ContainsKey);
+                ImGui.Text($"{name}（{knownMissionCount} 個任務）");
+                ImGui.SameLine();
+                if (ImGui.Button("載入"))
+                {
+                    var selected = savedMissionIds.ToHashSet();
+                    foreach (var (missionId, settings) in C.MissionConfig)
+                        settings.Enabled = selected.Contains(missionId);
+                    C.Save();
+                }
+                ImGui.SameLine();
+                if (ImGuiEx.IconButton(FontAwesomeIcon.Trash, "刪除"))
+                    deletePlaylist = name;
+                ImGui.PopID();
+            }
+
+            if (deletePlaylist != null)
+            {
+                C.MissionPlaylists.Remove(deletePlaylist);
+                C.Save();
             }
         }
 

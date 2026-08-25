@@ -549,6 +549,10 @@ namespace ICE.Config
 
         public Dictionary<uint, MissionSettings> MissionConfig { get; set; } = new();
 
+        // B5（cycleapple 5ecca374）：任務預設組（playlist）。名稱→啟用的任務 id 清單。
+        // 載入時只切各任務的 Enabled，不動優先順序或個別任務設定。
+        public Dictionary<string, List<uint>> MissionPlaylists { get; set; } = new();
+
         public List<MissionCommand> PostMissionCommands { get; set; } = new();
 
         #region Tab Hider
