@@ -116,6 +116,10 @@ public sealed partial class ICE : IDalamudPlugin
         Init();
         Svc.Framework.Update += Tick;
 
+        // 同步上游：離開宇宙探索區時自動關閉浮動視窗（見 OnTerritoryChange）。
+        // 🔴 本艦隊 Dalamud pin 的 TerritoryChanged 委派是 Action<ushort>（上游用 uint 會對不上型別）。
+        Svc.ClientState.TerritoryChanged += OnTerritoryChange;
+
         // 🔴 任務逾時目前在 log 裡查不到「是哪一步逾時」：ECommons 丟的
         //    TaskTimeoutException 訊息是空的（只剩 e.LogWarning() 的堆疊），
         //    唯一帶任務名稱的那行在 TaskManager.Tick 裡被 ShowDebug = false 關掉，
@@ -190,9 +194,20 @@ public sealed partial class ICE : IDalamudPlugin
         YesAlreadyManager.Tick();
     }
 
+    // 同步上游：離開宇宙探索區就把浮動視窗關掉，避免離開後視窗殘留在畫面上。
+    // ⚠️ 回呼裡不保存任何原生指標；每次呼叫都用 IsInCosmicZone() 重判（它只讀 TerritoryType）。
+    // 📌 開窗仍交給 PlayerHandlers.Tick 的既有慣例（含 UsingSupportedJob 與 C.ShowOverlay 條件），
+    //    這裡只補上游新增的「離開就關」，不重複開窗邏輯以免改動既有開窗條件。
+    private void OnTerritoryChange(ushort territoryId)
+    {
+        if (!PlayerHelper.IsInCosmicZone() && P.overlayWindow.IsOpen)
+            P.overlayWindow.IsOpen = false;
+    }
+
     public void Dispose()
     {
         GenericHelpers.Safe(() => Svc.Framework.Update -= Tick);
+        GenericHelpers.Safe(() => Svc.ClientState.TerritoryChanged -= OnTerritoryChange);
         GenericHelpers.Safe(() => Svc.PluginInterface.UiBuilder.Draw -= windowSystem.Draw);
         GenericHelpers.Safe(() => Svc.PluginInterface.UiBuilder.Draw -= MechaAoeOverlay.Draw);
         GenericHelpers.Safe(MechaContextMenu.Disable);

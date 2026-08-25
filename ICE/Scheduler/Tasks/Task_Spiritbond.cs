@@ -24,6 +24,11 @@ namespace ICE.Scheduler.Tasks
         public static ushort Ring2 { get => InventoryManager.Instance()->GetInventoryContainer(InventoryType.EquippedItems)->Items[12].SpiritbondOrCollectability; }
         public static bool IsSpiritbondReadyAny()
         {
+            // 同步上游：精選（Spiritbond／萃取）功能要先做完解鎖任務(638)才會開放。
+            // 沒解鎖就硬要萃取會卡在 step-moon，所以未解鎖直接回 false，不進入萃取流程。
+            if (!SpiritbondUnlocked())
+                return false;
+
             if (Weapon == 10000) return true;
             if (Offhand == 10000) return true;
             if (Helm == 10000) return true;
@@ -38,6 +43,12 @@ namespace ICE.Scheduler.Tasks
             if (Ring2 == 10000) return true;
 
             return false;
+        }
+
+        // 同步上游：任務 638 為精選材料（萃取）解鎖任務；完成後才允許萃取。
+        public static bool SpiritbondUnlocked()
+        {
+            return QuestManager.IsQuestComplete(638);
         }
 
         public static void Enqueue()
