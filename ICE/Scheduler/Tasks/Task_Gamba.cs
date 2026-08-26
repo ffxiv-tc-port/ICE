@@ -93,6 +93,58 @@ namespace ICE.Scheduler.Tasks
                 C.Save();
         }
 
+        /// <summary>
+        /// 目前這個區域／狀態能不能手動跑一次轉盤。給設定頁的「立即執行一次」按鈕當閘門用——
+        /// 轉盤視窗已經開著（直接開賭），或人在有登記轉盤 NPC 的宇宙探索區（先走過去）。
+        /// </summary>
+        public static bool CanRunManually()
+        {
+            if (GenericHelpers.TryGetAddonMaster<WKSLottery>("WKSLottery", out var lottery) && lottery.IsAddonReady)
+                return true;
+
+            return NpcData.TryGetMoonNpc(Player.Territory, NpcData.NpcType.Gamba, out _);
+        }
+
+        /// <summary>
+        /// 中止這一串轉盤流程。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 原本這裡一律寫 <c>State = Start</c>。<c>SchedulerMain.Tick()</c> 只要看到
+        /// <c>State != Idle</c> 就會開始跑整套任務排程——也就是說，使用者只是在設定頁按了
+        /// 「立即執行一次」（此時 State 是 Idle），一旦中途查不到 NPC 就會**整套 ICE 自己跑起來**。
+        /// 排程本來就在跑時回到 <c>Start</c> 重新判斷是對的，Idle 時則必須維持 Idle。
+        /// </remarks>
+        private static void AbortGamba()
+        {
+            P.TaskManager.Tasks.Clear();
+            if (SchedulerMain.State != IceState.Idle)
+                SchedulerMain.State = IceState.Start;
+        }
+
+        /// <summary>
+        /// 目前宇宙探索區對應的信用點道具 ID。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 原本是 <c>currencies[*((byte*)WKSManager.Instance() + 0x5D)]</c> —— 用一個
+        /// <b>byte</b>（0–255）去索引長度 4 的陣列，只要遊戲那個欄位不是預期值就直接
+        /// IndexOutOfRangeException。台服目前只開放第一張圖（1237），索引恆為 0，但這條路徑
+        /// 現在掛在使用者按得到的按鈕上，不能靠「應該不會發生」。
+        /// </remarks>
+        private static unsafe bool TryGetCosmoCreditItemId(out uint itemId)
+        {
+            uint[] currencies = [45691, 48146, 48147, 48148];
+            itemId = 0;
+
+            var manager = WKSManager.Instance();
+            if (manager == null) return false;
+
+            var zoneIndex = *((byte*)manager + 0x5D);
+            if (zoneIndex >= currencies.Length) return false;
+
+            itemId = currencies[zoneIndex];
+            return true;
+        }
+
         public static void Enqueue()
         {
             EnsureGambaWeightsInitialized();
@@ -122,16 +174,16 @@ namespace ICE.Scheduler.Tasks
         private static bool? PathToGambaNpc()
         {
             var zoneId = Player.Territory;
-            // 🔴 零守衛的字典索引。MoonNpcs 只有月面兩個 key（1237／1291），而這裡的 key 是
+            // ✅ 這裡曾經是零守衛的字典索引，已修：守衛＝下一行的 NpcData.TryGetMoonNpc。
+            // 原因留存：MoonNpcs 只有月面兩個 key（1237／1291），而這裡的 key 是
             // Player.Territory —— 佇列排好之後玩家還是可能被傳送走（機甲行動抽中駕駛員就會），
-            // 下一個 tick 讀到的區域就不是月面了。原本的 .First()/.FirstOrDefault() 兩種寫法
+            // 下一個 tick 讀到的區域就不是月面了。修之前的 .First()/.FirstOrDefault() 兩種寫法
             // 都沒處理「找不到」，一個丟 InvalidOperationException、一個回 null 再 NRE。
             if (!NpcData.TryGetMoonNpc(zoneId, NpcData.NpcType.Gamba, out var npcEntry))
             {
                 if (EzThrottler.Throttle("ICE: moon npc missing Gamba", 5000))
                     IceLogging.Info($"目前區域 {zoneId} 沒有登記轉盤 NPC 的資料（可能已經被傳送離開月面），中止這一步。", "[ICE]");
-                P.TaskManager.Tasks.Clear();
-                SchedulerMain.State = IceState.Start;
+                AbortGamba();
                 return true;
             }
 
@@ -191,16 +243,16 @@ namespace ICE.Scheduler.Tasks
             }
             else
             {
-                // 🔴 零守衛的字典索引。MoonNpcs 只有月面兩個 key（1237／1291），而這裡的 key 是
+                // ✅ 這裡曾經是零守衛的字典索引，已修：守衛＝下一行的 NpcData.TryGetMoonNpc。
+                // 原因留存：MoonNpcs 只有月面兩個 key（1237／1291），而這裡的 key 是
                 // Player.Territory —— 佇列排好之後玩家還是可能被傳送走（機甲行動抽中駕駛員就會），
-                // 下一個 tick 讀到的區域就不是月面了。原本的 .First()/.FirstOrDefault() 兩種寫法
+                // 下一個 tick 讀到的區域就不是月面了。修之前的 .First()/.FirstOrDefault() 兩種寫法
                 // 都沒處理「找不到」，一個丟 InvalidOperationException、一個回 null 再 NRE。
                 if (!NpcData.TryGetMoonNpc(Player.Territory, NpcData.NpcType.Gamba, out var npcEntry))
                 {
                     if (EzThrottler.Throttle("ICE: moon npc missing Gamba", 5000))
                         IceLogging.Info($"目前區域 {Player.Territory} 沒有登記轉盤 NPC 的資料（可能已經被傳送離開月面），中止這一步。", "[ICE]");
-                    P.TaskManager.Tasks.Clear();
-                    SchedulerMain.State = IceState.Start;
+                    AbortGamba();
                     return true;
                 }
                 Utils.TryGetNpcObject(npcEntry, out var researchNpc);
@@ -244,10 +296,14 @@ namespace ICE.Scheduler.Tasks
 
             if (GenericHelpers.TryGetAddonMaster<WKSLottery>("WKSLottery", out var gamba) && gamba.IsAddonReady)
             {
-                uint[] currencies = [45691, 48146, 48147, 48148];
-                var manager = WKSManager.Instance();
-                var zoneId = *((byte*)manager + 0x5D);
-                var itemId = currencies[zoneId];
+                if (!TryGetCosmoCreditItemId(out var itemId))
+                {
+                    if (EzThrottler.Throttle("ICE: gamba currency unknown", 5000))
+                        IceLogging.Info("讀不到目前宇宙探索區域對應的信用點道具，中止轉盤流程。", tag);
+                    AbortGamba();
+                    return true;
+                }
+
                 PlayerHelper.GetItemCount(itemId, out var credits);
 
                 bool confirmEnabled, leftWheelEnabled, rightWheelEnabled;
@@ -324,10 +380,8 @@ namespace ICE.Scheduler.Tasks
         }
         private static unsafe bool HasEnoughCredits()
         {
-            uint[] currencies = [45691, 48146, 48147, 48148];
-            var manager = WKSManager.Instance();
-            var zoneId = *((byte*)manager + 0x5D);
-            var itemId = currencies[zoneId];
+            if (!TryGetCosmoCreditItemId(out var itemId))
+                return false;
 
             PlayerHelper.GetItemCount(itemId, out var credits);
             return credits >= 1000;

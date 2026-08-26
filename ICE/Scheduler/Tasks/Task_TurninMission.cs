@@ -76,7 +76,8 @@ namespace ICE.Scheduler.Tasks
             }
             else
             {
-                // 零守衛的字典索引（跟同檔案下方那顆已經修過的雷是同一個字典）。
+                // ✅ 曾經是零守衛的字典索引（跟同檔案下方那顆是同一個字典），已修：
+                //    守衛＝下方那個 SheetMissionDict.TryGetValue。
                 // 查不到就當成「不是限時任務」繼續走一般回報流程 —— 這比丟例外讓佇列卡死安全，
                 // critical 只影響「要不要先走去收集點」這一步。
                 var critical = CosmicHelper.SheetMissionDict.TryGetValue(id, out var turninMission)
@@ -267,7 +268,8 @@ namespace ICE.Scheduler.Tasks
 
             var isGold = managerPtr->IsMissionGolded(PreviousMissionId);
 
-            // 零守衛的字典索引 ×2。PreviousMissionId 的初始值就是 0，而 MissionConfig 雖然
+            // ✅ 曾經是零守衛的字典索引 ×2，已修：守衛＝下方的 C.MissionConfig.TryGetValue。
+            //    原因留存：PreviousMissionId 的初始值就是 0，而 MissionConfig 雖然
             // 通常含 0（MissionTimer 會補），GetOnlyPreviousMissionsRecursive 回來的前置任務
             // 卻不保證在 MissionConfig 裡。這一段跑在 GoldCheck 任務內，丟例外＝佇列卡住。
             if (C.RemoveAfterGold && isGold)

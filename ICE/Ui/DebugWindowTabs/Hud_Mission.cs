@@ -168,7 +168,7 @@ namespace ICE.Ui.DebugWindowTabs
                 foreach (var m in x.StellerMissions)
                 {
                     ImGui.AlignTextToFramePadding();
-                    ImGui.Text($"[{m.MissionId}] {m.Name}");
+                    ImGui.Text($"[{m.MissionId}] {MissionSupport.NameWithMarker(m.MissionId, m.Name)}");
                     ImGui.SameLine();
                     if (ImGui.Button($"Select###Select + {m.Name}"))
                     {
@@ -189,9 +189,11 @@ namespace ICE.Ui.DebugWindowTabs
                         MissionName = "None";
                     else
                     {
-                        // 零守衛的字典索引（RelicMissionFinder 只保證 >= 1，不保證在表裡）。
-                        MissionName = CosmicHelper.SheetMissionDict.TryGetValue((uint)BestMission, out var bestEntry)
-                            ? bestEntry.Name : "???";
+                        // ✅ 曾經是零守衛的字典索引，已修：守衛＝下方的 TryGetValue（查不到顯示 "???"）。
+                        //    原因留存：RelicMissionFinder 只保證 >= 1，不保證在表裡。
+                        MissionName = MissionSupport.NameWithMarker((uint)BestMission,
+                            CosmicHelper.SheetMissionDict.TryGetValue((uint)BestMission, out var bestEntry)
+                                ? bestEntry.Name : "???");
                     }
                 }
 

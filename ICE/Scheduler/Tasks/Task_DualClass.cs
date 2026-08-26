@@ -50,8 +50,10 @@ namespace ICE.Scheduler.Tasks
                 return false;
             }
 
-            // 🔴 零守衛的字典索引 ×3（SheetMissionDict[id]、C.MissionConfig[id] ×2）。
-            //    SheetMissionDict 沒有 key 0，而遊戲端取消任務時 CurrentLunarMission 就是 0。
+            // ✅ 曾經是零守衛的字典索引 ×3（SheetMissionDict[id]、C.MissionConfig[id] ×2），已修：
+            //    SheetMissionDict 那顆的守衛＝下一行的 CurrentMissionUnavailable，
+            //    MissionConfig 那兩顆的守衛＝下方的 C.MissionConfig.TryGetValue。
+            //    原因留存：SheetMissionDict 沒有 key 0，而遊戲端取消任務時 CurrentLunarMission 就是 0。
             if (SchedulerMain.CurrentMissionUnavailable(handle, out var mission))
                 return true;
 
@@ -62,8 +64,7 @@ namespace ICE.Scheduler.Tasks
             if (!C.MissionConfig.TryGetValue(id, out var missionConfig))
             {
                 IceLogging.ChatError($"任務 {id} 沒有對應的 MissionConfig，雙職業流程無法判斷回報條件。", "[ICE]");
-                P.TaskManager.Tasks.Clear();
-                SchedulerMain.State = IceState.Start;
+                SchedulerMain.AbortToStateCheck();
                 return true;
             }
 
@@ -155,9 +156,20 @@ namespace ICE.Scheduler.Tasks
                 return false;
             }
 
+            // 前一次要求製作完全沒有進展時的退避期（同 Task_Craft.CheckMaterials）。
+            if (!CraftProgressGuard.MayAttemptNow(out var waitSeconds))
+            {
+                if (EzThrottler.Throttle("ICE: dualclass craft backoff log", 5000))
+                    IceLogging.Info(
+                        $"上一次要求 Artisan 製作沒有任何進展（連續第 {CraftProgressGuard.ConsecutiveFailures} 次），"
+                        + $"退避中，還要等 {waitSeconds:0.0} 秒。", "[Task_DualClass: Check Craft State]");
+                return false;
+            }
+
             if (PlayerHelper.GetItemCount(itemId, out var count) && count < dualCraftAmount)
             {
                 // We have enough to craft. Telling it to craft the item... x amount of times
+                CraftProgressGuard.Arm(recipeId, itemId, mainCraft.RequiredItems);
                 P.Artisan.CraftItem(recipeId, dualCraftAmount);
                 P.TaskManager.Tasks.Clear();
                 InsertArtisanWait();
@@ -167,6 +179,7 @@ namespace ICE.Scheduler.Tasks
             else
             {
                 // We have enough for atleast 1 more craft, telling artisan to craft. Uno mas.
+                CraftProgressGuard.Arm(recipeId, itemId, mainCraft.RequiredItems);
                 P.Artisan.CraftItem(recipeId, 1);
                 P.TaskManager.Tasks.Clear();
                 InsertArtisanWait();
@@ -181,7 +194,8 @@ namespace ICE.Scheduler.Tasks
 
             IceLogging.Debug("Starting 'Check Gather State'");
 
-            // 零守衛的字典索引，同 CheckMaterials 的形狀。
+            // ✅ 曾經是零守衛的字典索引（同 CheckMaterials 的形狀），已修：
+            //    守衛＝下一行的 SchedulerMain.CurrentMissionUnavailable。
             if (SchedulerMain.CurrentMissionUnavailable(handle, out var mission))
                 return true;
 
@@ -264,6 +278,16 @@ namespace ICE.Scheduler.Tasks
             if (!P.Artisan.IsBusy())
             {
                 IceLogging.Info("Artisan is no longer running, continuing the process");
+
+                // 同 Task_Craft.WaitingForArtisan：「Artisan 不忙了」不等於「做出東西來了」。
+                // 這裡原本也是無條件重試，同一條無限迴圈在雙職業流程也成立。
+                CraftProgressGuard.OnArtisanStopped("[Task_DualClass: Waiting For Artisan]");
+                if (CraftProgressGuard.LimitReached)
+                {
+                    CraftProgressGuard.ReportAndStop("[Task_DualClass: Waiting For Artisan]");
+                    return true;
+                }
+
                 P.TaskManager.Tasks.Clear();
                 return true;
             }
@@ -297,7 +321,8 @@ namespace ICE.Scheduler.Tasks
 
         public static unsafe bool? GatheringInteraction()
         {
-            // 零守衛的字典索引 ×2（CurrentMissionInfo 與 C.MissionConfig）。
+            // ✅ 曾經是零守衛的字典索引 ×2（CurrentMissionInfo 與 C.MissionConfig），已修：
+            //    前者的守衛＝下一行的 CurrentMissionUnavailable，後者＝下方的 C.MissionConfig.TryGetValue。
             if (SchedulerMain.CurrentMissionUnavailable("[Task_DualClass | Gathering Interaction]", out var missionInfo))
                 return true;
 
@@ -313,8 +338,7 @@ namespace ICE.Scheduler.Tasks
                 !C.GatherProfiles.TryGetValue(0, out gatherConfig))
             {
                 IceLogging.ChatError("找不到任何可用的採集設定檔（連預設的 0 號都沒有），無法自動採集。", "[ICE]");
-                P.TaskManager.Tasks.Clear();
-                SchedulerMain.State = IceState.Start;
+                SchedulerMain.AbortToStateCheck();
                 return true;
             }
 
@@ -506,7 +530,8 @@ namespace ICE.Scheduler.Tasks
             else
             {
                 // Currently in the middle of gathering here. Going to check for just general item progress.
-                // 零守衛的字典索引 ×2（CurrentMissionInfo 與 C.MissionConfig）。
+                // ✅ 曾經是零守衛的字典索引 ×2（CurrentMissionInfo 與 C.MissionConfig），已修：
+                //    前者的守衛＝下一行的 CurrentMissionUnavailable，後者＝下方的 C.MissionConfig.TryGetValue。
                 if (SchedulerMain.CurrentMissionUnavailable(handle, out var mission))
                     return true;
 
@@ -514,8 +539,7 @@ namespace ICE.Scheduler.Tasks
                 {
                     IceLogging.ChatError($"任務 {CosmicHelper.CurrentLunarMission} 沒有對應的 MissionConfig，" +
                                          "無法判斷要收集幾個道具。", "[ICE]");
-                    P.TaskManager.Tasks.Clear();
-                    SchedulerMain.State = IceState.Start;
+                    SchedulerMain.AbortToStateCheck();
                     return true;
                 }
 

@@ -32,6 +32,27 @@ namespace ICE.Scheduler
         }
 
         /// <summary>
+        /// 排程器統一的「中止這一串任務」出口：清掉佇列，並<b>只有在排程本來就在跑的時候</b>
+        /// 才回到 <see cref="Enums.IceState.Start"/> 重新判斷狀態。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 <see cref="Tick"/> 只要看到 <c>State != Idle</c> 就會開始跑<b>整套</b>任務排程。
+        /// 所以中止／錯誤路徑要是無條件寫 <c>State = Start</c>，語意就變成
+        /// 「出錯之後把整個 ICE 啟動起來」——而 <c>Task_Repair</c>／<c>Task_Gather</c>／
+        /// <c>Task_BuyCosmoItems</c>／<c>Task_RelicTurnin</c>／<c>Task_AbandonMission</c>
+        /// 都掛在偵錯視窗的單次按鈕上，按下去時 <c>State</c> 是 <c>Idle</c>：
+        /// 只要中途查不到 NPC，整套 ICE 就會自己跑起來。<br/>
+        /// 排程本來就在跑時回到 <c>Start</c> 重新判斷是對的，Idle 時則必須維持 Idle。
+        /// 同型修正的第一例是 <c>Task_Gamba.AbortGamba()</c>（設定頁的「立即執行一次」按鈕）。
+        /// </remarks>
+        internal static void AbortToStateCheck()
+        {
+            P.TaskManager.Tasks.Clear();
+            if (State != IceState.Idle)
+                State = Start;
+        }
+
+        /// <summary>
         /// 排程器統一的「任務資料還在嗎」閘門。<b>回傳 true 代表任務已經不存在，呼叫端必須立刻收工</b>
         /// （任務本體 <c>return true</c>；Enqueue 方法 <c>return</c>）。
         /// </summary>
@@ -39,7 +60,8 @@ namespace ICE.Scheduler
         /// 這是 <c>CosmicHelper.CurrentMissionInfo</c>（已移除）那顆零守衛字典索引的系統性替代品。<br/>
         /// 之所以要「清佇列 + 回到 <see cref="Enums.IceState.Start"/>」而不是只回一個空值：
         /// 任務不存在時佇列裡剩下的步驟全部都是針對舊任務排的，繼續跑只會用錯的前提做決定。
-        /// <c>Start</c> 會走 <c>Task_CheckState</c> 從頭重新判斷，是這個狀態機唯一的通用復原點。<br/>
+        /// <c>Start</c> 會走 <c>Task_CheckState</c> 從頭重新判斷，是這個狀態機唯一的通用復原點
+        /// （走 <see cref="AbortToStateCheck"/>，所以 Idle 時不會把外掛啟動起來）。<br/>
         /// 2026-08-03 實機事故就是這條路徑沒有守衛：遊戲端把探索任務取消掉 →
         /// <c>CurrentLunarMission</c> 變 0 → <c>SheetMissionDict[0]</c> 每個 tick 丟例外 37 次 →
         /// 逾時 → 佇列中止 → 外掛自己停用。
@@ -58,8 +80,7 @@ namespace ICE.Scheduler
                                 "（常見原因：遊戲端自己取消了任務，例如被機甲行動抽中當駕駛員傳送走。）", handle);
             }
 
-            P.TaskManager.Tasks.Clear();
-            State = Start;
+            AbortToStateCheck();
             return true;
         }
 
@@ -88,8 +109,7 @@ namespace ICE.Scheduler
                                 "（正常情況下 ConfigMigrator.UpdateConfigMissionList() 會在啟動時補齊。）", handle);
             }
 
-            P.TaskManager.Tasks.Clear();
-            State = Start;
+            AbortToStateCheck();
             return true;
         }
 

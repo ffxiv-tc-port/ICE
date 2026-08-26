@@ -176,24 +176,32 @@ namespace ICE.Scheduler.Tasks
                             bool dualMission = (s.HasFlag(MissionAttributes.Craft) && (s.HasFlag(MissionAttributes.Gather) || s.HasFlag(MissionAttributes.Fish)));
                             // In the middle of a dual mission. 
                             // First, checking to see if you're in the middle of a gathering or crafting action
-                            if (C.OnlyGrabMission || config.ManualMode || UnsupportedMissions.Ids.Contains(currentMissionId))
+                            var unsupported = MissionSupport.IsUnsupported(currentMissionId, out var unsupportedReason);
+                            if (C.OnlyGrabMission || config.ManualMode || unsupported)
                             {
                                 // TODO: Remove this once properly coded
                                 // 這條分支就是「接了任務之後外掛完全不動」的最常見原因。原本只寫進 log，
                                 // 遊戲裡沒有任何提示，使用者只會看到外掛啟用了卻不做事 —— 所以改成也印到聊天視窗。
-                                var reason = UnsupportedMissions.Ids.Contains(currentMissionId)
-                                    ? "這個任務在目前版本的 ICE 尚未支援（在 UnsupportedMissions 黑名單裡）"
-                                    : C.OnlyGrabMission
-                                        ? "你開了「只接任務」(Only Grab Mission)"
-                                        : "這個任務的設定是手動模式 (Manual Mode)";
-
-                                if (s.HasFlag(MissionAttributes.Fish))
+                                if (unsupported)
                                 {
-                                    IceLogging.ChatInfo($"任務 {currentMissionId}：{reason}，所以切到手動模式，釣魚不會自動進行。", "[ICE]");
+                                    // 「不支援」走統一告知點：文字跟 PlayerHandlers 的接任務偵測完全相同，
+                                    // 靠 ChatInfo 以訊息全文為鍵的節流自動去重，使用者只會看到一次。
+                                    MissionSupport.Notify(currentMissionId, unsupportedReason);
                                 }
                                 else
                                 {
-                                    IceLogging.ChatInfo($"任務 {currentMissionId}：{reason}，所以切到手動模式。", "[ICE]");
+                                    var reason = C.OnlyGrabMission
+                                        ? "你開了「只接任務」(Only Grab Mission)"
+                                        : "這個任務的設定是手動模式 (Manual Mode)";
+
+                                    if (s.HasFlag(MissionAttributes.Fish))
+                                    {
+                                        IceLogging.ChatInfo($"任務 {currentMissionId}：{reason}，所以切到手動模式，釣魚不會自動進行。", "[ICE]");
+                                    }
+                                    else
+                                    {
+                                        IceLogging.ChatInfo($"任務 {currentMissionId}：{reason}，所以切到手動模式。", "[ICE]");
+                                    }
                                 }
                                 SchedulerMain.State = IceState.ManualMode;
                             }
@@ -310,7 +318,8 @@ namespace ICE.Scheduler.Tasks
             SchedulerMain.MissionState = MissionAttributes.None;
 
             // Grabbing the mission info from the dictionary entry
-            // 零守衛的字典索引。SheetMissionDict 的鍵集合是「Name 不為空的 row」
+            // ✅ 曾經是零守衛的字典索引，已修：守衛＝下一行的 SheetMissionDict.TryGetValue。
+            //    原因留存：SheetMissionDict 的鍵集合是「Name 不為空的 row」
             //（台服 7.20 逐筆比對 WKSMissionUnit.csv 實測＝只有 1..544），沒有 0 也沒有 545 以上。
             // 查不到就維持在上面剛清乾淨的 None —— 呼叫端本來就是依 MissionState 分支的。
             if (!CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var missionDictInfo))

@@ -85,6 +85,33 @@ namespace ICE.Config
         // 個別技能顯示開關；沒有紀錄的 ActionId ＝ 開。
         public Dictionary<uint, bool> MechaAoeSkillToggles { get; set; } = new();
 
+        // ---- 目標點位標示（Utilities/MechaOps/MechaTargets.cs）----
+        // 形狀畫對了、卻看不到目標在哪，還是會對不準；這一組就是補這個缺口。
+        // 預設開：這個功能的失敗形式是「該顯示的沒顯示」，比「多顯示」糟得多。
+        public bool ShowMechaTargets { get; set; } = true;
+
+        // 是否把每個目標的 hitbox 圈畫出來（命中判定用的是 hitbox，不是中心點）。
+        public bool ShowMechaTargetHitbox { get; set; } = true;
+
+        // 是否在目標旁邊標名字。目標一多會很吵，所以獨立開關，預設關。
+        public bool ShowMechaTargetNames { get; set; } = false;
+
+        // 涵蓋判定要不要把目標的 hitbox 半徑算進去。
+        // 預設開（比照 BossmodReborn 的做法，理由寫在 MechaCoverage 的註解裡）；
+        // 關掉＝退回中心點判定，也就是比較嚴格的那一邊。
+        public bool MechaCoverageUseHitbox { get; set; } = true;
+
+        // 列舉半徑（公尺）。60 是目前最長的機甲技能射程（42037 強力胡蘿蔔加農砲），
+        // 所以預設值一定涵蓋得到任何打得到的東西。
+        public float MechaTargetRadius { get; set; } = 60f;
+
+        // 只列可選取（IsTargetable）的物件。關掉會連不可選取的一起畫出來——
+        // 實機發現「該畫的沒畫」時的第一個排查開關。
+        public bool MechaTargetsTargetableOnly { get; set; } = true;
+
+        // 把其他玩家也畫出來。預設關（隊友不是攻擊目標，只會擋住畫面）。
+        public bool MechaTargetsIncludePlayers { get; set; } = false;
+
         // 機甲行動狀態視窗（Ui/MechaOpsWindow）的三個子區塊。
         // 全部掛在 ShowMechaAoeOverlay 底下，總開關關著時整個視窗都不出現；
         // 子開關預設開啟，比照 MechaAoeSkillToggles「沒紀錄＝開」的風格。

@@ -212,6 +212,36 @@ public static partial class ImGui_Tools
     /// <param name="icon"></param>
     /// <param name="spacingAfter"></param>
     /// <returns></returns>
+    /// <summary>
+    /// 選中時把標籤上的計數括號從 <c>[12]</c> 換成 <c>&lt;12&gt;</c>。
+    /// <br></br>
+    /// 這是刻意不依賴顏色的第二條辨識管道：一排長得一樣的篩選按鈕裡，即使使用者的
+    /// 配色主題讓底色差異看不出來（Dalamud 預設主題就是這種情況），括號形狀仍然分得出
+    /// 哪一個是開著的。
+    /// <br></br>
+    /// 找不到括號時（例如某個語言的翻譯把括號拿掉了）退回「整個標籤包角括號」，
+    /// 確保任何翻譯下都還是有可見差異，而不是靜默地退回沒有標示。
+    /// </summary>
+    private static string ApplySelectionBrackets(string label, bool selected)
+    {
+        if (!selected || string.IsNullOrEmpty(label))
+            return label;
+
+        // 計數永遠在標籤結尾，所以兩邊都從後面找 —— 用 IndexOf 找左括號的話，
+        // 名稱本身含中括號的翻譯（例如「[A] 階 [12]」）會被配成錯的一對。
+        var open = label.LastIndexOf('[');
+        var close = label.LastIndexOf(']');
+        if (open >= 0 && close > open)
+        {
+            var chars = label.ToCharArray();
+            chars[open] = '<';
+            chars[close] = '>';
+            return new string(chars);
+        }
+
+        return $"<{label}>";
+    }
+
     public static bool DrawCategoryButton(string label, string categoryId, FontAwesomeIcon? icon = null, float spacingAfter = 5)
     {
         float scale = ImGuiHelpers.GlobalScale;
@@ -229,8 +259,20 @@ public static partial class ImGui_Tools
         var drawList = ImGui.GetWindowDrawList();
         var cursorPos = ImGui.GetCursorScreenPos();
 
+        // If it doesn't already exist, then creating an entry in the category state
+        // (狀態要在算文字寬度之前先讀出來，因為選中與否會改變標籤上的括號)
+        if (!CategoryStates.ContainsKey(categoryId))
+            CategoryStates[categoryId] = false;
+
+        bool isExpanded = CategoryStates[categoryId];
+
         // Calculate text size
-        var textSize = ImGui.CalcTextSize(label);
+        var drawnLabel = ApplySelectionBrackets(label, isExpanded);
+        var textSize = ImGui.CalcTextSize(drawnLabel);
+
+        // 寬度取「選中」與「未選中」兩種寫法的較大者，按鈕才不會在點下去的瞬間左右跳動
+        // （這一排是水平捲動的，跳動會讓後面的按鈕整排位移）
+        float labelWidth = Math.Max(textSize.X, ImGui.CalcTextSize(ApplySelectionBrackets(label, !isExpanded)).X);
 
         // Calculate icon width if present
         float iconWidth = 0;
@@ -240,14 +282,9 @@ public static partial class ImGui_Tools
         }
 
         // Calculate button dimensions based on content
-        float contentWidth = horizontalPadding * 2 + iconWidth + textSize.X;
+        float contentWidth = horizontalPadding * 2 + iconWidth + labelWidth;
         float contentHeight = verticalPadding * 2 + textSize.Y;
 
-        // If it doesn't already exist, then creating an entry in the category state
-        if (!CategoryStates.ContainsKey(categoryId))
-            CategoryStates[categoryId] = false;
-
-        bool isExpanded = CategoryStates[categoryId];
         bool isHovered = ImGui.IsMouseHoveringRect(cursorPos, new Vector2(cursorPos.X + contentWidth, cursorPos.Y + contentHeight))
                       && ImGui.IsWindowHovered(ImGuiHoveredFlags.AllowWhenBlockedByPopup | ImGuiHoveredFlags.ChildWindows);
         bool isClicked = isHovered && ImGui.IsMouseClicked(ImGuiMouseButton.Left);
@@ -256,16 +293,28 @@ public static partial class ImGui_Tools
         {
             CategoryStates[categoryId] = !CategoryStates[categoryId];
             isExpanded = CategoryStates[categoryId];
+            drawnLabel = ApplySelectionBrackets(label, isExpanded);
         }
 
         // Color changing! Based on the various states
+        // ⚠️ 原本選中色用的是 ImGuiCol.TabActive，但 Dalamud 預設主題裡
+        // Button = (0.227, 0.424, 0.659)、TabActive = (0.283, 0.425, 0.629)，
+        // 相對亮度只差約 2%，肉眼等於完全分不出選中與否。改用 ButtonActive
+        // （框架標準的「這顆按鈕是按下狀態」色，亮度差約 24%）。
         if (isExpanded)
-            headerColor = ImGui.GetColorU32(ImGuiCol.TabActive);
+            headerColor = ImGui.GetColorU32(ImGuiCol.ButtonActive);
         if (isHovered)
             headerColor = ImGui.GetColorU32(ImGuiCol.HeaderHovered);
 
         // Draw background rectangle with rounded corners (scaled)
-        drawList.AddRectFilled(cursorPos, new Vector2(cursorPos.X + contentWidth, cursorPos.Y + contentHeight), headerColor, 5.0f * scale);
+        var contentMax = new Vector2(cursorPos.X + contentWidth, cursorPos.Y + contentHeight);
+        drawList.AddRectFilled(cursorPos, contentMax, headerColor, 5.0f * scale);
+
+        // 選中的再加一圈文字色外框。外框不依賴「某兩個主題色剛好不一樣」這個前提
+        // ——文字色一定跟底色有對比（否則標籤本身就看不見了），所以任何配色主題下都成立。
+        // 也因為 hover 會覆蓋底色，外框是滑鼠移上去時唯一還留著的選中標示。
+        if (isExpanded)
+            drawList.AddRect(cursorPos, contentMax, textColor, 5.0f * scale, 1.5f * scale);
 
         // Position cursor with padding
         ImGui.SetCursorScreenPos(new Vector2(cursorPos.X + horizontalPadding, cursorPos.Y + verticalPadding));
@@ -277,7 +326,7 @@ public static partial class ImGui_Tools
             ImGui.SameLine(0, iconTextSpacing);
         }
 
-        ImGui.Text(label);
+        ImGui.Text(drawnLabel);
 
         // Create an invisible button to properly reserve space and handle layout
         ImGui.SetCursorScreenPos(cursorPos);

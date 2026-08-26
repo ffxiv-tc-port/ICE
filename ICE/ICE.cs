@@ -67,6 +67,9 @@ public sealed partial class ICE : IDalamudPlugin
     {
         P = this;
         ECommonsMain.Init(pi, P, Module.DalamudReflector, ECommons.Module.ObjectFunctions);
+        // 讓「呼叫了對方沒有的 IPC 方法」不再完全靜默。
+        // 訂閱越早越好：事件只在 IPC **呼叫**當下才被查閱，在這裡訂閱就涵蓋往後所有呼叫。
+        EzIpcFailureLog.Enable();
         ECommons.LanguageHelpers.Localization.Init("ChineseTraditional");
         PictoService.Initialize(pi);
 
@@ -127,6 +130,10 @@ public sealed partial class ICE : IDalamudPlugin
         ConfigMigrator.CheckMissions();
         GatheringUtil.UpdateCriticalWeather();
         TestLoadRoutes();
+
+        // ⚠️ 一定要放在最後：CriticalLocations 由上一行的 UpdateCriticalWeather() 填，
+        //    採集路線由 TestLoadRoutes() 觸發載入，提早呼叫會量到「全部都對得上」的假陰性。
+        ReportHardcodedTableCoverage();
     }
 
     private static void Init()
@@ -163,6 +170,7 @@ public sealed partial class ICE : IDalamudPlugin
         GenericHelpers.Safe(() => Svc.PluginInterface.UiBuilder.Draw -= MechaAoeOverlay.Draw);
         GenericHelpers.Safe(TextAdvancedManager.UnlockTA);
         GenericHelpers.Safe(YesAlreadyManager.Unlock);
+        GenericHelpers.Safe(EzIpcFailureLog.Disable);
         ECommonsMain.Dispose();
         PictoService.Dispose();
     }

@@ -1,5 +1,6 @@
 ﻿using Dalamud.Interface;
 using Dalamud.Interface.Utility.Raii;
+using ICE.Utilities.Cosmic_Helper;
 using ICE.Utilities.GatheringHelper;
 using System.Collections.Generic;
 using System.Text;
@@ -102,7 +103,8 @@ namespace ICE.Ui.DebugWindowTabs
                             ImGui.PushID($"{id}_{mission.Name}");
 
                             bool isSelected = SelectedMission == id;
-                            string label = isSelected ? $"→ [{id} - {rank}] - {mission.Name}" : $"[{id} - {rank}] - {mission.Name}";
+                            var listName = MissionSupport.NameWithMarker(id, mission.Name);
+                            string label = isSelected ? $"→ [{id} - {rank}] - {listName}" : $"[{id} - {rank}] - {listName}";
 
                             if (ImGui.Selectable(label, isSelected))
                             {
@@ -136,7 +138,7 @@ namespace ICE.Ui.DebugWindowTabs
                     if (GatheringUtil.FishingPreset.TryGetValue(SelectedMission, out var missionData) &&
                         CosmicHelper.SheetMissionDict.TryGetValue(SelectedMission, out var mission))
                     {
-                        ImGui.Text($"Editing Mission: [{SelectedMission}] {mission.Name}");
+                        ImGui.Text($"Editing Mission: [{SelectedMission}] {MissionSupport.NameWithMarker(SelectedMission, mission.Name)}");
                         string attribute = string.Join(", ", mission.Attributes);
                         ImGui.Text($"Mission Attributes: {attribute}");
                         if (ImGuiEx.IconButtonWithText(FontAwesomeIcon.Flag, "Mission Location"))

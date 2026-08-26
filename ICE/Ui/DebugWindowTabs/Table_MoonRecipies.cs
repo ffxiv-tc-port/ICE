@@ -1,4 +1,5 @@
-﻿using Lumina.Excel.Sheets;
+﻿using ICE.Utilities.Cosmic_Helper;
+using Lumina.Excel.Sheets;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -56,7 +57,7 @@ namespace ICE.Ui.DebugWindowTabs
 
                         ImGui.TableNextColumn();
                         var missionName = CosmicHelper.SheetMissionDict.First(x => x.Key == entry.Key).Value.Name;
-                        ImGui.Text($"{missionName}");
+                        ImGui.Text(MissionSupport.NameWithMarker(entry.Key, missionName));
 
                         // Column #2
                         foreach (var mainCraft in entry.Value.Crafts_Main)

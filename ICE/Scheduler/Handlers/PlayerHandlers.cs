@@ -5,6 +5,7 @@ using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.System.Framework;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Component.GUI;
+using ICE.Utilities.Cosmic_Helper;
 using System.Collections.Generic;
 using Callback = ECommons.Automation.Callback;
 using Time = (int start, int end);
@@ -207,6 +208,43 @@ internal static unsafe class PlayerHandlers
             }
         }
 
+        WatchForUnsupportedMission();
+    }
+
+    /// <summary>上一次看到的進行中任務 ID，用來偵測「任務換了」這個邊緣事件。0 = 沒有任務。</summary>
+    private static uint lastSeenMissionId;
+
+    /// <summary>
+    /// 使用者<b>自己手動接了</b>一個 ICE 跑不動的任務時，馬上在聊天視窗說明原因。
+    /// </summary>
+    /// <remarks>
+    /// 🔑 為什麼放在 <see cref="Tick"/> 而不是排程器裡：<c>SchedulerMain.Tick()</c> 只有在
+    /// ICE 執行中才會跑，但「除非手動接任務」正是<b>ICE 沒在跑</b>的情境 —— 排程器那兩個
+    /// 分支（<c>Task_CheckState</c>／<c>Task_ExecuteMission</c>）在那時候一行都不會執行。
+    /// 這個函式掛在 <c>Svc.Framework.Update</c> 上，不管 ICE 有沒有啟動都會執行。<br/><br/>
+    /// ⚠️ 用<b>邊緣觸發</b>（任務 ID 變了才判斷）而不是每幀判斷，所以不會洗版；
+    /// 就算同一個任務反覆接放，<c>IceLogging.ChatInfo</c> 還有一層以訊息全文為鍵的 60 秒節流。<br/>
+    /// ⚠️ 只在宇宙探索區域內判斷：離開區域時 <c>CurrentLunarMission</c> 讀到的東西沒有意義。
+    /// </remarks>
+    private static void WatchForUnsupportedMission()
+    {
+        if (!PlayerHelper.IsInCosmicZone())
+        {
+            lastSeenMissionId = 0;
+            return;
+        }
+
+        var currentMissionId = CosmicHelper.CurrentLunarMission;
+        if (currentMissionId == lastSeenMissionId)
+            return;
+
+        lastSeenMissionId = currentMissionId;
+
+        if (currentMissionId == 0)
+            return;
+
+        if (MissionSupport.IsUnsupported(currentMissionId, out var reason))
+            MissionSupport.Notify(currentMissionId, reason);
     }
 
     internal static void DisablePlugin()
@@ -240,18 +278,56 @@ internal static unsafe class PlayerHandlers
 
     public static (List<TimedInfo> currentMissions, List<TimedInfo> nextMissions) GetMissionsForHour()
     {
+        // 🔴 GetEorzeaTime() 會解參考 Framework.Instance()。null 解參考是 AccessViolationException，
+        //    在 .NET Core 屬 corrupted-state exception，try/catch 與 HookSafety.ExecuteSafe 都攔不到
+        //    —— 只能事前擋。
+        //    刻意「回空清單並記一次 Information」而不是退回 0 點：退回 0 點會靜默排出一列
+        //    看起來完全正常、實際上是錯時段的任務，比空白更難被察覺。
+        if (Framework.Instance() == null)
+        {
+            if (EzThrottler.Throttle("ICE: eorzea clock unavailable", 60000))
+                IceLogging.Info(
+                    "取不到艾歐澤亞時間（Framework 尚未就緒），本次略過時段任務顯示。",
+                    "[時段任務]");
+            return (new List<TimedInfo>(), new List<TimedInfo>());
+        }
+
         var EzTime = GetEorzeaTime();
         var currentHour = (int)EzTime.Item1; // Current hour
         var territoryId = Player.Territory;
 
-        // Select the appropriate map based on territoryId
-        Dictionary<int, List<TimedInfo>> selectedMap = territoryId switch
+        // 依所在星球選時段表。
+        // ⚠️ 上游原本的註解寫「Default to Phaenna」是**錯的** —— fallback 實際回的是 SinusMapV2。
+        //    這裡保留原本的 fallback 行為（不改預設值），只補上診斷：
+        //    未知星球會拿 Sinus 的時段表去排別的星球，畫面看起來正常但整列都是錯的資料。
+        // 📌 目前這條 default 走不到，因為唯一的呼叫端（OverlayWindow）被
+        //    PlayerHelper.IsInCosmicZone() 擋在 {1237, 1291} 之內。第三顆星開放時
+        //    若有人只改了 IsInCosmicZone 卻忘了這張表，這行 log 就是唯一的痕跡。
+        Dictionary<int, List<TimedInfo>> selectedMap;
+        string mapName;
+        switch (territoryId)
         {
-            // Add your actual territory IDs here
-            1291 => PhaennaMapV2,
-            1237 => SinusMapV2,
-            _ => SinusMapV2       // Default to Phaenna
-        };
+            case 1291:
+                selectedMap = PhaennaMapV2;
+                mapName = nameof(PhaennaMapV2);
+                break;
+            case 1237:
+                selectedMap = SinusMapV2;
+                mapName = nameof(SinusMapV2);
+                break;
+            default:
+                selectedMap = SinusMapV2;   // 行為與改動前相同，不改預設
+                mapName = nameof(SinusMapV2);
+                if (EzThrottler.Throttle("ICE: unknown cosmic territory", 60000))
+                    IceLogging.Info(
+                        $"目前區域 {territoryId} 不在已知的月面區域清單中"
+                        + "（已知 1237 Sinus Ardorum、1291 Phaenna），"
+                        + $"時段任務表暫時沿用 {nameof(SinusMapV2)}，畫面上的時段任務很可能是錯的。"
+                        + "（若這是新開放的星球，PlayerHandlers 的時段表與 "
+                        + "PlayerHelper.IsInCosmicZone 都需要補上這個區域。）",
+                        "[時段任務]");
+                break;
+        }
 
         // Find which bracket the current hour falls into
         int currentBracket = (currentHour / 2) * 2;
@@ -259,16 +335,88 @@ internal static unsafe class PlayerHandlers
         // Calculate next bracket (wraps around at 24)
         int nextBracket = (currentBracket + 2) % 24;
 
-        // Get the missions for current bracket
-        var currentMissions = selectedMap.ContainsKey(currentBracket)
-            ? selectedMap[currentBracket]
-            : new List<TimedInfo>();
+        var currentMissions = MissionsForBracket(selectedMap, mapName, territoryId, currentBracket, currentHour);
+        var nextMissions = MissionsForBracket(selectedMap, mapName, territoryId, nextBracket, currentHour);
 
-        // Get the missions for next bracket
-        var nextMissions = selectedMap.ContainsKey(nextBracket)
-            ? selectedMap[nextBracket]
-            : new List<TimedInfo>();
+        return (KnownMissionsOnly(currentMissions, mapName, territoryId),
+                KnownMissionsOnly(nextMissions, mapName, territoryId));
+    }
 
-        return (currentMissions, nextMissions);
+    /// <summary>
+    /// 取某個時段（雙數小時）的任務清單；缺鍵時回空清單並記一次 Information。
+    /// </summary>
+    /// <remarks>
+    /// ⚠️ 這裡用 <c>TryGetValue</c> 而不是索引器，所以缺鍵**不會**丟
+    /// <c>KeyNotFoundException</c>。但「回空清單」在疊加層上跟「這個時段本來就沒任務」
+    /// 長得一模一樣 —— 失效是完全靜默的，所以缺鍵時一定要說出來。<br/>
+    /// 📌 <c>currentHour</c> 由 <c>eorzeaTime / 3600 % 24</c> 算出，正常落在 0..23，
+    /// 因此 bracket 是 0..22 的雙數；<c>SinusMapV2</c> 與 <c>PhaennaMapV2</c> 目前
+    /// <b>兩張表都備齊 12 個雙數時段</b>（2026-08-06 逐鍵清點），所以這條路徑現在印不出東西。
+    /// 若時鐘來源異常（例如 EorzeaTime 為負，C# 的 <c>%</c> 會保留負號）導致 bracket 落在表外，
+    /// 這條路徑就是那個情況唯一會留下的痕跡。
+    /// </remarks>
+    private static List<TimedInfo> MissionsForBracket(
+        Dictionary<int, List<TimedInfo>> map, string mapName, uint territoryId, int bracket, int currentHour)
+    {
+        if (map.TryGetValue(bracket, out var list))
+            return list;
+
+        // 節流 key 帶上時段，避免「0 點缺」把「2 點缺」整個蓋掉。
+        // 📌 EzThrottler 的 key 全域持久，但這裡的 key 集合上限是 12 個（雙數時段），不會無限膨脹。
+        if (EzThrottler.Throttle($"ICE: timed mission bracket missing {bracket}", 60000))
+        {
+            IceLogging.Info(
+                $"時段任務表 {mapName}（區域 {territoryId}）沒有「{bracket} 點」這個時段，該時段顯示為空。"
+                + $"目前艾歐澤亞時間 {currentHour} 點；表裡實際有的時段："
+                + string.Join(", ", map.Keys.OrderBy(x => x)) + "。",
+                "[時段任務]");
+        }
+
+        return new List<TimedInfo>();
+    }
+
+    /// <summary>
+    /// 濾掉「這個客戶端根本沒有的任務」。
+    /// </summary>
+    /// <remarks>
+    /// ⚠️ <c>SinusMapV2</c>／<c>PhaennaMapV2</c> 是上游<b>照國際服寫死</b>的時段表，
+    /// 表裡的任務 ID 跟 <c>SheetMissionDict</c>（從遊戲資料建出來的）之間<b>沒有任何共同保證</b>。<br/>
+    /// 台服 7.20 逐筆比對 <c>exd-tc/7.20/WKSMissionUnit.csv</c> 的結果：<br/>
+    /// • <c>SinusMapV2</c> 那 22 筆 <b>全部存在</b>；<br/>
+    /// • <c>PhaennaMapV2</c> 那 33 筆（<b>574..1004</b>）在表裡<b>有列、但整列是空的</b>
+    ///   —— 那是第二顆星 Phaenna 的預留列，台服尚未開放。<br/>
+    /// 目前走不到 Phaenna 那條分支只是因為台服沒有 territory 1291；
+    /// <b>第二顆星一開放就會同時生效</b>，所以在這裡收斂成「查得到才回報」。<br/>
+    /// 🔑 這也是開放當天的驗證點：如果上游的 ID 對不上台服，log 會直接說出丟了幾筆，
+    /// 而不是讓疊加層排出一列 <c>???</c> 讓人以為是顯示壞了。
+    /// </remarks>
+    private static List<TimedInfo> KnownMissionsOnly(List<TimedInfo> missions, string mapName, uint territoryId)
+    {
+        if (missions.Count == 0)
+            return missions;
+
+        var known = missions.Where(x => CosmicHelper.SheetMissionDict.ContainsKey(x.MissionId)).ToList();
+        if (known.Count == missions.Count)
+            return missions; // 常見路徑：全部都在，直接回原本那份，不要多配置一個 List
+
+        // 節流：這個判斷每幀都會走到（疊加層一幀呼叫兩次），不節流會把 log 灌爆。
+        // 📌 節流 key 帶上表名，才不會讓 Sinus 的訊息把 Phaenna 的蓋掉（反之亦然）。
+        if (EzThrottler.Throttle($"ICE: timed mission table mismatch {mapName}", 60000))
+        {
+            var missing = missions.Where(x => !CosmicHelper.SheetMissionDict.ContainsKey(x.MissionId))
+                                  .Select(x => x.MissionId)
+                                  .Distinct()
+                                  .OrderBy(x => x);
+            IceLogging.Info(
+                $"時段任務表 {mapName}（區域 {territoryId}）有 {missions.Count - known.Count}/{missions.Count} "
+                + "筆任務在這個客戶端的 WKSMissionUnit 查不到資料（該列存在但整列是空的），已從顯示中略過："
+                + string.Join(", ", missing)
+                + $"。（{mapName} 是寫死在 PlayerHandlers 裡的國際服資料，"
+                + "尚未開放的星球會整批對不上，屬於預期行為；"
+                + "若是**已開放**的星球出現這行，代表上游的任務 ID 與台服對不上，需要重建這張表。）",
+                "[時段任務]");
+        }
+
+        return known;
     }
 }

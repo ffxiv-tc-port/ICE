@@ -31,7 +31,8 @@ namespace ICE.Scheduler.Tasks
                 IceLogging.Debug("Not currently gathering, starting fresh instead");
                 P.TaskManager.EnqueueDelay(100);
 
-                // 🔴 零守衛的字典索引，而且是在 Enqueue 裡（跑在 SchedulerMain.Tick 上、不在任務內），
+                // ✅ 曾經是零守衛的字典索引，已修：守衛＝下一行的 SchedulerMain.CurrentMissionUnavailable。
+                //    原因留存：這裡是 Enqueue（跑在 SchedulerMain.Tick 上、不在任務內），
                 //    例外會直接冒到 Framework.Update 而且每個 tick 重來一次 —— 正是上次事故
                 //    「同一行連噴 37 次」的形狀。
                 if (SchedulerMain.CurrentMissionUnavailable("[Task_Gather: Enqueue]", out var enqueueMission))
@@ -155,8 +156,7 @@ namespace ICE.Scheduler.Tasks
                 if (EzThrottler.Throttle("ICE: gather route missing log", 5000))
                     IceLogging.ChatError($"任務 {CosmicHelper.CurrentLunarMission} 在區域 {zoneId} 座標 {missionFlag} " +
                                          "找不到採集路線，無法自動前往採集點。", "[ICE]");
-                P.TaskManager.Tasks.Clear();
-                SchedulerMain.State = IceState.Start;
+                SchedulerMain.AbortToStateCheck();
                 return true;
             }
 
@@ -218,7 +218,8 @@ namespace ICE.Scheduler.Tasks
         }
         public static unsafe bool? GatheringInteraction()
         {
-            // 零守衛的字典索引 ×2（CurrentMissionInfo 與 C.MissionConfig）。
+            // ✅ 曾經是零守衛的字典索引 ×2（CurrentMissionInfo 與 C.MissionConfig），已修：
+            //    前者的守衛＝下一行的 CurrentMissionUnavailable，後者＝下方的 C.MissionConfig.TryGetValue。
             if (SchedulerMain.CurrentMissionUnavailable("[Task_Gather: Gathering Interaction]", out var missionInfo))
                 return true;
 
@@ -234,8 +235,7 @@ namespace ICE.Scheduler.Tasks
             {
                 // 原本是 C.GatherProfiles[0] 直接索引 —— 設定檔裡沒有 0 號設定檔就是 KeyNotFoundException。
                 IceLogging.ChatError("找不到任何可用的採集設定檔（連預設的 0 號都沒有），無法自動採集。", "[ICE]");
-                P.TaskManager.Tasks.Clear();
-                SchedulerMain.State = IceState.Start;
+                SchedulerMain.AbortToStateCheck();
                 return true;
             }
             var gathActions = GatheringUtil.GathActionDict;
@@ -791,7 +791,7 @@ namespace ICE.Scheduler.Tasks
         {
             IceLogging.Info($"Current itemId: {Mission_Settings.item_collectableId}", "[Gather: Check Reduce Mission]");
 
-            // 零守衛的字典索引。
+            // ✅ 曾經是零守衛的字典索引，已修：守衛＝下方的 SchedulerMain.CurrentMissionUnavailable。
             // ⚠️ 這裡的 hasCollectable 讀到 0 只是「不做精選」，不是破壞性判斷，所以不必擋換區。
             if (SchedulerMain.CurrentMissionUnavailable("[Gather: Check Reduce Mission]", out var reduceMission))
                 return true;

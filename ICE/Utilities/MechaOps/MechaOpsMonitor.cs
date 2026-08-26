@@ -1,3 +1,4 @@
+using Dalamud.Game.ClientState.Objects.Enums;
 using ECommons.GameHelpers;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.WKS;
@@ -209,6 +210,15 @@ internal static unsafe class MechaOpsMonitor
     private static List<MechaProcState> activeProcs = [];
 
     /// <summary>
+    /// 目前畫得出來的目標點位快照。發布方式同 <see cref="ActiveCandidates"/>。
+    ///
+    /// ⚠️ 這一份跟其他快照不同，是<b>每幀</b>重新取樣的（見 <see cref="SampleTargets"/>）——
+    /// 技能形狀與冷卻慢 250ms 沒差，但目標位置慢 250ms 就會讓「有沒有蓋到」的判定失真。
+    /// </summary>
+    public static IReadOnlyList<MechaTarget> ActiveTargets => activeTargets;
+    private static List<MechaTarget> activeTargets = [];
+
+    /// <summary>
     /// <c>WKSMechaEventModule.Flags</c> 的最新取樣值。只有 <see cref="EventFlagsValid"/>
     /// 為 true 時才有意義。
     /// </summary>
@@ -245,14 +255,19 @@ internal static unsafe class MechaOpsMonitor
 
     private static void TickInner()
     {
-        if (!EzThrottler.Throttle("MechaOpsMonitorScan", 250))
-            return;
-
+        // 🔑 這兩關刻意放在節流之前：離開宇宙區域／登出時要立刻清空，
+        //    不能讓最多 250ms 的節流把一份過期的目標清單留在畫面上。
         if (!PlayerHelper.IsInCosmicZone() || !Player.Available)
         {
             Deactivate();
             return;
         }
+
+        // 目標點位每幀取樣（不進節流）——理由見 ActiveTargets 的註解。
+        SampleTargets();
+
+        if (!EzThrottler.Throttle("MechaOpsMonitorScan", 250))
+            return;
 
         // 事件狀態要在機甲階段之外也能顯示（報名 → 中籤 → 加入），所以在
         // PetHotbar 的檢查之前就取樣。
@@ -380,6 +395,97 @@ internal static unsafe class MechaOpsMonitor
             $"  目標：{targetText}\n" +
             $"  繪製候選：{candidateText}",
             "[MechaOps]");
+    }
+
+    /// <summary>
+    /// 列舉目前值得畫出來的目標，抄成純值快照發布。
+    ///
+    /// 🔴🔴 <b>絕不跨幀保存原生指標。</b> 這裡拿到的 <c>IGameObject</c> 只在這個迴圈裡活著，
+    /// 抄走的是 <c>(GameObjectId, DataId, 名稱, 位置, hitbox, 種類)</c> 這些**純值**；
+    /// <c>IGameObject</c> 本身與它的 <c>Address</c> 一個都不留。
+    /// （<c>Address</c> 在建構時凍結、永不重解析，<c>IsValid()</c> 只檢查有沒有登入，
+    ///  兩者都不是防護；物件被回收後解參考就是攔不住的 AccessViolationException。）
+    ///
+    /// 🔑 <b>刻意不去猜「哪一個才是任務目標」</b>：過度篩選的失敗形式是「該顯示的沒顯示」，
+    /// 那比多顯示幾個糟得多。預設就是「可選取、在半徑內、不是自己也不是坐騎寵物」，
+    /// 剩下的交給設定過濾（<c>MechaTargetsTargetableOnly</c>／<c>MechaTargetsIncludePlayers</c>／
+    /// <c>MechaTargetRadius</c>）。
+    ///
+    /// ⚠️ 每幀跑一次。成本是「掃一次 ObjectTable ＋ 讀幾個受管理屬性」，
+    /// 而且整段被三個條件擋著（總開關、目標開關、機甲技能真的在 PetHotbar 上），
+    /// 非機甲期間完全不會執行。
+    /// </summary>
+    private static void SampleTargets()
+    {
+        // 沒開、或根本不在機甲階段（PetHotbar 上沒有機甲技能）就不掃。
+        if (!C.ShowMechaAoeOverlay || !C.ShowMechaTargets || activeCandidates.Count == 0)
+        {
+            ClearTargets();
+            return;
+        }
+
+        var self = Player.Object;
+        if (self == null)
+        {
+            ClearTargets();
+            return;
+        }
+
+        var selfId = self.GameObjectId;
+        var origin = self.Position;
+
+        // 60 是目前最長的機甲技能射程；上限拉到 200 只是防呆，不是建議值。
+        var maxDist = Math.Clamp(C.MechaTargetRadius, 5f, 200f);
+        var maxDistSq = maxDist * maxDist;
+
+        // 「這是不是我當前選取的目標」——只比對 id，不保留 Svc.Targets.Target 這個物件。
+        var currentTargetId = Svc.Targets.Target?.GameObjectId ?? 0UL;
+
+        var targets = new List<MechaTarget>();
+        foreach (var obj in Svc.Objects)
+        {
+            if (obj == null || obj.GameObjectId == selfId)
+                continue;
+
+            var kind = obj.ObjectKind;
+
+            // 永遠不可能是攻擊目標的東西。這是唯一寫死的排除清單，刻意保持很短。
+            if (kind is ObjectKind.MountType or ObjectKind.Companion
+                or ObjectKind.Ornament or ObjectKind.Retainer)
+                continue;
+
+            if (kind == ObjectKind.Player && !C.MechaTargetsIncludePlayers)
+                continue;
+
+            if (C.MechaTargetsTargetableOnly && !obj.IsTargetable)
+                continue;
+
+            var pos = obj.Position;
+            var dx = pos.X - origin.X;
+            var dz = pos.Z - origin.Z;
+            if (dx * dx + dz * dz > maxDistSq)
+                continue;
+
+            targets.Add(new MechaTarget(
+                obj.GameObjectId,
+                // 📌 Dalamud 已把 DataId 改名為 BaseId（同一個 Struct->BaseId，值完全一樣），
+                //    舊名還在但標了 [Obsolete]。新碼一律用 BaseId。
+                obj.BaseId,
+                obj.Name.ToString(),
+                pos,
+                obj.HitboxRadius,
+                kind,
+                currentTargetId != 0 && obj.GameObjectId == currentTargetId));
+        }
+
+        // 換參考發布，發布後不再修改內容。
+        activeTargets = targets;
+    }
+
+    private static void ClearTargets()
+    {
+        if (activeTargets.Count > 0)
+            activeTargets = [];
     }
 
     /// <summary>
@@ -629,6 +735,8 @@ internal static unsafe class MechaOpsMonitor
             activeCandidates = [];
         if (activeProcs.Count > 0)
             activeProcs = [];
+        // 目標點位跟技能是一組的：沒有技能就沒有「有沒有蓋到」可言。
+        ClearTargets();
         if (wasActive)
         {
             wasActive = false;

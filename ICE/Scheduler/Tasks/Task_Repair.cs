@@ -64,16 +64,16 @@ namespace ICE.Scheduler.Tasks
         public static unsafe bool? PathToRepair()
         {
             var zoneId = Player.Territory;
-            // 🔴 零守衛的字典索引。MoonNpcs 只有月面兩個 key（1237／1291），而這裡的 key 是
+            // ✅ 這裡曾經是零守衛的字典索引，已修：守衛＝下一行的 NpcData.TryGetMoonNpc。
+            // 原因留存：MoonNpcs 只有月面兩個 key（1237／1291），而這裡的 key 是
             // Player.Territory —— 佇列排好之後玩家還是可能被傳送走（機甲行動抽中駕駛員就會），
-            // 下一個 tick 讀到的區域就不是月面了。原本的 .First()/.FirstOrDefault() 兩種寫法
+            // 下一個 tick 讀到的區域就不是月面了。修之前的 .First()/.FirstOrDefault() 兩種寫法
             // 都沒處理「找不到」，一個丟 InvalidOperationException、一個回 null 再 NRE。
             if (!NpcData.TryGetMoonNpc(zoneId, NpcData.NpcType.Repair, out var npcEntry))
             {
                 if (EzThrottler.Throttle("ICE: moon npc missing Repair", 5000))
                     IceLogging.Info($"目前區域 {zoneId} 沒有登記修理 NPC 的資料（可能已經被傳送離開月面），中止這一步。", "[ICE]");
-                P.TaskManager.Tasks.Clear();
-                SchedulerMain.State = IceState.Start;
+                SchedulerMain.AbortToStateCheck();
                 return true;
             }
 
@@ -119,16 +119,16 @@ namespace ICE.Scheduler.Tasks
         public static unsafe bool? RepairAtNpc()
         {
             var zoneId = Player.Territory;
-            // 🔴 零守衛的字典索引。MoonNpcs 只有月面兩個 key（1237／1291），而這裡的 key 是
+            // ✅ 這裡曾經是零守衛的字典索引，已修：守衛＝下一行的 NpcData.TryGetMoonNpc。
+            // 原因留存：MoonNpcs 只有月面兩個 key（1237／1291），而這裡的 key 是
             // Player.Territory —— 佇列排好之後玩家還是可能被傳送走（機甲行動抽中駕駛員就會），
-            // 下一個 tick 讀到的區域就不是月面了。原本的 .First()/.FirstOrDefault() 兩種寫法
+            // 下一個 tick 讀到的區域就不是月面了。修之前的 .First()/.FirstOrDefault() 兩種寫法
             // 都沒處理「找不到」，一個丟 InvalidOperationException、一個回 null 再 NRE。
             if (!NpcData.TryGetMoonNpc(zoneId, NpcData.NpcType.Repair, out var npcEntry))
             {
                 if (EzThrottler.Throttle("ICE: moon npc missing Repair", 5000))
                     IceLogging.Info($"目前區域 {zoneId} 沒有登記修理 NPC 的資料（可能已經被傳送離開月面），中止這一步。", "[ICE]");
-                P.TaskManager.Tasks.Clear();
-                SchedulerMain.State = IceState.Start;
+                SchedulerMain.AbortToStateCheck();
                 return true;
             }
 

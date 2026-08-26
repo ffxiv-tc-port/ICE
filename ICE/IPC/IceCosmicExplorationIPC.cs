@@ -22,9 +22,9 @@ public class IceCosmicExplorationIPC
     /// <param name="missionId"></param>
     [EzIPC] public void AddMissions(HashSet<uint> missionId)
     {
-        // 🔴 這是公開的 IPC 介面，missionId 完全由別的外掛決定 —— 零守衛的字典索引
-        //    等於「任何外掛傳一個不存在的任務 ID 進來就能把呼叫端炸掉」。
-        //    無效的 ID 直接略過並記一筆，比丟例外回去有用。
+        // ✅ 已修：無效的 ID 會被下方的 TryGetValue 濾掉並記一筆，不會丟例外回給呼叫端。
+        //    原因留存：這是公開的 IPC 介面，missionId 完全由別的外掛決定 ——
+        //    當初的零守衛字典索引等於「任何外掛傳一個不存在的任務 ID 進來就能把呼叫端炸掉」。
         foreach (var id in missionId)
         {
             if (C.MissionConfig.TryGetValue(id, out var config))
