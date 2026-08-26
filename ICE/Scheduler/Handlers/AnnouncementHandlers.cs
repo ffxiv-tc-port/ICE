@@ -57,7 +57,10 @@ namespace ICE.Scheduler.Handlers
             {
                 if (AddonHelper.IsAddonActive(Announcement))
                 {
-                    if (AddonHelper.GetAtkTextNode(Announcement, 48)->IsVisible()) // Red Alert Preparation
+                    // GetAtkTextNode 取不到節點會回 null，直接解參考就是 AVE。
+                    // 取不到時與「節點存在但不可見」走同一條路(回 default)。
+                    var redAlertNode = AddonHelper.GetAtkTextNode(Announcement, 48); // Red Alert Preparation
+                    if (redAlertNode != null && redAlertNode->IsVisible())
                     {
                         var description = AddonHelper.GetNodeText(Announcement, 47).ToLower();
 

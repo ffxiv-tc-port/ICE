@@ -13,6 +13,12 @@ namespace ICE.Scheduler
             State = Start;
             IceLogging.Info($"Setting State to: {State} / Enabling Plugin");
             Mission_Settings.StartJob = Player.JobId;
+
+            // 啟動當下就把「前置被停用、鏈上卻還有想跑的任務」修回來 —— 這是使用者正在看著畫面的
+            // 時機，訊息在這裡才看得到。修不修得動由 MissionChain 自己判斷（讀不到 WKSManager
+            // 就整個跳過），這裡不需要再加條件。
+            MissionChain.RepairSequentialPrerequisites("[啟動檢查]");
+
             return true;
         }
         internal static bool DisablePlugin()

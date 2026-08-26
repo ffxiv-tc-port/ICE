@@ -62,7 +62,10 @@ internal class DebugWindow : Window
         "NPC Box Viewer",
 
         // Sheet Viewer Info
-        "Sheet: Mission Rewards"
+        "Sheet: Mission Rewards",
+
+        // 機甲行動
+        "Mecha: Event Recorder"
     ];
 
     int selectedDebugIndex = 0; // Keeping which tab I'm selecting here. Just persistant stuff.
@@ -79,7 +82,7 @@ internal class DebugWindow : Window
             for (int i = 0; i < DebugTypes.Length; i++)
             {
                 bool isSelected = (selectedDebugIndex == i);
-                string label = isSelected ? $"→ {DebugTypes[i]}" : $"   {DebugTypes[i]}";
+                string label = isSelected ? $"→ {DebugTypes[i].Loc()}" : $"   {DebugTypes[i].Loc()}";
 
                 if (ImGui.Selectable(label, isSelected))
                 {
@@ -130,7 +133,10 @@ internal class DebugWindow : Window
 
                 case 25: Sheet_MissionRewards.Draw(); break;
 
-                default: ImGui.Text("Unknown Debug View"); break;
+                // 機甲事件錄製（Utilities/MechaOps/MechaEventRecorder.cs）
+                case 26: Ui_MechaRecorder.Draw(); break;
+
+                default: ImGui.Text("Unknown Debug View".Loc()); break;
             }
         }
         ImGui.EndChild();

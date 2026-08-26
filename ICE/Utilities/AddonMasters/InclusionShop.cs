@@ -12,16 +12,32 @@ namespace ICE.Utilities.AddonMasters;
 /// 缺的共三個類別：<see cref="Shop"/>、<see cref="ShopExchangeCurrency"/>、以及本類別。
 /// 全部原封不動搬進 ICE；上游已刪除它們，沒有「未來與上游分岔」的問題。
 ///
-/// 📌 已知缺陷（沿用原樣，未修）：AtkValues 索引 297/298/300/305/311 與 stride 18 全是寫死的，
-/// 且沒有對 <c>AtkValuesCount</c> 做邊界檢查。遊戲改版後會靜默指到錯的位置。
+/// 📌 AtkValues 索引 297/298/300/305/311 與 stride 18 全是寫死的（上游值）。
+/// 2026-08-07 補上邊界檢查：<c>Addon->AtkValues[i]</c> 是沒有邊界檢查的原始指標索引，
+/// <c>NumEntries</c> 讀到垃圾值時迴圈會一路讀到配置外 —— 那是 AVE，<c>try/catch</c> 攔不到。
+/// 索引本身**沒有改**，只是超出 <see cref="AtkUnitBase.AtkValuesCount"/> 時當成「讀不到」。
 /// </summary>
 public unsafe class InclusionShop : AddonMasterBase<AtkUnitBase>
 {
     public InclusionShop(nint addon) : base(addon) { }
     public InclusionShop(void* addon) : base(addon) { }
 
-    public uint CurrencyAmount => Addon->AtkValues[297].UInt;
-    public uint NumEntries => Addon->AtkValues[298].UInt;
+    /// <summary>這個 addon 目前實際有幾個 AtkValue。診斷用。</summary>
+    public int AtkValueCount => Addon == null ? 0 : Addon->AtkValuesCount;
+
+    private bool TryGetUInt(int index, out uint value)
+    {
+        value = 0;
+        if (Addon == null || Addon->AtkValues == null)
+            return false;
+        if (index < 0 || index >= Addon->AtkValuesCount)
+            return false;
+        value = Addon->AtkValues[index].UInt;
+        return true;
+    }
+
+    public uint CurrencyAmount => TryGetUInt(297, out var v) ? v : 0;
+    public uint NumEntries => TryGetUInt(298, out var v) ? v : 0;
 
     public class ShopItemInfo(InclusionShop master, int index)
     {
@@ -40,15 +56,18 @@ public unsafe class InclusionShop : AddonMasterBase<AtkUnitBase>
         get
         {
             var ret = new List<ShopItemInfo>();
-            for (int i = 0; i < NumEntries; i++)
+            var count = NumEntries;
+            for (int i = 0; i < count; i++)
             {
-                var itemId = Addon->AtkValues[300 + (i * 18)].UInt;
+                if (!TryGetUInt(300 + (i * 18), out var itemId))
+                    break;
 
                 if (itemId == 0)
                     continue;
 
-                var costItemId = Addon->AtkValues[305 + (i * 18)].UInt;
-                var costAmount = Addon->AtkValues[311 + (i * 18)].UInt;
+                if (!TryGetUInt(305 + (i * 18), out var costItemId) ||
+                    !TryGetUInt(311 + (i * 18), out var costAmount))
+                    break;
 
                 ret.Add(new ShopItemInfo(this, i)
                 {

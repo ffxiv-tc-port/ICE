@@ -37,7 +37,16 @@ public class modeSelect_Tools
             ImGui.EndTooltip();
         }
     }
-    public static bool DrawCompactCategoryHeader(string label, FontAwesomeIcon? icon = null)
+    // ⚠️ id 是**選填**參數，省略時完全等同以前的行為（key 就是 label 本身）。
+    //    加它的原因與 ImGui_Tools.DrawCategoryHeader_AutoSize 的 id 參數完全相同：
+    //    收合狀態原本拿「已在地化的 label」當 key —— 兩個標題只要翻成同一個字串就會
+    //    **共用收合狀態**，失敗形式是靜默的（點一個、兩個一起開合，看起來像 ImGui 壞掉）。
+    //    新的呼叫端一律傳明確、不翻譯的 id。
+    // 📌 這裡用的是 SelectableSidebar.categoryStates，與 ImGui_Tools.CategoryStates 是
+    //    **兩個**字典（見 SelectableSidebar.cs 的註解），所以 id 不會跟側欄的 cat_* 撞。
+    //    兩個字典都只活在記憶體、不寫進設定檔，換 key 沒有遷移問題，最多是這幾個標題
+    //    的收合狀態回到預設（收合）一次。
+    public static bool DrawCompactCategoryHeader(string label, FontAwesomeIcon? icon = null, string? id = null)
     {
         var drawList = ImGui.GetWindowDrawList();
         var cursorPos = ImGui.GetCursorScreenPos();
@@ -56,7 +65,7 @@ public class modeSelect_Tools
         float contentHeight = verticalPadding * 2 + textSize.Y;
 
         // Check if this category is expanded (default to false)
-        string categoryId = label;
+        string categoryId = id ?? label;
         if (!SelectableSidebar.categoryStates.ContainsKey(categoryId))
             SelectableSidebar.categoryStates[categoryId] = false;
 

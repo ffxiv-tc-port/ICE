@@ -41,12 +41,12 @@ namespace ICE.Ui.DebugWindowTabs
                 if (!quickAccess.Success)
                     return;
 
-                ImGui.Text("Export Settings");
+                ImGui.Text("Export Settings".Loc());
                 ImGui.Separator();
                 ImGui.Dummy(new Vector2(0, 5));
 
                 // Author Name Input
-                ImGui.Text("Author Name:");
+                ImGui.Text("Author Name:".Loc());
                 ImGui.SetNextItemWidth(200);
                 string authorName = C.AuthorName;
                 if (ImGui.InputText("##AuthorName", ref authorName, 100))
@@ -64,7 +64,7 @@ namespace ICE.Ui.DebugWindowTabs
                     return;
 
                 // Custom Path Display
-                ImGui.Text("Export Location:");
+                ImGui.Text("Export Location:".Loc());
                 string displayPath = string.IsNullOrEmpty(C.CustomRoutePath)
                     ? "Using default plugin config folder"
                     : C.CustomRoutePath;
@@ -74,7 +74,7 @@ namespace ICE.Ui.DebugWindowTabs
                 ImGui.Dummy(new Vector2(0, 5));
 
                 // Browse button to set custom path
-                if (ImGui.Button("Browse for Export Folder"))
+                if (ImGui.Button("Browse for Export Folder".Loc()))
                 {
                     fileDialogManager.OpenFolderDialog("Select Export Folder", (success, path) =>
                     {
@@ -92,7 +92,7 @@ namespace ICE.Ui.DebugWindowTabs
                 // Clear custom path button
                 if (!string.IsNullOrEmpty(C.CustomRoutePath))
                 {
-                    if (ImGui.Button("Use Default"))
+                    if (ImGui.Button("Use Default".Loc()))
                     {
                         C.CustomRoutePath = string.Empty;
                         C.Save();
@@ -100,7 +100,7 @@ namespace ICE.Ui.DebugWindowTabs
 
                     if (ImGui.IsItemHovered())
                     {
-                        ImGui.SetTooltip("Clear custom path and use default plugin config folder");
+                        ImGui.SetTooltip("Clear custom path and use default plugin config folder".Loc());
                     }
                 }
             }
@@ -120,6 +120,10 @@ namespace ICE.Ui.DebugWindowTabs
                 if (selectedRoute != Vector2.Zero)
                 {
                     GatheringRouteExportUI.DrawExportSelectedButton(selectedZone, selectedRoute);
+
+                    // ⚠️ 上面那個「匯出」寫出去的檔案沒有任何路徑會讀回來 —— 它只是備份。
+                    //    這一顆才是「讓我在這裡改的東西真的生效」：寫進自訂路線資料夾並立刻重新載入。
+                    GatheringRouteExportUI.DrawSaveAsCustomButton(selectedZone, selectedRoute);
                 }
             }
 
@@ -169,7 +173,7 @@ namespace ICE.Ui.DebugWindowTabs
 
                 if (selectedRoute == Vector2.Zero)
                 {
-                    ImGui.Text("No route is selected");
+                    ImGui.Text("No route is selected".Loc());
                 }
                 else
                 {
@@ -215,11 +219,11 @@ namespace ICE.Ui.DebugWindowTabs
 
                             if (ImGui.BeginPopup("Options for node"))
                             {
-                                if (ImGui.Selectable("Remove Node"))
+                                if (ImGui.Selectable("Remove Node".Loc()))
                                 {
                                     routeList.Remove(routeItem);
                                 }
-                                if (ImGui.Selectable("Path to node"))
+                                if (ImGui.Selectable("Path to node".Loc()))
                                 {
                                     P.TaskManager.Enqueue(() => Task_NavmeshMove.Task_NavTo(routeItem.LandZone, stayMounted: true), Utils.TaskConfig);
                                 }
@@ -274,14 +278,14 @@ namespace ICE.Ui.DebugWindowTabs
                         if (!allNodeViewer.Success)
                             return;
 
-                        ImGui.Text("All Node Viewer");
+                        ImGui.Text("All Node Viewer".Loc());
 
                         foreach (var x in Svc.Objects.Where(x => x.ObjectKind == ObjectKind.GatheringPoint && Player.DistanceTo(x.Position) <= maxDistance)
                                                      .OrderBy(x => Player.DistanceTo(x.Position)))
                         {
-                            ImGui.PushID($"{x.DataId}_{x.Position}_NodeViewer");
+                            ImGui.PushID($"{x.BaseId}_{x.Position}_NodeViewer");
 
-                            ImGui.Text($"Id: {x.DataId} | Distance: {Player.DistanceTo(x.Position):N2}");
+                            ImGui.Text($"Id: {x.BaseId} | Distance: {Player.DistanceTo(x.Position):N2}");
                             if (ImGui.IsMouseClicked(ImGuiMouseButton.Right) && ImGui.IsItemHovered())
                             {
                                 ImGui.OpenPopup("Node Viewer Popup");
@@ -289,11 +293,11 @@ namespace ICE.Ui.DebugWindowTabs
 
                             if (ImGui.BeginPopup("Node Viewer Popup"))
                             {
-                                if (ImGui.Selectable("Add node to list"))
+                                if (ImGui.Selectable("Add node to list".Loc()))
                                 {
                                     routeList.Add(new Resources.GatheringRoutes.GathNodeInfo()
                                     {
-                                        NodeId = x.DataId,
+                                        NodeId = x.BaseId,
                                         Position = x.Position,
                                         LandZone = Player.Position,
                                     });
@@ -322,20 +326,20 @@ namespace ICE.Ui.DebugWindowTabs
 
                             // Player Land Zone (currently static, might change this later)
                             Vector3 playerLandZone = route.LandZone;
-                            ImGui.Text("Player Land Zone");
+                            ImGui.Text("Player Land Zone".Loc());
                             ImGui.SetNextItemWidth(200);
                             if (ImGui.InputFloat3("##Player Land Zone", ref playerLandZone))
                             {
                                 route.LandZone = playerLandZone;
                             }
                             ImGui.SameLine();
-                            if (ImGui.Button("Set to current position"))
+                            if (ImGui.Button("Set to current position".Loc()))
                             {
                                 route.LandZone = Player.Position;
                             }
 
                             // Radius Start/End
-                            ImGui.Text("Radius Info");
+                            ImGui.Text("Radius Info".Loc());
                             float radiusStart = route.RadiusStart;
                             float radiusEnd = route.RadiusEnd;
 
@@ -353,7 +357,7 @@ namespace ICE.Ui.DebugWindowTabs
                             }
 
                             // Min/Max Distance
-                            ImGui.Text("Distance to Node");
+                            ImGui.Text("Distance to Node".Loc());
                             float minDistance = route.MinDistance;
                             float maxDistance = route.MaxDistance;
 
@@ -370,12 +374,12 @@ namespace ICE.Ui.DebugWindowTabs
                                 route.MaxDistance = maxDistance;
                             }
 
-                            if (ImGui.Button("Path to node"))
+                            if (ImGui.Button("Path to node".Loc()))
                             {
                                 P.TaskManager.Enqueue(() => Task_NavmeshMove.Task_NavTo(route.LandZone, stayMounted: true), Utils.TaskConfig);
                             }
 
-                            if (ImGui.Button("Test Path to all Nodes"))
+                            if (ImGui.Button("Test Path to all Nodes".Loc()))
                             {
                                 var firstPosition = Vector3.Zero;
                                 foreach (var routeItem in routeList)
@@ -388,7 +392,7 @@ namespace ICE.Ui.DebugWindowTabs
                                 P.TaskManager.Enqueue(() => Task_NavmeshMove.Task_NavTo(firstPosition, stayMounted: true), Utils.TaskConfig);
                             }
 
-                            if (ImGui.Button("Stop Task"))
+                            if (ImGui.Button("Stop Task".Loc()))
                             {
                                 P.TaskManager.Tasks.Clear();
                                 P.TaskManager.Abort();
@@ -483,7 +487,7 @@ namespace ICE.Ui.DebugWindowTabs
 
             public static void DrawExportAllButton()
             {
-                if (ImGui.Button("Export All Routes"))
+                if (ImGui.Button("Export All Routes".Loc()))
                 {
                     try
                     {
@@ -504,7 +508,7 @@ namespace ICE.Ui.DebugWindowTabs
 
                 if (ImGui.IsItemHovered())
                 {
-                    ImGui.SetTooltip("Export all routes to plugin config folder");
+                    ImGui.SetTooltip("Export all routes to plugin config folder".Loc());
                 }
 
                 DrawExportMessage();
@@ -512,7 +516,7 @@ namespace ICE.Ui.DebugWindowTabs
 
             public static void DrawExportSelectedButton(uint zoneId, Vector2 flag)
             {
-                if (ImGui.Button("Export Selected Route"))
+                if (ImGui.Button("Export Selected Route".Loc()))
                 {
                     try
                     {
@@ -533,7 +537,39 @@ namespace ICE.Ui.DebugWindowTabs
 
                 if (ImGui.IsItemHovered())
                 {
-                    ImGui.SetTooltip("Export this route to plugin config folder");
+                    ImGui.SetTooltip("Export this route to plugin config folder".Loc());
+                }
+
+                DrawExportMessage();
+            }
+
+            /// <summary>
+            /// 把目前記憶體裡（含在這個編輯器改過但還沒存的）這條路線寫進自訂路線資料夾，並立刻生效。
+            /// </summary>
+            public static void DrawSaveAsCustomButton(uint zoneId, Vector2 flag)
+            {
+                if (ImGui.Button("Save as Custom Route".Loc()))
+                {
+                    try
+                    {
+                        var path = GatheringRouteLoader.SaveAsCustomRoute(zoneId, flag);
+                        _lastExportMessage = $"Saved and now active:\n{path}";
+                        _lastExportSuccess = true;
+                        _lastExportMessageTime = DateTime.Now;
+                    }
+                    catch (Exception ex)
+                    {
+                        PluginLog.Error($"Save as custom route failed: {ex.Message}");
+                        _lastExportMessage = $"Save failed: {ex.Message}";
+                        _lastExportSuccess = false;
+                        _lastExportMessageTime = DateTime.Now;
+                    }
+                }
+
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("Writes this route into the custom route folder and reloads.\n" +
+                                     "Unlike Export, this one actually takes effect.").Loc());
                 }
 
                 DrawExportMessage();
@@ -541,7 +577,7 @@ namespace ICE.Ui.DebugWindowTabs
 
             public static void DrawExportAllButtonWithCustomPath()
             {
-                if (ImGui.Button("Export All Routes (Choose Location)"))
+                if (ImGui.Button("Export All Routes (Choose Location)".Loc()))
                 {
                     // TODO: Add file picker dialog integration
                     ImGui.OpenPopup("export_path_picker");
@@ -549,21 +585,21 @@ namespace ICE.Ui.DebugWindowTabs
 
                 if (ImGui.IsItemHovered())
                 {
-                    ImGui.SetTooltip("Export all routes to a custom location");
+                    ImGui.SetTooltip("Export all routes to a custom location".Loc());
                 }
 
                 // Placeholder for file picker popup
                 if (ImGui.BeginPopup("export_path_picker"))
                 {
-                    ImGui.Text("File picker not yet implemented");
-                    ImGui.Text("Use default location button for now");
+                    ImGui.Text("File picker not yet implemented".Loc());
+                    ImGui.Text("Use default location button for now".Loc());
                     ImGui.EndPopup();
                 }
             }
 
             public static void DrawExportSelectedButtonWithCustomPath(uint zoneId, Vector2 flag)
             {
-                if (ImGui.Button("Export Selected Route (Choose Location)"))
+                if (ImGui.Button("Export Selected Route (Choose Location)".Loc()))
                 {
                     // TODO: Add file picker dialog integration
                     ImGui.OpenPopup("export_path_picker_selected");
@@ -571,14 +607,14 @@ namespace ICE.Ui.DebugWindowTabs
 
                 if (ImGui.IsItemHovered())
                 {
-                    ImGui.SetTooltip("Export this route to a custom location");
+                    ImGui.SetTooltip("Export this route to a custom location".Loc());
                 }
 
                 // Placeholder for file picker popup
                 if (ImGui.BeginPopup("export_path_picker_selected"))
                 {
-                    ImGui.Text("File picker not yet implemented");
-                    ImGui.Text("Use default location button for now");
+                    ImGui.Text("File picker not yet implemented".Loc());
+                    ImGui.Text("Use default location button for now".Loc());
                     ImGui.EndPopup();
                 }
             }

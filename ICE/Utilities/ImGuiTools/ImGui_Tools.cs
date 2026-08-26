@@ -25,8 +25,16 @@ public static partial class ImGui_Tools
     // This is just a simple way of keeping track of all of them, so I can easily reference what state they're in
     public static Dictionary<string, bool> CategoryStates = new();
 
-    // My Custom Header, Uses FontAwesomeIcon and a 
-    public static bool DrawCategoryHeader_AutoSize(string label, FontAwesomeIcon? icon = null, IDalamudTextureWrap? imageTexture = null)
+    // My Custom Header, Uses FontAwesomeIcon and a
+    //
+    // ⚠️ id 是 2026-08-08 UI 重構時加的**選填**參數，省略時完全等同以前的行為
+    //    （key 就是 label 本身），所以既有呼叫端一個都不用改。
+    //    加它的原因：CategoryStates 原本拿「已在地化的 label」當 key ——
+    //    兩個分類只要翻成同一個字串就會**共用展開狀態**，失敗形式是靜默的
+    //    （兩塊一起收合，看起來像 ImGui 壞掉）。新側欄分類一律傳明確、不翻譯的 id。
+    // 📌 CategoryStates 只活在記憶體、不寫進設定檔，所以換 key 沒有遷移問題，
+    //    最多是當次 session 的展開狀態回到預設（收合）。
+    public static bool DrawCategoryHeader_AutoSize(string label, FontAwesomeIcon? icon = null, IDalamudTextureWrap? imageTexture = null, string? id = null)
     {
         float scale = ImGuiHelpers.GlobalScale;
 
@@ -40,7 +48,7 @@ public static partial class ImGui_Tools
         // A: If it doesn't already exist, add it and just make it false (This makes it to where it's not expanded by default)
         //    - Could absolutely change that to true if I want to make it shown on inital creation
         // B: Returns the state in a form to where if that's true, then I could display the elements below it properly
-        string categoryId = label;
+        string categoryId = id ?? label;
         if (!CategoryStates.ContainsKey(categoryId))
             CategoryStates[categoryId] = false;
 
@@ -138,6 +146,32 @@ public static partial class ImGui_Tools
         return isExpanded;
     }
 
+    /// <summary>
+    /// 頁內分節用的收合標題（2026-08-08 UI 重構第四批「少頁多節」）。
+    /// </summary>
+    /// <param name="label">已在地化的標題文字。</param>
+    /// <param name="id">
+    /// 不翻譯的唯一識別碼（本函式自己加上 <c>###</c>）。
+    /// 🔴 <b>一定要給</b>：ImGui 的收合狀態是用控制項 id 記的，而 id 預設就是標籤本身 ——
+    /// 兩節只要翻成同一個字串就會共用開合狀態，失敗形式是靜默的（兩塊一起開合，看起來像壞掉）。
+    /// 這與 <see cref="DrawCategoryHeader_AutoSize"/> 的 id 參數是同一個陷阱、同一個解法。
+    /// </param>
+    /// <param name="defaultOpen">
+    /// 第一次出現時是否展開。慣例：<b>一頁只有第一節預設展開</b>，其餘收合 ——
+    /// 打開一頁看到的是一份分節目錄，而不是一整捲設定。
+    /// ⚠️ 使用者手動開合過之後，ImGui 會記住他的選擇，這個參數就不再生效。
+    /// </param>
+    public static bool PageSection(string label, string id, bool defaultOpen = false)
+    {
+        return ImGui.CollapsingHeader(label + "###" + id,
+            defaultOpen ? ImGuiTreeNodeFlags.DefaultOpen : ImGuiTreeNodeFlags.None);
+    }
+
+    // 🔴 死碼：零呼叫端（靜態掃描；本 repo 無反射式 UI 探索）。
+    //    ⚠️ grep "DrawCategoryHeader" 會在下面第 152 行附近多命中一次，那是**註解裡的字串**不是呼叫。
+    //    實際在用的是上面的 DrawCategoryHeader_AutoSize。兩者共用同一個 CategoryStates 字典，
+    //    所以若哪天要啟用它，label 撞名會和既有標題共用展開狀態。
+    //    保留不刪（使用者裁決：死碼只要確認真的死，不用刪）。
     public static bool DrawCategoryHeader(string label, FontAwesomeIcon? icon = null)
     {
         // Default coloring here

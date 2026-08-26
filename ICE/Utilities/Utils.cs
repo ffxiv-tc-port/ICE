@@ -10,6 +10,7 @@ using FFXIVClientStructs.FFXIV.Client.Game.Object;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using ICE.Utilities.Cosmic_Helper;
+using ICE.Utilities.MechaOps;
 using SharpDX.Direct3D11;
 using System;
 using System.Numerics;
@@ -39,7 +40,16 @@ public static unsafe class Utils
     {
         var map = ExcelHelper.TerritorySheet.GetRow(territoryId).Map.Value;
 
+        // 🔴 AgentMap.Instance() 是 AgentGetterGenerator 產出的兩層可空取得器
+        //    （agentModule == null ? null : GetAgentByInternalId(...)），合法回 null。
+        //    下面第一件事就是 `agent->FlagMarkerCount = 0` —— 那是**寫入**，
+        //    裸寫等於往位址 0 寫，是攔不到的 AVE。拿不到就整個不插旗。
         var agent = AgentMap.Instance();
+        if (agent == null)
+        {
+            IceLogging.Info($"AgentMap 尚未就緒，不設定 NPC 旗標（territory {territoryId}）。", "[Utils]");
+            return;
+        }
 
         Vector2 pos = MapToWorld(new Vector2(x, y), map.SizeFactor, map.OffsetX, map.OffsetY);
 
@@ -52,7 +62,13 @@ public static unsafe class Utils
     {
         var map = ExcelHelper.TerritorySheet.GetRow(territoryId).Map.Value;
 
+        // 同 SetFlagForNPC：取得器合法回 null，而下一行是寫入。
         var agent = AgentMap.Instance();
+        if (agent == null)
+        {
+            IceLogging.Info($"AgentMap 尚未就緒，不設定 NPC 旗標（territory {territoryId}）。", "[Utils]");
+            return;
+        }
 
         agent->FlagMarkerCount = 0;
         agent->SetFlagMapMarker(territoryId, map.RowId, x, y);
@@ -80,23 +96,23 @@ public static unsafe class Utils
         if (x == null)
             return false;
 
-        if (Svc.Targets.Target != null && Svc.Targets.Target.DataId == x.DataId)
+        if (Svc.Targets.Target != null && Svc.Targets.Target.BaseId == x.BaseId)
             return true;
 
         if (!GenericHelpers.IsOccupied())
         {
             if (x != null)
             {
-                if (EzThrottler.Throttle($"Throttle Targeting {x.DataId}"))
+                if (EzThrottler.Throttle($"Throttle Targeting {x.BaseId}"))
                 {
                     Svc.Targets.SetTarget(x);
-                    IceLogging.Info($"Setting the target to {x.DataId}");
+                    IceLogging.Info($"Setting the target to {x.BaseId}");
                 }
             }
         }
         return false;
     }
-    internal static bool TryGetObjectByDataId(ulong dataId, out IGameObject? gameObject) => (gameObject = Svc.Objects.OrderBy(PlayerHelper.GetDistanceToPlayer).FirstOrDefault(x => x.DataId == dataId)) != null;
+    internal static bool TryGetObjectByDataId(ulong dataId, out IGameObject? gameObject) => (gameObject = Svc.Objects.OrderBy(PlayerHelper.GetDistanceToPlayer).FirstOrDefault(x => x.BaseId == dataId)) != null;
     internal static bool TryGetNpcObject(NpcData.NPCInfo npc, out IGameObject? gameObject)
     {
         foreach (var npcId in npc.AlternateNpcIds.Prepend(npc.NpcId))
@@ -113,7 +129,7 @@ public static unsafe class Utils
             gameObject = currentTarget;
             IceLogging.Warning(
                 $"Configured NPC IDs [{configuredIds}] were not found; using targeted NPC " +
-                $"{gameObject.DataId} ({gameObject.Name}) near the configured location.",
+                $"{gameObject.BaseId} ({gameObject.Name}) near the configured location.",
                 "[NPC Resolver]");
             return true;
         }
@@ -127,7 +143,7 @@ public static unsafe class Utils
         {
             IceLogging.Warning(
                 $"Configured NPC IDs [{configuredIds}] were not found; using nearby NPC " +
-                $"{gameObject.DataId} ({gameObject.Name}) at the configured location.",
+                $"{gameObject.BaseId} ({gameObject.Name}) at the configured location.",
                 "[NPC Resolver]");
             return true;
         }
@@ -151,9 +167,39 @@ public static unsafe class Utils
     {
         return Svc.Objects.OrderBy(PlayerHelper.GetDistanceToPlayer).FirstOrDefault(x => x.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventObj);
     }
-    public static IGameObject? TryGetObjectCollectionPoint()
+    /// <summary>
+    /// 找緊急任務（紅色警報）的繳交點。
+    /// </summary>
+    /// <param name="expectedLocation">
+    /// 這個任務的繳交點**應該**在哪（<c>GatheringUtil.CriticalLocations</c> 的原始座標）。
+    /// 不給就是舊行為：只按「離玩家最近」挑。
+    /// </param>
+    /// <param name="maxDistanceFromExpected">離 <paramref name="expectedLocation"/> 多遠以內才算數。</param>
+    /// <remarks>
+    /// 舊版只做「BaseId 對得上就挑最近的」，有兩個問題（cycleapple <c>65a5806</c> 修）：
+    /// <list type="number">
+    /// <item>沒有過濾 <c>IsTargetable</c> —— 已經被別隊收掉／還沒生成的繳交點仍然在
+    /// ObjectTable 裡，挑到它就會走過去對著一個點不了的東西一直互動。</item>
+    /// <item>只按「離玩家最近」排序 —— 同一張地圖上其他區域的繳交點也是同樣的 BaseId，
+    /// 玩家人在兩者中間時會被導去**別區**的那一個。失敗形式是「跑很遠然後繳不掉」。</item>
+    /// </list>
+    /// 🔴 這裡刻意用 <c>BaseId</c> 而不是上游的 <c>DataId</c>：<c>IGameObject.DataId</c> 拿來做
+    /// 身分比對在艦隊裡已經統一換成 <c>BaseId</c>（<c>DataId</c> 只留給查表用）。
+    /// </remarks>
+    public static IGameObject? TryGetObjectCollectionPoint(Vector3? expectedLocation = null, float maxDistanceFromExpected = 100f)
     {
-        return Svc.Objects.OrderBy(PlayerHelper.GetDistanceToPlayer).FirstOrDefault(x => x.DataId == 2014616 || x.DataId == 2014618);
+        var candidates = Svc.Objects.Where(x => x.IsTargetable && (x.BaseId == 2014616 || x.BaseId == 2014618));
+
+        if (expectedLocation is { } location)
+        {
+            return candidates
+                .Where(x => Vector3.Distance(x.Position, location) <= maxDistanceFromExpected)
+                .OrderBy(PlayerHelper.GetDistanceToPlayer)
+                .ThenBy(x => Vector3.Distance(x.Position, location))
+                .FirstOrDefault();
+        }
+
+        return candidates.OrderBy(PlayerHelper.GetDistanceToPlayer).FirstOrDefault();
     }
     public static void TargetgameObject(IGameObject? gameObject)
     {
@@ -162,16 +208,19 @@ public static unsafe class Utils
             return;
 
         var currentTarget = Svc.Targets.Target;
-        if (currentTarget != null && currentTarget.DataId == x.DataId)
+        if (currentTarget != null && currentTarget.BaseId == x.BaseId)
             return;
 
         if (!GenericHelpers.IsOccupied())
         {
             if (x != null)
             {
-                if (EzThrottler.Throttle($"Throttle targeting: {x.DataId}"))
+                if (EzThrottler.Throttle($"Throttle targeting: {x.BaseId}"))
                 {
-                    IceLogging.Info($"Attempting to set the target to: {x.DataId} | {x.Name}", "[Target Game Object]");
+                    IceLogging.Info($"Attempting to set the target to: {x.BaseId} | {x.Name}", "[Target Game Object]");
+                    // 🔑 機甲事件錄製要分得出「人選的」與「外掛選的」——這裡是 ICE 主動指定目標
+                    //    的唯一路徑，先登記再真的設定。錄製沒開時整個方法第一行就 return。
+                    MechaEventRecorder.NoteIceAction("target", x);
                     Svc.Targets.SetTarget(x);
                 }
             }
@@ -183,6 +232,8 @@ public static unsafe class Utils
         {
             if (gameObject == null || !gameObject.IsTargetable)
                 return;
+            // 同上：ICE 自己發起的互動。六個呼叫點全部經過這裡，所以只要記這一處。
+            MechaEventRecorder.NoteIceAction("interact", gameObject);
             var gameObjectPointer = (GameObject*)gameObject.Address;
             TargetSystem.Instance()->InteractWithObject(gameObjectPointer, false);
         }
@@ -194,7 +245,13 @@ public static unsafe class Utils
     public static unsafe void SetGatheringRing(uint territoryId, int x, int y, int radius, string? tooltip = "Node Location")
     {
         var map = ExcelHelper.TerritorySheet.GetRow(territoryId).Map.Value;
+        // 同 SetFlagForNPC：取得器合法回 null，而下面第一件事是寫 FlagMarkerCount。
         var agent = AgentMap.Instance();
+        if (agent == null)
+        {
+            IceLogging.Info($"AgentMap 尚未就緒，不畫採集圈（territory {territoryId}）。", "[Utils]");
+            return;
+        }
 
         Vector2 pos = MapToWorld(new Vector2(x, y), map.SizeFactor, map.OffsetX, map.OffsetY);
         IceLogging.Debug($"Current map: {map.RowId} {territoryId} | {map.PlaceName.Value.Name} | {pos.X} {pos.Y} | {x} {y} | {radius} | {tooltip}");

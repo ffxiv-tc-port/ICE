@@ -12,16 +12,24 @@ namespace ICE.Scheduler.Handlers
             if (job == Player.Job || !EzThrottler.Throttle("Gearset", 250) || Player.IsBusy)
                 return;
             var gearsets = RaptureGearsetModule.Instance();
+            // RaptureGearsetModule.Instance() 走 UIModule，未登入／UI 尚未建立時回 null
+            //（CS 手寫實作逐字是 uiModule == null ? null : uiModule->GetRaptureGearsetModule()）。
+            // 取不到就直接 return——與上面三道閘門相同的失敗形式（這次不換裝，下個節流視窗再試）。
+            if (gearsets == null)
+                return;
+
             foreach (ref var gs in gearsets->Entries)
             {
-                if (!RaptureGearsetModule.Instance()->IsValidGearset(gs.Id)) continue;
+                if (!gearsets->IsValidGearset(gs.Id)) continue;
                 if ((Job)gs.ClassJob == job)
                 {
                     if (gs.Flags.HasFlag(RaptureGearsetModule.GearsetFlag.MainHandMissing))
                     {
                         if (GenericHelpers.TryGetAddonMaster<SelectYesno>("SelectYesno", out var select) && select.IsAddonReady)
                         {
-                            select.Yes();
+                            // 閘門預設是「一律按下確定」＝與原本完全相同（見 YesnoGuard）。
+                            if (YesnoGuard.ShouldConfirm(YesnoSituation.GearsetMainHand))
+                                select.Yes();
                         }
                         else
                         {
@@ -35,6 +43,35 @@ namespace ICE.Scheduler.Handlers
                 }
             }
             return;
+        }
+
+        /// <summary>
+        /// 這個職業有沒有「可以直接換過去」的套裝。
+        /// </summary>
+        /// <remarks>
+        /// 判定沿用 <see cref="TaskClassChange"/> 用的兩個條件：套裝要有效，而且不能是
+        /// <c>MainHandMissing</c> —— 主手武器不在身上就換不了職業，<c>EquipGearset</c> 只會跳一個
+        /// 確認視窗然後失敗。呼叫端要先問過這裡，才不會「換不過去又不講話」。<br/>
+        /// 🔴 只回傳 bool，不外流任何原生指標；<c>Entries</c> 只在這個呼叫的堆疊框內走訪。
+        /// <c>RaptureGearsetModule.Instance()</c> 在還沒登入時可能是 null，所以先判空 ——
+        /// 「不知道」要回 false，不能讓呼叫端以為換得過去。
+        /// </remarks>
+        internal unsafe static bool HasUsableGearset(Job job)
+        {
+            var gearsets = RaptureGearsetModule.Instance();
+            if (gearsets == null)
+                return false;
+
+            foreach (ref var gs in gearsets->Entries)
+            {
+                if (!gearsets->IsValidGearset(gs.Id)) continue;
+                if ((Job)gs.ClassJob != job) continue;
+                if (gs.Flags.HasFlag(RaptureGearsetModule.GearsetFlag.MainHandMissing)) continue;
+
+                return true;
+            }
+
+            return false;
         }
     }
 }

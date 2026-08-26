@@ -21,6 +21,18 @@ namespace ICE.Config
         public bool AnimationLockAbandon { get; set; } = true;
         public bool JumpIfStuck { get; set; } = false;
 
+        /// <summary>
+        /// 遇到「文字對不上預期」的確認框時要怎麼處理。預設 <c>AlwaysConfirm</c>＝維持現行行為。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 這是<b>另一個</b>旗標，不是把新地方掛到 <see cref="RejectUnknownYesno"/> 上：
+        /// 那個旗標預設就是 <c>true</c>（既有使用者都開著），把新的檢查掛上去等於未經同意
+        /// 改了所有人的行為。<br/>
+        /// 涵蓋範圍與比對基準見 <c>ICE.Utilities.YesnoGuard</c>；
+        /// <see cref="RejectUnknownYesno"/> 蓋的是接任務與放棄任務兩處，兩者不重疊。
+        /// </remarks>
+        public UnexpectedYesnoAction UnexpectedYesno { get; set; } = UnexpectedYesnoAction.AlwaysConfirm;
+
         // 任務優先度：同一階級之內優先挑「還沒拿到金星」的任務（補完成度用）。
         // 判定來源是 WKSManager.IsMissionGolded；全部拿完之後這個選項自然失去作用，
         // 排序會回到原本的順序。
@@ -30,10 +42,31 @@ namespace ICE.Config
         // 與 PrioritizeUngoldedMissions 可以並用：先套表格排序，再把未金星的穩定排到前面。
         public bool UseTableSortForMissionOrder { get; set; } = false;
 
+        // 挑任務時要求的最低金星率（百分比；0 = 關閉，維持現行行為）。
+        // 金星率＝GoldCompletions ÷（TotalCompletions + FailedCounters），也就是「含放棄」的嘗試次數。
+        // ⚠️ 只在 UseTableSortForMissionOrder 開啟的挑任務路徑上生效，而且**只是把不達標的任務
+        //    排到同階級隊尾，不是把它從候選池移除**。移除會把候選池掏空，觸發 CheckReroll 無限
+        //    重骰（見上面 MaxConsecutiveRerolls 的說明）——那是行為回退，不是保護。
+        // ⚠️ 樣本數不足（嘗試次數 < MinGoldRateSampleSize）的任務一律視為達標，避免「試一次失敗
+        //    就被判死」而永遠拿不到累積數據。
+        // ⚠️ 表格顯示完全不受這個門檻影響：顯示歸顯示、挑選歸挑選。
+        public int MinGoldRatePercentForPicking { get; set; } = 0;
+
+        // 上面那個門檻開始生效所需的最少嘗試次數。刻意不做成 UI 選項（避免再多一顆旋鈕），
+        // 但留成具名常數而不是散在程式碼裡的魔術數字。
+        public const int MinGoldRateSampleSize = 3;
+
         // 連續重骰幾次都找不到可接任務就停下來（0 = 不限制，維持舊行為）。
         // 沒有這個上限時，只要候選池空了（例如開了「取得金星後自動停用」而目前
         // 可接的全都拿過金星），CheckReroll 就會無限重骰、卡在原地不會有任何提示。
         public int MaxConsecutiveRerolls { get; set; } = 10;
+
+        // 重骰達到上限（＝目前職業的候選池空了）時，先照「職業優先度」JobPrio 找下一個
+        // 還有未金星任務的職業換過去再試，全部都試過才停止。預設關閉＝維持現行行為（直接停止）。
+        // ⚠️ 自動換職業會真的動到裝備（EquipGearset），是明顯的行為改變，所以不預設開啟。
+        // ⚠️ 只在標準任務流程生效：宇宙工具經驗模式與臨時任務連刷各自有獨立的候選池，
+        //    根本走不到重骰上限這個判斷點（臨時任務連刷本來就自己會照 JobPrio 換職業）。
+        public bool AutoSwitchJobWhenPoolEmpty { get; set; } = false;
 
         #endregion
 
@@ -75,12 +108,78 @@ namespace ICE.Config
         public bool ShowTotalScore { get; set; } = true;
         public bool ShowExpBars { get; set; } = true;
 
+        // ---- 疊加層各區塊的顯示開關（2026-08-08 使用者要求：「預報和成果 也能加開關嗎?」）----
+        // 🔑 三個**全部預設開**＝現行版面零改變。這一組要解決的是「我不想看這一塊」，
+        //    不是要改預設長相；預設值一改就變成「未經同意動了所有人的畫面」。
+        // ⚠️ 關掉的是**畫**，不是算：資料本來就是每幀現查的，不存在「關掉省了什麼」的副作用；
+        //    反過來說也不會因為關掉而讓別的功能少拿到東西。
+
+        /// <summary>疊加層的「天氣預報」那一列（目前天氣 → 下一個天氣 → 還有多久）。</summary>
+        public bool ShowOverlayWeather { get; set; } = true;
+
+        /// <summary>疊加層的「時間限定任務」那一列（這個小時／下個小時的職業圖示）。</summary>
+        public bool ShowOverlayTimedMissions { get; set; } = true;
+
+        /// <summary>
+        /// 疊加層的職業成果進度條（目前任務對應職業的宇宙工具經驗條）。
+        /// ⚠️ 跟 <see cref="ShowTotalScore"/>（總成果那一條）是兩件事，各自有開關。
+        /// </summary>
+        public bool ShowOverlayJobScore { get; set; } = true;
+
         // 機甲行動技能範圍標示（Utilities/MechaOps）。預設關閉。
         public bool ShowMechaAoeOverlay { get; set; } = false;
 
-        // 宇宙火焰噴射器（42258）的扇形角度（度）。遊戲資料裡沒有（Omen=0），
-        // 預設 90°，待實機校準。
-        public float MechaConeAngleDeg { get; set; } = 90f;
+        // 機甲行動狀態改畫在 ICE 疊加層主視窗的可摺疊區塊裡（比照「宇宙工具經驗值」），
+        // 而不是另外開一個獨立視窗。預設開＝2026-08-08 使用者要求的新版面。
+        //
+        // 🔑 關掉就回到舊的獨立視窗。兩者不會同時出現：獨立視窗的顯示條件會問
+        //    「主視窗是不是真的會畫到它」（見 MechaOpsWindow.MergedIntoOverlay）。
+        // ⚠️ 主視窗自己的開關 ShowOverlay 預設是**關**的——所以沒開主視窗的人
+        //    仍然會拿到獨立視窗，這個合併不會讓任何人的功能憑空消失。
+        public bool ShowMechaInOverlay { get; set; } = true;
+
+        // 🔴🔴 下面兩個舊鍵自 2026-08-08（設定版本 12）起**程式不再讀取**。
+        //      值已由 ConfigMigrator.MigrateMechaGlobalSlidersToPerSkill 搬進
+        //      MechaShapeOverrides[42258].AngleDeg / [42150].Primary，效果值逐一相同。
+        //      欄位刻意留著不刪：①舊設定檔還原得回來 ②遷移本身要讀它們。
+        //      ⚠️ 新碼一律走 MechaActionShapes.ConeAngleFor()／TryResolve()，不要再讀這兩個鍵——
+        //      讀了會靜默忽略 per-skill 覆蓋（失敗形式是「滑桿沒作用」）。
+
+        // 宇宙火焰噴射器（42258）的扇形**全**角（度）。遊戲資料裡沒有（Omen=0），只能靠實機校準。
+        //
+        // 📌 2026-08-08 由兩場 [MechaRec] log 定錨：CAST 時刻 7.5m 內目標的相對朝向半角
+        //    樣本 12 筆有 8 筆 >50°，且半角 101~152° 成群 —— 也就是實際扇形遠比原本的
+        //    預設 90° 寬。240°（半角 120°）落在那一群的中位附近，所以改當預設。
+        // ⚠️ 樣本含雜訊：那 12 筆是「CAST 當下在範圍內的物件」，不是「確定被打到的物件」，
+        //    所以 240 是**校準起點**不是定論；滑桿上限已放到 360 讓使用者自己收斂。
+        // ⚠️ 這個值是**所有**扇形機甲技能共用的（凡 CastType 13/3 者皆適用），
+        //    只是目前六個已驗證的技能裡只有 42258 是扇形，所以實質上等同於 per-skill。
+        // 🔴 既有使用者的 yaml 已經序列化過這一鍵 → 改預設對他們**無效**，要自己拉滑桿。
+        public float MechaConeAngleDeg { get; set; } = 240f;
+
+        // 宇宙鑽頭（42150）的矩形長度（公尺）。
+        //
+        // 📌 Lumina Action 表寫的 EffectRange 是 7，但那是**技能資料上的射程**，
+        //    不等於實戰上真的打得到的距離。2026-08-08 由 [MechaRec] log 定錨：
+        //    11 發實際 CAST 時「最近目標距離」有 10 發落在 1.75~3.65m（一發 6.74 離群），
+        //    也就是使用者實際都是貼到 4m 以內才按 —— 畫 7.0 會讓範圍框遠大於有效觸發距離，
+        //    造成「框到了卻打不到」的誤導。預設改 4.0。
+        // ⚠️ 這是**校準**不是資料修正：真值仍未知（沒有命中/未命中的地面真相），
+        //    所以做成滑桿（2~10）讓使用者自己收斂；拉回 7 就是退回 Lumina 原值。
+        // 📌 半寬（XAxisModifier/2 = 2.5）沒有任何回報指出不準，維持走 Lumina 不開設定。
+        public float MechaDrillLength { get; set; } = 4f;
+
+        // ---- per-skill 形狀覆蓋（Utilities/MechaOps/MechaActionShapes.cs）----
+        // 技能 id → 各維度的覆蓋值。**預設空字典＝完全沿用現行有效值**
+        // （Lumina 原值，或上面兩個舊鍵已經校準過的值），所以升級不會改變任何行為。
+        //
+        // 🔑 讀取優先序：per-skill 覆蓋 > 內建校準值（MechaActionShapes 的常數）> Lumina 原值。
+        //    ⚠️ 2026-08-08 起舊鍵不再參與這條優先序：使用者拉過的值（例如 5.0／120）
+        //    已由設定版本 11→12 的遷移**搬進這個字典**，所以那些值繼續生效，
+        //    只是現在看得出來是掛在哪一個技能上。
+        // ⚠️ null ＝「這個維度不覆蓋」，不是 0。用 float? 而不是 0 當哨兵，
+        //    否則「使用者真的想設 0」與「沒設」分不出來。
+        public Dictionary<uint, MechaShapeOverride> MechaShapeOverrides { get; set; } = new();
 
         // 個別技能顯示開關；沒有紀錄的 ActionId ＝ 開。
         public Dictionary<uint, bool> MechaAoeSkillToggles { get; set; } = new();
@@ -107,10 +206,36 @@ namespace ICE.Config
 
         // 只列可選取（IsTargetable）的物件。關掉會連不可選取的一起畫出來——
         // 實機發現「該畫的沒畫」時的第一個排查開關。
+        // ⚠️ 2026-08-06 起這一項**不再影響任務目標**：目的指示標記對上的物件、
+        //    以及跟它同 BaseId 的同型物件一律列出（見 MechaOpsMonitor.SampleTargets）。
+        //    原因是使用者回報的「有害菌床」目標既沒有名字也不可選取，
+        //    被這個旗標整批擋掉，而關掉它又會讓整片場景與 NPC 灌進來。
         public bool MechaTargetsTargetableOnly { get; set; } = true;
+
+        // 上面那項關掉之後，是否仍然排除**已知的**雜訊（NPC、以太之光、採集點、房屋、
+        // 區域、過場、卡牌台，以及不可選取又沒有名字的場景裝飾）。
+        // 🔑 判準是「已知是雜訊」而不是「不像目標」——漏掉的照樣顯示，失敗方向是安全的。
+        // ⚠️ 預設 true：這一項是為了修「關掉可選取過濾就整片灌進來」而加的，
+        //    預設不生效等於沒修。要看到**全部**物件（舊行為）把它關掉即可。
+        public bool MechaTargetsHideSceneryAndNpcs { get; set; } = true;
 
         // 把其他玩家也畫出來。預設關（隊友不是攻擊目標，只會擋住畫面）。
         public bool MechaTargetsIncludePlayers { get; set; } = false;
+
+        // ---- 身份分流（Utilities/MechaOps/MechaObjectives.cs 的 HiddenByRoleGate）----
+        // 顯示「另一個身份」的目標。**預設 false ＝分流生效**，也就是協助員不會看到
+        // 駕駛員的巨型目標、反之亦然。
+        //
+        // 🔴 這一項改變了 2026-08-08 之前的行為，而那個行為正是使用者回報的問題本身：
+        //    他以協助員身份參加「有害菌床驅除指令」，畫面上一直有駕駛員的菌床本體
+        //    （did=2014722），而且勾「只顯示可選取的物件」也濾不掉——因為三層分級全都
+        //    正確地把它判成「這場事件的任務目標」，缺的是「它是不是**我的**目標」。
+        //
+        // 🔑 分流**只影響畫不畫**：分級、標記學習、錄製器全部照舊看得到全家族，
+        //    否則下一次實機錄製就分不出「另一邊發生了什麼」。
+        // ⚠️ 判不出身份（上機甲前／事件外）或判不出歸屬時一律不分流（全部顯示）——
+        //    這個功能的失敗方向必須是「多顯示」，不是「把使用者要打的東西藏起來」。
+        public bool MechaShowOtherRoleTargets { get; set; } = false;
 
         // 機甲行動狀態視窗（Ui/MechaOpsWindow）的三個子區塊。
         // 全部掛在 ShowMechaAoeOverlay 底下，總開關關著時整個視窗都不出現；
@@ -122,6 +247,52 @@ namespace ICE.Config
         // 事件進度（進度條／個人進度／貢獻／時間）。資料來自 WKSMechaEvent 的純量欄位，
         // 取樣端會先做指標範圍驗證，驗證不過就什麼都不顯示。
         public bool ShowMechaEventProgress { get; set; } = true;
+
+        // ---- 機甲行動區塊「逐列」開關（2026-08-08 使用者要求：「機甲ui的各項 能加開關嗎」）----
+        // 🔑 全部預設開＝現行版面零改變。上面那個 ShowMechaEventProgress 仍然是整組的總開關，
+        //    這幾個是它底下的細項；總開關關著時這幾個一律不生效（不是「兩個都要開」的意思，
+        //    而是總開關就已經整組不畫了）。
+        // ⚠️ 「目的指示那一列」與世界疊加層上的目的指示圈是**兩件事**：
+        //    前者是這一列文字（ShowMechaRowObjectives），後者是 ShowMechaObjectives。
+        //    把兩者綁在一起的話，想關掉視窗那一行的人會連地上的圈一起弄不見。
+        public bool ShowMechaRowEventProgress { get; set; } = true;
+        public bool ShowMechaRowPersonalProgress { get; set; } = true;
+        public bool ShowMechaRowContribution { get; set; } = true;
+        public bool ShowMechaRowEventEnd { get; set; } = true;
+        public bool ShowMechaRowSignupEnd { get; set; } = true;
+        public bool ShowMechaRowTeleportEnd { get; set; } = true;
+        public bool ShowMechaRowObjectives { get; set; } = true;
+
+        // ---- 事件排程（Utilities/MechaOps/MechaSchedule.cs）----
+        // 「下次機甲事件：<名稱> HH:mm（N 分後）」。
+        // 資料來自 WKSMechaEventModule._events 這個**內嵌**陣列的純量欄位，
+        // 一個指標都不用解（比既有的 CurrentEvent 路徑更安全），所以比照其他子開關預設開。
+        // ✅ 「事件還沒開始就讀得到開始時間」已由 2026-08-08 的三場實機錄製證實
+        //    （提前 19 分鐘就讀得到，開始時刻分秒吻合）。
+        public bool ShowMechaSchedule { get; set; } = true;
+
+        // ---- 駕駛申請書持有狀態 ----
+        // 2026-08-08 使用者原話：「駕駛申請書身上只能帶一張 能偵測到有沒有嗎」。
+        // 「駕駛申請書：持有／無／?」一列。
+        //
+        // 🔴 它不是背包道具（台服 Item／EventItem 兩張表都查無「申請書」），資料是
+        //    WKSMechaEventModule 的兩個 byte（+0xA2A9 持有、+0xA2AA 資料到了沒），
+        //    純量、位置在 CS 宣告的模組配置內、一個指標都不用解 ——
+        //    與 ShowMechaSchedule 同一個安全等級，所以同樣預設開。
+        // ⚠️ 這一列會讓機甲區塊在「現在沒有任何事件」時也有東西可畫，因此在宇宙區域裡
+        //    區塊幾乎總是看得見。那是刻意的：這一列的價值就在事件開始之前。
+        //    整組仍然掛在 ShowMechaAoeOverlay 底下（該項預設關），沒開機甲功能的人不受影響。
+        public bool ShowMechaPilotTicket { get; set; } = true;
+
+        // 🔴🔴 部署閘門：預設 false。
+        // 開啟＝顯示緊急事件（紅色警報：磁暴／流星雨／孢子霧）的類型與剩餘時間。
+        // 資料源是 AgentWKSAnnounce.Data，那是一塊**我們沒有辦法驗證大小**的堆積配置：
+        // CS 宣告 Size = 0xA8 是照國際服的佈局，台服沒有離線驗證過。
+        // 若台服的配置比較小，讀 +0xA0 的 State 就是越界，而 AccessViolationException
+        // 是 corrupted-state exception，try/catch 與 HookSafety.ExecuteSafe 都攔不到。
+        // ⚠️ 要改成預設開，必須先有實機證據（開著跑過一輪磁暴而沒有崩潰）。
+        //    這與同檔的 MechaObjectiveUseMarkerVector 是同一個理由、同一個處置。
+        public bool ShowMechaEmergency { get; set; } = false;
 
         // ---- 目的指示標示（Utilities/MechaOps/MechaObjectives.cs）----
         // 把機甲事件自己的 map marker 畫成世界疊加層（有方向、有外框、不疊顏色）。
@@ -181,6 +352,12 @@ namespace ICE.Config
         public bool StopOnceHitCosmicScore { get; set; } = false;
         public int CosmicScoreCap { get; set; } = 500000;
         public bool StopOnceRelicFinished { get; set; } = false;
+
+        // 「本區、目前所選職業的普通任務全部拿到金評就停」。判別「普通任務」＝排除 Critical
+        // 與三種 Provisional（限時／天候／連續）；金評旗標一律走 MissionStatusHelper 原生讀取
+        // （CustomCs.cs），不重新引入已移除的 WKSManagerCustom。預設 false＝維持現行行為。
+        public bool StopOnceStandardMissionsGolded { get; set; } = false;
+
         public byte SequenceMissionPriority { get; set; } = 1;
         public byte WeatherMissionPriority { get; set; } = 2;
         public byte TimedMissionPriority { get; set; } = 3;
@@ -206,6 +383,25 @@ namespace ICE.Config
         public bool ShowSinusMissions { get; set; } = true;
         public bool ShowPhaennaMissions { get; set; } = true;
         public bool RemoveAfterGold { get; set; } = false;
+
+        // 「取得金星後排除任務」對緊急任務網開一面。
+        // 🔑 預設 false ＝ 現行行為完全不變；要例外的人自己去勾。
+        // 判別碼是 MissionAttributes.Critical（源自 WKSMissionUnit.IsSpecialQuest），
+        // 台服 7.20 離線驗證恰為 33 個任務（列 512..544），
+        // 與 WKSEmergencyMissionGroup 那條獨立資料鏈逐筆相同——見 MissionChain 的註解。
+        public bool RemoveAfterGoldKeepCritical { get; set; } = false;
+
+        /// <summary>
+        /// 製作任務算出「剩下的材料已經不可能拿到金星」之後要怎麼處置。預設 <c>Off</c>＝維持現行行為。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 這是<b>破壞性</b>動作，所以預設關閉，而且只有在「這一輪除了金星以外不會交件」
+        /// （<c>AutoTurnin</c> 或 <c>TurninGold</c>）時才會生效 —— 使用者本來就接受銀／銅星的話，
+        /// 「拿不到金星」根本不是放棄的理由。判定本身見
+        /// <see cref="ICE.Utilities.Cosmic_Helper.CraftGoldFeasibility"/>。
+        /// </remarks>
+        public GoldUnreachableAction CraftGoldUnreachable { get; set; } = GoldUnreachableAction.Off;
+
         public bool ShowExtraMissionInfo { get; set; } = true;
         public Dictionary<uint, uint> ScoreKeeper { get; set; } = new();
 
@@ -239,6 +435,19 @@ namespace ICE.Config
         public int SelectedGatherIndex { get; set; } = 0;
         public bool UseGatheringFood { get; set; } = false;
         public uint GatheringFood { get; set; } = 0;
+
+        /// <summary>
+        /// 採集時是否每次都重新挑「離玩家最近而且還採得到」的採集點。
+        /// 關掉就退回舊行為：照路線檔裡的先後順序一個接一個走。
+        /// </summary>
+        /// <remarks>
+        /// 預設 <c>true</c>：這是在修一個使用者實測回報的問題（「明明有更近的採集點卻跑去遠的」），
+        /// 預設關掉等於升級後什麼都沒變。這是<b>新增的鍵</b>，既有使用者的設定檔裡沒有它，
+        /// 反序列化不會覆蓋欄位初始值，所以新預設對既有使用者一樣生效。
+        /// 留這個開關是因為選點順序改變會連帶改變走位，實機萬一出現非預期的來回移動，
+        /// 使用者可以自己關掉退回舊行為，不必等我們出新版。
+        /// </remarks>
+        public bool GatherPickClosestNode { get; set; } = true;
 
         #region Cordial Settings
 
@@ -324,19 +533,73 @@ namespace ICE.Config
         public bool BuyItems { get; set; } = false;
         public int CosmoBuyAtAmount { get; set; } = 10000;
 
+        /// <summary>
+        /// 遇到遊戲自己的「目前已經學會了該道具對應的內容」確認框時要不要放棄該件。
+        /// 預設關閉＝維持上游行為（對任何 SelectYesno 一律按下確定）。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 刻意不預設開啟：兌換商店賣的樂譜／演技教材是**可交易**的
+        /// （台服 Item 表核對過：48211／48213／47985 的 <c>IsUntradable</c> 都是 False），
+        /// 有人就是要買已經學會的來賣。要只擋特定幾件請改用逐項的
+        /// <see cref="CosmoShoppingList.SkipIfUnlocked"/>。
+        /// </remarks>
+        public bool HeedAlreadyLearnedPrompt { get; set; } = false;
+
         #endregion
 
         public Dictionary<uint, MissionSettings> MissionConfig { get; set; } = new();
+
+        // B5（cycleapple 5ecca374）：任務預設組（playlist）。名稱→啟用的任務 id 清單。
+        // 載入時只切各任務的 Enabled，不動優先順序或個別任務設定。
+        public Dictionary<string, List<uint>> MissionPlaylists { get; set; } = new();
 
         public List<MissionCommand> PostMissionCommands { get; set; } = new();
 
         #region Tab Hider
 
+        // 🔴 這五個是**舊側欄**（一頁一設定的分頁樹）的顯示開關。
+        //    2026-08-08 UI 重構第四批把分頁樹收斂成「少頁多節」之後，它們指向的
+        //    那幾個一級項已經不存在了（各自變成某一頁裡的一節），所以**不再有任何
+        //    消費端**。刻意留在設定類別裡不刪：
+        //    ① 使用者的設定檔裡已經有這些鍵，拿掉欄位＝反序列化時整個丟掉，
+        //       將來若要做遷移就再也讀不回來了；
+        //    ② 鍵不動原則 —— 新開關一律用新鍵，舊鍵只是停止消費。
+        //    對應關係（給將來要做遷移的人）：
+        //      Show_StopWhen        → 「停止條件」現在是「設定」頁的一節，而設定頁永不可藏 ⇒ 無對應
+        //      Show_GatheringProfile→ Show_Page_Gathering
+        //      Show_MissionPriority → Show_Page_Missions（任務頁整頁，比原本粗）
+        //      Show_MiscSettings    → 內容全數併入「設定」頁 ⇒ 無對應
+        //      Show_HubActivities   → Show_Page_HubActivities（語意 1:1，但仍照鍵不動原則換新鍵）
         public bool Show_StopWhen { get; set; } = true;
         public bool Show_GatheringProfile { get; set; } = true;
         public bool Show_MissionPriority { get; set; } = true;
         public bool Show_MiscSettings { get; set; } = true;
         public bool Show_HubActivities { get; set; } = true;
+
+        // ---- 新側欄（2026-08-08 UI 重構第四批）的一級項顯示開關 ----
+        // 一個一級項一個開關，全部預設顯示＝現行版面零改變。
+        // 🔴 「設定」頁**刻意沒有**開關：這幾個開關本身就住在它的「介面與導覽」節裡，
+        //    它自己也能被藏的話，使用者就沒有任何辦法把藏掉的東西叫回來。
+        //    改側欄那段碼之前先想清楚這件事（SelectableSidebar.Draw 有同樣的註記）。
+        public bool Show_Page_Missions { get; set; } = true;
+        public bool Show_Page_Gathering { get; set; } = true;
+        public bool Show_Page_HubActivities { get; set; } = true;
+        public bool Show_Page_MechaOps { get; set; } = true;
+        public bool Show_Page_Help { get; set; } = true;
+
+        // ---- 側欄「內嵌控件組」的顯示開關（2026-08-09）----
+        // 使用者回饋：「我是指 像界面導覽一樣 可以關閉」——上面五個 Show_Page_* 蓋掉了每一個
+        // **會切頁**的一級項，但側欄下半三組**直接畫在側欄裡**的控件（月球選擇／職業選擇／
+        // 宇宙工具經驗值）當初完全沒有開關，只能收合、不能關掉。這三個補上。
+        //
+        // ⚠️ 前綴刻意用 Show_Side_ 而不是 Show_Page_：這三組**沒有對應的頁**，
+        //    MainWindow.MainBody() 的 switch 裡找不到它們的 case。沿用 Show_Page_ 會讓
+        //    下一個人去找一個不存在的頁。
+        // 📌 預設全部 true＝現行版面零改變（既有使用者的設定檔沒有這三個鍵，
+        //    反序列化時吃到欄位初始值，所以升上來看起來完全一樣）。
+        public bool Show_Side_MoonSelection { get; set; } = true;
+        public bool Show_Side_ClassSelection { get; set; } = true;
+        public bool Show_Side_ToolRelicXp { get; set; } = true;
 
         #endregion
 
@@ -363,6 +626,18 @@ namespace ICE.Config
 
         public bool DisablePathfindingToRedAlert { get; set; } = false;
         public bool ShowDebugGatherInfo { get; set; } = false;
+
+        /// <summary>
+        /// 日誌<b>寫入端</b>門檻：低於這個等級的 log 完全不進緩衝區、不組字串、不呼叫 PluginLog。
+        /// </summary>
+        /// <remarks>
+        /// 📌 預設 <c>Verbose</c>＝<b>維持現行行為</b>（全部寫入）。設定檔缺這個鍵的既有使用者
+        /// 拿到的也是全開，沒有人的行為會被這次改動動到。<br/>
+        /// 🔴 <c>IceLogging.MinimumLevel</c> 的 setter 會把值夾在 <c>Info</c> 以下 ——
+        /// Information 是請使用者回報診斷的既定管道，關不掉。
+        /// </remarks>
+        public Utilities.Cosmic_Helper.IceLogging.LogLevel LogMinimumLevel { get; set; }
+            = Utilities.Cosmic_Helper.IceLogging.LogLevel.Verbose;
         public string AuthorName { get; set; } = "Puni.sh Community";
         public string CustomRoutePath { get; set; } = string.Empty;
 
@@ -374,6 +649,18 @@ namespace ICE.Config
         public static string ConfigPath => Path.Combine(Svc.PluginInterface.ConfigDirectory.FullName, "Mission Config.yaml");
         private static CancellationTokenSource? _saveCts;
         private static readonly object _saveLock = new();
+
+        // 這份設定自己的存檔閘門。
+        //
+        // ⚠️ 它**不是**用來擋 IOException 的 —— 那一層已經在 YamlConfig 裡（`LockFor(path)`
+        //    的 per-path SemaphoreSlim），而且涵蓋範圍更廣（所有 yaml 設定都走它）。
+        //    這一層擋的是 YamlConfig 擋不到的另一件事：那邊的 `Serializer.Serialize(config)`
+        //    在閘門**外面**，所以兩個存檔可以先各自序列化出快照、再排隊寫檔 ——
+        //    先序列化的那份有可能**後**寫，於是磁碟上留下的是比較舊的快照。
+        //    把序列化與寫檔一起圈進來，這份 330 KB 的設定就不會出現「存了但存到舊的」。
+        // ⚠️ 兩層閘門的取得順序永遠是「先 _saveGate 再 YamlConfig」（SaveAsync 與 SaveSync
+        //    都是），順序一致所以不會死結。
+        private static readonly SemaphoreSlim _saveGate = new(1, 1);
 
         // Standard save. Deliberately routed through the debounced path.
         //
@@ -424,10 +711,32 @@ namespace ICE.Config
         }
 
         // Core async implementation
-        public async Task SaveAsync() => await YamlConfig.SaveAsync(this, ConfigPath);
+        public async Task SaveAsync()
+        {
+            await _saveGate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                await YamlConfig.SaveAsync(this, ConfigPath).ConfigureAwait(false);
+            }
+            finally
+            {
+                _saveGate.Release();
+            }
+        }
 
         // Synchronous for migrations/critical paths
-        public void SaveSync() => YamlConfig.SaveSync(this, ConfigPath);
+        public void SaveSync()
+        {
+            _saveGate.Wait();
+            try
+            {
+                YamlConfig.SaveSync(this, ConfigPath);
+            }
+            finally
+            {
+                _saveGate.Release();
+            }
+        }
 
         #endregion
     }
@@ -456,6 +765,11 @@ namespace ICE.Config
         public int GoldCompletions { get; set; } = 0;
         public int CriticalCompletions { get; set; } = 0;
         public int FailedCounters { get; set; } = 0;
+        // 放棄任務累積耗時（秒）。刷職業成果時「金星不可達就放棄」（craftGoldUnreachable: Abandon）
+        // 是迴圈裡的真實成本，但既有的每分成果只除以「交件耗時」，會系統性高估不穩金星的任務。
+        // ⚠️ 這是**純新增**欄位：舊設定檔沒有這個鍵，反序列化時吃初始值 0，對既有使用者無害。
+        //    既有欄位的預設值一律不動 —— 改預設對既有使用者無效而且是靜默的。
+        public double AbandonedTimeSeconds { get; set; } = 0;
         public List<TurninData> TurninRecords { get; set; } = new();
         // Old References to time below for migration
         [YamlIgnore]
@@ -512,11 +826,50 @@ namespace ICE.Config
         public GambaType Type { get; set; }
     }
 
+    /// <summary>
+    /// 單一機甲技能的範圍形狀覆蓋值。每個維度都是 <c>float?</c>：
+    /// <c>null</c> ＝這個維度不覆蓋，走預設（舊鍵或 Lumina 原值）。
+    ///
+    /// 🔴 <b>用 <c>float?</c> 而不是拿 0 當哨兵</b>：0 是一個合法的角度／距離輸入，
+    /// 拿它當「沒設定」的話，使用者把滑桿拉到底就會變成「重設」——那是靜默的行為錯誤。
+    ///
+    /// 各維度對應哪一種形狀見 <see cref="Utilities.MechaOps.MechaAoeShape"/>：
+    /// <list type="bullet">
+    ///   <item><c>Primary</c>：矩形的最遠距離／扇形的距離／圓形與射程圈的半徑</item>
+    ///   <item><c>HalfWidth</c>：矩形的半寬（<b>只有矩形有意義</b>，UI 也只對矩形顯示）</item>
+    ///   <item><c>AngleDeg</c>：扇形的全角（度）</item>
+    /// </list>
+    /// </summary>
+    public class MechaShapeOverride
+    {
+        public float? Primary { get; set; }
+        public float? HalfWidth { get; set; }
+        public float? AngleDeg { get; set; }
+
+        /// <summary>三個維度都沒設＝這筆等於不存在，可以從字典裡移掉。</summary>
+        public bool IsEmpty => Primary == null && HalfWidth == null && AngleDeg == null;
+    }
+
     public class CosmoShoppingList
     {
         public int KeepAmount { get; set; } = 0;
         public int BuyAmount { get; set; } = 0;
         public bool KeepBuying { get; set; } = false;
+
+        /// <summary>
+        /// 這件道具「已經學會／已經登錄」之後就不要再買。預設關閉＝維持上游行為。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 為什麼需要這個：樂譜（管弦樂琴樂譜，ItemAction 2235）與演技教材
+        /// （ItemAction 2709）這類道具**學會之後就從背包消失**，所以
+        /// <see cref="KeepAmount"/> 永遠達不到；再配上 <see cref="KeepBuying"/>
+        /// 就會一路買到宇宙信用點數見底。<br/>
+        /// ⚠️ 但**不能**無條件改成「已學會就不買」—— 這些道具是可交易的，
+        /// 有人買來就是要賣掉。所以做成逐項開關而不是全域行為。<br/>
+        /// 判定來源是 <c>UIState.IsItemActionUnlocked</c>；只有回報「確定已學會」
+        /// 才會擋，問不到答案時一律照舊購買。
+        /// </remarks>
+        public bool SkipIfUnlocked { get; set; } = false;
     }
 
     public class MissionCommand

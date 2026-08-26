@@ -1,5 +1,6 @@
 ﻿using ECommons.GameHelpers;
 using FFXIVClientStructs.FFXIV.Client.UI;
+using ICE.Utilities.Cosmic_Helper;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using System.Collections.Generic;
@@ -18,11 +19,28 @@ public static class AddonHelper
         int[] basicCrafts = [1008, 1, 170, 663, 302, 464, 1101, 901];
         uint recipeId = (uint)basicCrafts[Player.JobId-8];
 
-        AgentRecipeNote.Instance()->OpenRecipeByRecipeId(ExcelHelper.RecipeSheet.GetRow(recipeId).RowId);
+        // AgentRecipeNote.Instance() 是產生器產出的兩層可空取得器，合法回 null。
+        // 取不到就當作「這次開不起來」——與上面 IsAddonActive 的失敗形式一致，
+        // 呼叫端本來就要處理「視窗沒開」（下一輪會再呼叫一次）。
+        var agent = AgentRecipeNote.Instance();
+        if (agent == null)
+        {
+            IceLogging.Info("AgentRecipeNote 尚未就緒，這次不開製作筆記。", "[AddonHelper]");
+            return;
+        }
+
+        agent->OpenRecipeByRecipeId(ExcelHelper.RecipeSheet.GetRow(recipeId).RowId);
     }
     public static unsafe bool IsAddonActive(string AddonName) // Used to see if the addon is active/ready to be fired on
     {
-        var addon = RaptureAtkUnitManager.Instance()->GetAddonByName(AddonName);
+        // RaptureAtkUnitManager.Instance() 經 RaptureAtkModule 走 UIModule，UI 尚未建立時回 null
+        //（CS 手寫實作逐字是 raptureAtkModule == null ? null : &raptureAtkModule->RaptureAtkUnitManager）。
+        // 取不到就當作 addon 不存在——與下面 addon == null 完全相同的失敗形式。
+        var manager = RaptureAtkUnitManager.Instance();
+        if (manager == null)
+            return false;
+
+        var addon = manager->GetAddonByName(AddonName);
         return addon != null && addon->IsVisible && addon->IsReady;
     }
 
@@ -92,34 +110,55 @@ public static class AddonHelper
         return node != null ? node->NodeText.GetText() : string.Empty;
     }
 
+    /// <summary>
+    /// 逐層走訪節點清單取出文字節點；任何一層取不到就回 <c>null</c>。
+    /// 🔴 呼叫端必須自己判空後才可解參考。
+    /// 原本的寫法對 NodeList 索引完全沒有邊界檢查，也沒有檢查
+    /// <c>((AtkComponentNode*)node)-&gt;Component</c> 是否為 null，兩者都是
+    /// AccessViolationException 入口；AVE 是 corrupted-state exception，try/catch 攔不到。
+    /// 守衛內容與本檔已加固的 <see cref="GetNodeText"/> 一致。
+    /// </summary>
     public static unsafe AtkTextNode* GetAtkTextNode(string addonName, params int[] nodeNumbers)
     {
-
         var ptr = Svc.GameGui.GetAddonByName(addonName, 1);
+        if (ptr.Address == IntPtr.Zero)
+            return null;
 
         var addon = (AtkUnitBase*)ptr.Address;
-        var uld = addon->UldManager;
+        if (addon->UldManager.NodeList == null || addon->UldManager.NodeListCount == 0)
+            return null;
 
+        var uld = addon->UldManager;
         AtkResNode* node = null;
-        var debugString = string.Empty;
+
         for (var i = 0; i < nodeNumbers.Length; i++)
         {
             var nodeNumber = nodeNumbers[i];
 
-            var count = uld.NodeListCount;
+            if (nodeNumber < 0 || nodeNumber >= uld.NodeListCount)
+                return null;
 
             node = uld.NodeList[nodeNumber];
-            debugString += $"[{nodeNumber}]";
+            if (node == null)
+                return null;
 
             // More nodes to traverse
             if (i < nodeNumbers.Length - 1)
             {
-                uld = ((AtkComponentNode*)node)->Component->UldManager;
+                if (node->Type != NodeType.Component)
+                    return null;
+
+                var component = ((AtkComponentNode*)node)->Component;
+                if (component == null ||
+                    component->UldManager.NodeList == null ||
+                    component->UldManager.NodeListCount == 0)
+                    return null;
+
+                uld = component->UldManager;
             }
         }
 
-        var textNode = (AtkTextNode*)node;
-        return textNode;
+        return (AtkTextNode*)node;
     }
 
     private static unsafe AtkResNode* GetNodeByIDChain(AtkResNode* node, params int[] ids)
@@ -141,9 +180,20 @@ public static class AddonHelper
 
             if ((int)node->Type >= 1000)
             {
+                // Component 是指標欄位，元件尚未建立完成時為 null；
+                // NodeList 也可能是空的。兩者不擋都會 AccessViolationException。
                 var componentNode = node->GetAsAtkComponentNode();
+                if (componentNode == null)
+                    return null;
+
                 var component = componentNode->Component;
+                if (component == null)
+                    return null;
+
                 var uldManager = component->UldManager;
+                if (uldManager.NodeList == null || uldManager.NodeListCount == 0)
+                    return null;
+
                 childNode = uldManager.NodeList[0];
                 return childNode == null ? null : GetNodeByIDChain(childNode, [.. newList]);
             }

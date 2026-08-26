@@ -67,8 +67,38 @@ public static partial class CosmicHelper
             }
         }
     }
-    public static unsafe uint? CurrentBait => WKSManager.Instance()->FishingBait;
-    public static unsafe uint CurrentLunarDevelopment => ExcelHelper.DevGrade.GetRow(WKSManager.Instance()->DevGrade).Unknown6;
+    /// <summary>目前掛著的餌。<c>null</c> ＝這一輪讀不到 <c>WKSManager</c>（不在宇宙探索內容裡）。</summary>
+    /// <remarks>
+    /// 🔴 原本是表達式體 <c>=> WKSManager.Instance()-&gt;FishingBait</c>，沒有判空。
+    ///    <c>WKSManager</c> 的 [StaticAddress] 槽位在宇宙探索內容以外是 null，直接解參考＝
+    ///    AccessViolationException，而 AVE 在 .NET Core 是 corrupted-state exception，
+    ///    try/catch 攔不到，會直接把遊戲帶走。判空理由同 <see cref="GetCosmicClassScores"/>。
+    ///    <br/>
+    ///    回 <c>null</c> 而不是 0：呼叫端早就分得出這兩者
+    ///    （<c>Task_Fishing</c> 印 <c>"null(不在任務中)"</c>、<c>Ui_IPCTesting</c> 有
+    ///    <c>== null</c> 的分支），而 0 是「沒掛餌」的**有效值**，混在一起會把
+    ///    「不知道」講成「確定沒掛餌」。
+    /// </remarks>
+    public static unsafe uint? CurrentBait
+    {
+        get
+        {
+            var manager = WKSManager.Instance();
+            return manager == null ? null : manager->FishingBait;
+        }
+    }
+
+    /// <summary>目前的月面開發等級。讀不到 <c>WKSManager</c> 時回 0。</summary>
+    /// <remarks>判空理由同 <see cref="CurrentBait"/>。目前全 repo 沒有呼叫端，補守衛是為了
+    /// 避免下一個接上它的人中獎。</remarks>
+    public static unsafe uint CurrentLunarDevelopment
+    {
+        get
+        {
+            var manager = WKSManager.Instance();
+            return manager == null ? 0u : ExcelHelper.DevGrade.GetRow(manager->DevGrade).Unknown6;
+        }
+    }
 
     public static Dictionary<int, string> ExpDictionary = new()
     {
@@ -123,8 +153,14 @@ public static partial class CosmicHelper
         int classScore = 0;
         int cappedClassScore = 0;
         int totalScores = 0;
+
+        // 🔴 判空理由同 CosmicHandler.GetCosmicClassScores：WKSManager 的 [StaticAddress] 槽位
+        //    在宇宙探索內容以外是 null，直接解參考是攔不到的 AccessViolationException。
+        //    刻意只擋「讀原生記憶體」那兩段，底下決定 classId 的邏輯照跑（它只看
+        //    C.SelectedJob / Player.JobId / SheetMissionDict，跟原生指標無關）——
+        //    這樣呼叫端就算讀不到分數，拿到的職業 ID 仍然是對的，畫面不會跳去別的職業。
         var wksManager = WKSManager.Instance();
-        var currentMissionId = wksManager->CurrentMissionUnitRowId;
+        uint currentMissionId = wksManager != null ? wksManager->CurrentMissionUnitRowId : 0u;
 
         uint classId;
 
@@ -151,7 +187,7 @@ public static partial class CosmicHelper
                 classId = C.SelectedJob;
         }
 
-        if (classId is >= 8 and <= 18)
+        if (wksManager != null && classId is >= 8 and <= 18)
         {
             var scores = wksManager->Scores;
 

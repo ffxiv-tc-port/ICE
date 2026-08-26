@@ -166,7 +166,8 @@ internal static unsafe class PlayerHandlers
         }
     };
 
-    private static readonly uint stellarSprintID = 4398;
+    // stellarSprintID (= 4398) 已移到 StellarSprintHandler.StellarSprintStatusId，
+    // 與它真正對應的技能 ID 放在一起。
 
     public static float Distance(this Vector3 v, Vector3 v2)
     {
@@ -174,7 +175,12 @@ internal static unsafe class PlayerHandlers
     }
     public static unsafe bool IsMoving()
     {
-        return AgentMap.Instance()->IsPlayerMoving;
+        // AgentMap.Instance() 是產生器產出的兩層可空取得器（agentModule 或代理人任一為 null
+        // 就回 null），裸解參考是攔不到的 AVE。唯一的呼叫端（StellarSprintHandler）
+        // 拿它當「要不要放宇宙衝刺」的閘門，
+        // 所以讀不到就回 false ＝ 不放技能（fail-closed）。
+        var agent = AgentMap.Instance();
+        return agent != null && agent->IsPlayerMoving;
     }
 
     internal static unsafe void Tick()
@@ -182,12 +188,29 @@ internal static unsafe class PlayerHandlers
         if (!P.overlayWindow.IsOpen && PlayerHelper.IsInCosmicZone() && PlayerHelper.UsingSupportedJob() && C.ShowOverlay)
             P.overlayWindow.IsOpen = true;
 
-        if (C.MoonSprint 
-         && PlayerHelper.IsInCosmicZone() 
-         && !PlayerHelper.HasStatusId(stellarSprintID) 
-         && Svc.Condition[ConditionFlag.NormalConditions] 
-         && IsMoving()) 
-            UseSprint();
+        // 🔴🔴 機甲行動狀態視窗以前**從來沒有被打開過**。
+        //    `P.mechaOpsWindow` 在 ICE.OnPluginLoad 有 `new()`（所以有進 windowSystem），
+        //    但整個 repo 裡沒有任何一行寫過它的 `IsOpen`，而 Dalamud 的
+        //    `Window.DrawInternal` 是**先看 IsOpen 才看 DrawConditions()**
+        //    （Dalamud/Interface/Windowing/Window.cs：IsOpen 檢查在 L395、
+        //     DrawConditions 在 L432）⇒ 那個視窗的 Draw() 一次都沒跑過。
+        //    後果是掛在它底下的四個設定（顯示技能冷卻／proc 提示／事件狀態／事件進度）
+        //    使用者勾了完全沒有反應——這正是他回報的「這些好像沒功能」。
+        //
+        // 🔑 修法**照抄上面 overlayWindow 那一行的既有慣例**：每個 tick 補開，
+        //    真正的開關是設定而不是視窗的 X 鈕。
+        // ⚠️ 這裡刻意**不要求** UsingSupportedJob()：機甲行動的協助員用的是宇宙工具，
+        //    不見得掛在 ICE 認得的那幾個生產職上，要求職業會把協助員整個擋掉。
+        // ⚠️ 條件只放到「總開關 + 在宇宙區域」為止；要不要真的畫、畫哪幾段，
+        //    仍然完全由 MechaOpsWindow.DrawConditions() 決定（它本來就寫好了）。
+        //    所以總開關 ShowMechaAoeOverlay 預設關的使用者，行為與先前完全相同。
+        if (!P.mechaOpsWindow.IsOpen && PlayerHelper.IsInCosmicZone() && C.ShowMechaAoeOverlay)
+            P.mechaOpsWindow.IsOpen = true;
+
+        // 宇宙衝刺（原本寫在這裡的 C.MoonSprint 判斷式）搬進 StellarSprintHandler。
+        // 搬家的理由不是整潔：原本這段等的是「宇宙衝刺」的狀態（4398），
+        // 送出去的卻是一般衝刺（GeneralAction 4），細節與退路見該檔的註解。
+        StellarSprintHandler.Tick();
 
         if ((!PlayerHelper.IsInCosmicZone() || !PlayerHelper.UsingSupportedJob()) && SchedulerMain.State != IceState.Idle)
         {
@@ -256,21 +279,30 @@ internal static unsafe class PlayerHandlers
         }
     }
 
-    private static void UseSprint()
-    {
-        var am = ActionManager.Instance();
-        var isSprintReady = am->GetActionStatus(ActionType.GeneralAction, 4) == 0;
-
-        if (isSprintReady) am->UseAction(ActionType.GeneralAction, 4);
-    }
+    // UseSprint() 已移到 StellarSprintHandler：那裡先試「宇宙衝刺」(Action 43357)，
+    // 用不了時原封不動地退回這裡原本的 GeneralAction 4。
 
     /// <summary>
     ///
     /// </summary>
-    /// <returns>Hours[long], Minutes[long]</returns>
-    private static (long, long) GetEorzeaTime()
+    /// <returns>Hours[long], Minutes[long]；Framework 尚未就緒時回 null。</returns>
+    /// <remarks>
+    /// 🔴 Framework.Instance() 是 [StaticAddress(..., isPointer: true)]：產生器讀「指標的位址」
+    /// 再解參考一層，遊戲尚未建立單例時回 null（非 isPointer 的那種才保證不回 null，是擲例外）。
+    /// 裸解參考 null 原生指標是 AVE，屬 corrupted-state exception，try/catch 攔不到。
+    /// <para>
+    /// 📌 這裡回 <c>null</c> 而不是 <c>(0, 0)</c>：退回 0 點會讓呼叫端靜默排出一列
+    /// 看起來完全正常、實際上是錯時段的任務，比「沒有資料」更難被察覺。
+    /// 判空從呼叫端移進本函式，是為了不讓「安全」依賴「唯一呼叫端記得先擋」這個會過期的前提。
+    /// </para>
+    /// </remarks>
+    private static (long, long)? GetEorzeaTime()
     {
-        var eorzeaTime = Framework.Instance()->ClientTime.EorzeaTime;
+        var framework = Framework.Instance();
+        if (framework == null)
+            return null;
+
+        var eorzeaTime = framework->ClientTime.EorzeaTime;
         long hours = eorzeaTime / 3600 % 24;
         long minutes = eorzeaTime / 60 % 60;
         return (hours, minutes);
@@ -280,10 +312,11 @@ internal static unsafe class PlayerHandlers
     {
         // 🔴 GetEorzeaTime() 會解參考 Framework.Instance()。null 解參考是 AccessViolationException，
         //    在 .NET Core 屬 corrupted-state exception，try/catch 與 HookSafety.ExecuteSafe 都攔不到
-        //    —— 只能事前擋。
+        //    —— 只能事前擋。判空已移進 GetEorzeaTime() 本身（取不到回 null），
+        //    這樣防護就不再依賴「呼叫端記得先擋」這個會隨新增呼叫端而過期的前提。
         //    刻意「回空清單並記一次 Information」而不是退回 0 點：退回 0 點會靜默排出一列
         //    看起來完全正常、實際上是錯時段的任務，比空白更難被察覺。
-        if (Framework.Instance() == null)
+        if (GetEorzeaTime() is not { } EzTime)
         {
             if (EzThrottler.Throttle("ICE: eorzea clock unavailable", 60000))
                 IceLogging.Info(
@@ -292,7 +325,6 @@ internal static unsafe class PlayerHandlers
             return (new List<TimedInfo>(), new List<TimedInfo>());
         }
 
-        var EzTime = GetEorzeaTime();
         var currentHour = (int)EzTime.Item1; // Current hour
         var territoryId = Player.Territory;
 

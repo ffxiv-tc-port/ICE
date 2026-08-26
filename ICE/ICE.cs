@@ -107,10 +107,30 @@ public sealed partial class ICE : IDalamudPlugin
             """.Loc());
         EzCmd.Add("/ice", OnCommand);
         EzCmd.Add("/IceCosmic", OnCommand);
+
+        // 把使用者設定的日誌寫入門檻套進 IceLogging。
+        // 📌 預設值是 Verbose（全部寫入）＝現行行為；setter 會把值夾在 Info 以下，
+        //    所以不論設定檔被改成什麼，Information 以上的診斷都關不掉。
+        IceLogging.MinimumLevel = C.LogMinimumLevel;
+
         Init();
         Svc.Framework.Update += Tick;
 
-        TaskManager = new(new(showDebug: false));
+        // 同步上游：離開宇宙探索區時自動關閉浮動視窗（見 OnTerritoryChange）。
+        // 🔴 本艦隊 Dalamud pin 的 TerritoryChanged 委派是 Action<ushort>（上游用 uint 會對不上型別）。
+        Svc.ClientState.TerritoryChanged += OnTerritoryChange;
+
+        // 🔴 任務逾時目前在 log 裡查不到「是哪一步逾時」：ECommons 丟的
+        //    TaskTimeoutException 訊息是空的（只剩 e.LogWarning() 的堆疊），
+        //    唯一帶任務名稱的那行在 TaskManager.Tick 裡被 ShowDebug = false 關掉，
+        //    而且就算打開也是 Debug 級 —— 使用者跑 LogLevel 2 收不到。
+        // ⚠️ 事件一定要在 new TaskManager(...) **之前**掛好：建構子做的是
+        //    `new TaskManagerConfiguration{...}.With(defaultConfiguration)`，
+        //    事件被複製進另一個物件，事後再對這個區域變數指派完全沒有效果。
+        var taskManagerConfiguration = new TaskManagerConfiguration(showDebug: false);
+        taskManagerConfiguration.OnTaskTimeout = (TaskManagerTask task, ref long remainingTimeMS) =>
+            IceLogging.Error($"任務逾時：{task.Name}@{task.Location}（remainingTimeMS = {remainingTimeMS}）", "[Task Manager]");
+        TaskManager = new(taskManagerConfiguration);
         Svc.PluginInterface.UiBuilder.Draw += windowSystem.Draw;
         // 機甲行動技能範圍（P1）：PctDrawList 只能在 ImGui frame 內用，必須掛 UiBuilder.Draw。
         Svc.PluginInterface.UiBuilder.Draw += MechaAoeOverlay.Draw;
@@ -123,9 +143,15 @@ public sealed partial class ICE : IDalamudPlugin
         Svc.PluginInterface.UiBuilder.OpenConfigUi += () =>
         {
             mainWindow.IsOpen = true;
-            SelectableSidebar.currentSelection = "helpSelect_AllSettings";
+            // 🔴 這個字串必須是 MainWindow.MainBody() 那個 switch 裡真的存在的 case ——
+            //    打錯不會編譯失敗，只會讓「外掛清單的齒輪鈕」開出一片空白頁。
+            //    選「設定」是因為它是唯一保證不會被 C.Show_Page_* 藏起來的一級項，
+            //    所以無論使用者把什麼藏掉了，這個入口都一定落在看得到東西的地方。
+            SelectableSidebar.currentSelection = "page_Settings";
         };
         DictionaryCreation();
+        // 要放在 DictionaryCreation() 之後：它依賴 ExcelHelper 的 sheet 已經取好。
+        GatheringUtil.BackfillAmountRequiredFromSheet();
         Task_Gamba.EnsureGambaWeightsInitialized();
         ConfigMigrator.UpdateConfigMissionList();
         ConfigMigrator.MigrateConfigv1();
@@ -154,6 +180,9 @@ public sealed partial class ICE : IDalamudPlugin
             WeatherForecastHandler.Tick();
             // 機甲行動偵察（P0）＋繪製快照：遊戲結構只在 Framework 執行緒讀。
             MechaOpsMonitor.Tick();
+            // 機甲事件錄製（debug，/ice d）。🔑 一定要排在 monitor 之後——它只讀 monitor
+            // 已經發布的快照，排前面會慢一幀。錄製沒開時第一行就 return。
+            MechaEventRecorder.Tick();
         }
         else
         {
@@ -165,9 +194,20 @@ public sealed partial class ICE : IDalamudPlugin
         YesAlreadyManager.Tick();
     }
 
+    // 同步上游：離開宇宙探索區就把浮動視窗關掉，避免離開後視窗殘留在畫面上。
+    // ⚠️ 回呼裡不保存任何原生指標；每次呼叫都用 IsInCosmicZone() 重判（它只讀 TerritoryType）。
+    // 📌 開窗仍交給 PlayerHandlers.Tick 的既有慣例（含 UsingSupportedJob 與 C.ShowOverlay 條件），
+    //    這裡只補上游新增的「離開就關」，不重複開窗邏輯以免改動既有開窗條件。
+    private void OnTerritoryChange(ushort territoryId)
+    {
+        if (!PlayerHelper.IsInCosmicZone() && P.overlayWindow.IsOpen)
+            P.overlayWindow.IsOpen = false;
+    }
+
     public void Dispose()
     {
         GenericHelpers.Safe(() => Svc.Framework.Update -= Tick);
+        GenericHelpers.Safe(() => Svc.ClientState.TerritoryChanged -= OnTerritoryChange);
         GenericHelpers.Safe(() => Svc.PluginInterface.UiBuilder.Draw -= windowSystem.Draw);
         GenericHelpers.Safe(() => Svc.PluginInterface.UiBuilder.Draw -= MechaAoeOverlay.Draw);
         GenericHelpers.Safe(MechaContextMenu.Disable);
@@ -203,7 +243,8 @@ public sealed partial class ICE : IDalamudPlugin
         else if (firstArg.ToLower() == "s" || firstArg.ToLower() == "settings")
         {
             mainWindow.IsOpen = true;
-            SelectableSidebar.currentSelection = "helpSelect_AllSettings";
+            // 🔴 同上：必須對得上 MainBody() 的 case，打錯是空白頁不是編譯錯誤。
+            SelectableSidebar.currentSelection = "page_Settings";
             return;
         }
         else if (firstArg.ToLower() == "clear")

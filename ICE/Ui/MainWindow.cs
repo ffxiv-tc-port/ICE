@@ -91,30 +91,30 @@ namespace ICE.Ui
                     modeSelect_Standard.Draw();
                     break;
 
-                // Settings
-                case "setting_StopWhen":
-                    StopWhen.Draw();
-                    break;
-                case "setting_GatheringProfile":
-                    GatherSettings.Draw();
-                    break;
                 case "setting_MissionPriority":
                     Priority_Settings.Draw();
                     break;
-                case "setting_Misc":
-                    Misc_Settings.Draw();
-                    break;
-                case "helpSelect_AllSettings":
-                    helpSelect_AllSettings.Draw();
-                    break;
 
-
-                // Hub Activities
-                case "hubActivities_CreditShopping":
-                    ShoppingTab.Draw();
+                // ── UI 重構第四批：一級項＝一頁，頁內用 ImGui_Tools.PageSection 分節 ────
+                // 使用者反饋「分頁拆了很多種但都只有一兩項，沒整理效果」⇒ 一級項收斂成 6 個。
+                // 這幾個 case 呼叫的都是**組頁函式**，各節的內容一個字都沒改，只是換了位置。
+                // 📌 已經消失的路由（都是搬進某一頁的一節，不是被刪掉的功能）：
+                //    setting_StopWhen / setting_Safety / setting_Display / setting_Misc /
+                //    setting_Interface   → 全部併進 page_Settings
+                //    setting_GatheringProfile / setting_GatherRoutes → page_Gathering
+                //    hubActivities_CreditShopping / hubActivites_GambaSetting → page_HubActivities
+                //    setting_MechaOps    → page_MechaOps（同一頁改名，內容改成五節）
+                case "page_Gathering":
+                    GatheringPage.Draw();
                     break;
-                case "hubActivites_GambaSetting":
-                    GambaWheel.Draw();
+                case "page_HubActivities":
+                    HubActivitiesPage.Draw();
+                    break;
+                case "page_MechaOps":
+                    Misc_Settings.DrawMechaOpsPage();
+                    break;
+                case "page_Settings":
+                    Misc_Settings.DrawSettingsPage();
                     break;
 
                 // Help Section
@@ -126,7 +126,7 @@ namespace ICE.Ui
                     break;
 
                 default:
-                    ImGui.Text("Hehe");
+                    ImGui.Text("No content for this tab yet.".Loc());
                     break;
             }
         }

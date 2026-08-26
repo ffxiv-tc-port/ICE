@@ -13,11 +13,14 @@ namespace ICE.Utilities.Cosmic_Helper;
 /// ① 顯示端只要問一次就能拿到「未支援」＋<b>原因文字</b>；<br/>
 /// ② 未來多一種成因只要改這裡，不必再去六個地方各加一次條件。<br/><br/>
 ///
-/// 🔴 <b>不動 <see cref="UnsupportedMissions.Ids"/> 的內容</b>——那 16 個釣魚任務的判定已經結案
-/// （上游有 2 個沒填、13 個需要我們沒有的 AutoHook <c>ConditionSet</c> 條件引擎、543 的餌在台服
-/// 是空列）。這裡只是改變「怎麼使用它」。<br/><br/>
+/// 📌 <b>2026-08-07 更新</b>：<see cref="UnsupportedMissions.Ids"/> 的內容已經動過一次——
+/// 495 與 543 解除停用、494 留下但換了成因。所以下面那段「16 筆／逐筆一致」的離線核對
+/// <b>是當時的快照，不是現況</b>；要重新核對請以 <c>FishingPresets.cs</c> 為準重跑一次。
+/// <br/>同時新增了 <see cref="UnsupportedReason.RequiresAutoHookFolderImport"/>：那一條
+/// <b>不看清單</b>，而是看「內建 preset 是不是資料夾格式」＋「安裝的 AutoHook 支不支援」，
+/// 所以它會隨使用者更新 AutoHook 而自動消失。<br/><br/>
 ///
-/// 📌 離線核對（台服 7.20，逐筆重跑 <c>FishingPresets.cs</c> 與 <c>exd-tc/7.20/WKSMissionUnit.csv</c>）：
+/// 📌 離線核對（台服 7.20 當時的快照，逐筆重跑 <c>FishingPresets.cs</c> 與 <c>exd-tc/7.20/WKSMissionUnit.csv</c>）：
 /// <list type="bullet">
 /// <item>內建釣魚設定表 95 筆，其中 <b>16 筆的 preset 清單是空的</b>，而那 16 個 ID
 ///       <b>與黑名單完全相同</b>（479/481/482/484/486/487/489~495/510/511/543）。</item>
@@ -42,6 +45,15 @@ internal static class MissionSupport
         /// <summary>這個客戶端查不到這筆任務的資料（台服 = 尚未開放的星球，整列是空的）。</summary>
         NotInMissionSheet,
 
+        /// <summary>
+        /// 內建設定是整包資料夾（<c>AHFOLDER_</c>），但目前安裝的 AutoHook 沒有資料夾匯入 IPC。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 這條是<b>出貨順序的相容性閘門</b>：ICE 與 AutoHook 是同一波出貨的，但使用者可能只更新其中一個。
+        /// 沒有這條的話症狀會是「接了任務、站在釣點不動直到逾時」，而且完全沒有訊息。
+        /// </remarks>
+        RequiresAutoHookFolderImport,
+
         /// <summary>在 <see cref="UnsupportedMissions.Ids"/> 黑名單裡，但推導不出更具體的成因。</summary>
         Blacklisted,
     }
@@ -62,6 +74,11 @@ internal static class MissionSupport
         // 缺內建釣魚設定 —— 黑名單那 16 個的**實際成因**，優先於籠統的「在黑名單裡」回報。
         if (MissingBuiltinFishingPreset(missionId))
             return UnsupportedReason.MissingFishingPreset;
+
+        // 內建設定是整包資料夾，但這版 AutoHook 匯不進去 —— 放在黑名單判定之前，
+        // 因為它是比「在黑名單裡」更具體的成因，而且**使用者更新 AutoHook 之後就會自己消失**。
+        if (NeedsMissingFolderImport(missionId))
+            return UnsupportedReason.RequiresAutoHookFolderImport;
 
         if (UnsupportedMissions.Ids.Contains(missionId))
             return UnsupportedReason.Blacklisted;
@@ -116,6 +133,31 @@ internal static class MissionSupport
     }
 
     /// <summary>
+    /// 這個任務的內建設定是整包資料夾匯出，而目前安裝的 AutoHook 沒有對應的匯入 IPC。
+    /// </summary>
+    /// <remarks>
+    /// ⚠️ 判定<b>資料驅動</b>：看 preset 字串的前綴，不寫死任務 ID。
+    /// 之後上游再補進來的資料夾型 preset 會自動吃到同一條規則。
+    /// <br/>📌 <c>SupportsFolderImport()</c> 內部有快取，所以這裡每幀被問也不會反覆做 IPC 呼叫。
+    /// </remarks>
+    private static bool NeedsMissingFolderImport(uint missionId)
+    {
+        if (!GatheringUtil.FishingPreset.TryGetValue(missionId, out var preset))
+            return false;
+
+        var first = preset.FishingPreset.FirstOrDefault();
+        if (first == null || !first.StartsWith("AHFOLDER", StringComparison.Ordinal))
+            return false;
+
+        // 使用者指定了自訂 preset 名稱 → 走 SetPreset，根本不碰內建表，不受這個限制。
+        if (C.MissionConfig.TryGetValue(missionId, out var config)
+            && !string.IsNullOrWhiteSpace(config.AutoHookPresetName))
+            return false;
+
+        return !P.AutoHook.SupportsFolderImport();
+    }
+
+    /// <summary>
     /// 原因的一句話說明（聊天視窗與 tooltip 共用）。語氣刻意寫成「這是預期行為」——
     /// 使用者原本看到的是一句像故障訊息的英文，這一條就是要修掉那個誤會。
     /// </summary>
@@ -126,6 +168,8 @@ internal static class MissionSupport
             "ICE does not ship an AutoHook preset for this fishing mission, so it cannot be automated. This is expected, not a malfunction.".Loc(),
         UnsupportedReason.NotInMissionSheet =>
             "This client has no data for this mission (usually a planet that is not released yet), so it cannot be automated.".Loc(),
+        UnsupportedReason.RequiresAutoHookFolderImport =>
+            "This mission needs AutoHook's folder preset import, which the installed AutoHook does not provide. Update AutoHook to the version shipped alongside this ICE release.".Loc(),
         _ =>
             "This mission is on the ICE unsupported list and will not be automated. This is expected, not a malfunction.".Loc(),
     };

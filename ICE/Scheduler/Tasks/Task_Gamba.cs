@@ -129,8 +129,12 @@ namespace ICE.Scheduler.Tasks
         /// <b>byte</b>（0–255）去索引長度 4 的陣列，只要遊戲那個欄位不是預期值就直接
         /// IndexOutOfRangeException。台服目前只開放第一張圖（1237），索引恆為 0，但這條路徑
         /// 現在掛在使用者按得到的按鈕上，不能靠「應該不會發生」。
+        /// <br/>
+        /// 📌 2026-08-06 改成 internal：<c>Task_CheckState</c> 有兩處
+        /// （<c>StopOnceHitLunarCredits</c>／<c>GambaBetweenRuns</c>）是同一段程式碼的複製品，
+        /// 而且**兩處都沒有判空也沒有邊界檢查**。改成共用這裡的實作，不要再各留一份。
         /// </remarks>
-        private static unsafe bool TryGetCosmoCreditItemId(out uint itemId)
+        internal static unsafe bool TryGetCosmoCreditItemId(out uint itemId)
         {
             uint[] currencies = [45691, 48146, 48147, 48148];
             itemId = 0;
@@ -290,6 +294,69 @@ namespace ICE.Scheduler.Tasks
 
             return false;
         }
+        // ────────────────────────────────────────────────────────────────
+        // 輪盤選擇 log 的變化偵測
+        // ────────────────────────────────────────────────────────────────
+        // 🔴 為什麼需要：底下 GamblingTime 的輪盤選擇分支以 `return false` 結尾＝
+        //    NeoTaskManager 下一幀原地重跑（在 NeoTaskManager 裡 false 才是「還沒好，
+        //    再來一次」，null 才是中止整個佇列）。而 SelectWheelLeft/Right 寫回去的 Flags
+        //    兩個值都帶 Enabled 位元（65792 = 0x10100、327936 = 0x50100），所以呼叫端的
+        //    `leftWheelEnabled || rightWheelEnabled` 下一幀依然成立 —— 那五行 Information
+        //    原本每一幀印一次。IceLogging 的環形緩衝區是 3000 筆，60fps 下約 50 秒就被
+        //    同一句話洗光，使用者要回報的診斷反而整段不見 ⇒ 洗版本身就是在毀掉診斷價值。
+        //
+        // ⚠️ 等級維持 Information 不動 —— 使用者跑 LogLevel 2，Information 是請他回報
+        //    診斷的既定管道（IceLogging.MinimumLevel 的上限也鎖死在 Info）。
+        //    這裡改的是「印幾次」，不是「印不印得出來」。
+        //
+        // 🔑 用變化偵測而不是純時間節流：同一個決策只在**內容真的變了**時才印，所以
+        //    停在同一個決策上多久都只有一行，而決策一改變下一幀立刻看得到（時間節流會
+        //    把改變後的第一行延後到節流窗結束，那正好是最想看到的那一行）。
+        //    權重也進指紋，所以同一條分支但權重變了（＝換了一輪、輪盤內容不同）仍會補印。
+        //
+        // 📌 為什麼還要比時間差：連轉多輪時中間會走 GamblingTime 的另外兩條分支
+        //    （確認按鈕、是否對話框），輪盤這條整段不會被進入。時間差就是用來分辨
+        //    「下一幀」與「離開之後又回來」—— 後者是新的一輪，即使決策逐字相同也要
+        //    重新印一次，否則連轉時 log 會整段消失。
+        //    門檻只需要大於一個影格間隔（60fps ≒ 17ms）而小於一次轉盤動畫，取 500ms。
+        //    ⚠️ 已知代價：兩輪之間若真的短於 500ms 且決策逐字相同，會少印一行。
+        //    ⚠️ 反過來也是刻意的：萬一卡在「選輪盤 ↔ 按確認」交替的迴圈，時間差會判成
+        //       同一輪而不是每兩幀補印一次 —— 那正是要壓下來的洗版形狀。
+        //
+        // ⚠️ 下面四個欄位只有 log 讀寫。控制流、選輪盤的 Flags 寫入完全不看它們。
+        private const int WheelPureStellarLeft = 1;
+        private const int WheelPureStellarRight = 2;
+        private const int WheelLeftBetter = 3;
+        private const int WheelRightBetter = 4;
+        private const int WheelBothEqual = 5;
+
+        // 0 ＝ 還沒印過任何一次。五個決策碼都 >= 1，所以第一次呼叫必定印得出來，
+        // 不必依賴 lastWheelDecisionTick 的初始值（那是 0，開機後不久理論上可能 < 500）。
+        private static int lastWheelDecision;
+        private static float lastWheelDecisionLeft;
+        private static float lastWheelDecisionRight;
+        private static long lastWheelDecisionTick;
+
+        /// <summary>這一幀的輪盤決策要不要印出來（同一個決策只在改變時印一次）。</summary>
+        private static bool WheelDecisionChanged(int decision, float leftWeight, float rightWeight)
+        {
+            var now = Environment.TickCount64;
+            var returnedAfterLeaving = now - lastWheelDecisionTick > 500;
+            lastWheelDecisionTick = now;
+
+            // Equals 而不是 == ：NaN.Equals(NaN) 為 true，設定壞掉導致權重變 NaN 時
+            // 才不會每幀都判成「變了」而重新開始洗版。
+            if (!returnedAfterLeaving
+                && decision == lastWheelDecision
+                && leftWeight.Equals(lastWheelDecisionLeft)
+                && rightWeight.Equals(lastWheelDecisionRight))
+                return false;
+
+            lastWheelDecision = decision;
+            lastWheelDecisionLeft = leftWeight;
+            lastWheelDecisionRight = rightWeight;
+            return true;
+        }
         private static unsafe bool? GamblingTime()
         {
             string tag = "Gambling Time Task";
@@ -309,15 +376,23 @@ namespace ICE.Scheduler.Tasks
                 bool confirmEnabled, leftWheelEnabled, rightWheelEnabled;
                 unsafe
                 {
-                    confirmEnabled = gamba.SpinWheelButton->IsEnabled;
-                    leftWheelEnabled = gamba.WheelLeftButton->IsEnabled;
-                    rightWheelEnabled = gamba.WheelRightButton->IsEnabled;
+                    // 這三個屬性都是 Addon->GetComponentButtonById(id)，找不到節點會回 null；
+                    // 且 IsEnabled 解的是 OwnerNode 而非 AtkResNode，兩層都要擋才不會 AVE。
+                    // 任一層為 null 一律當成「按鈕不可按」→ 本次不動作。
+                    confirmEnabled = GenericHelpers.IsComponentEnabled(gamba.SpinWheelButton);
+                    leftWheelEnabled = GenericHelpers.IsComponentEnabled(gamba.WheelLeftButton);
+                    rightWheelEnabled = GenericHelpers.IsComponentEnabled(gamba.WheelRightButton);
                 }
 
                 if (GenericHelpers.TryGetAddonMaster<SelectYesno>("SelectYesno", out var select) && select.IsAddonReady)
                 {
+                    // 這裡原本只看點數夠不夠、完全不看確認框寫什麼。閘門預設仍然是
+                    // 「一律按下確定」＝行為不變（見 YesnoGuard）。
                     if (credits >= 1000 + C.GambaCreditsMinimum)
-                        select.Yes();
+                    {
+                        if (YesnoGuard.ShouldConfirm(YesnoSituation.Lottery))
+                            select.Yes();
+                    }
                     else
                         select.No();
                 }
@@ -340,29 +415,36 @@ namespace ICE.Scheduler.Tasks
                         }
                     }
 
+                    // ⚠️ 只有 log 被包起來。判斷式、SelectWheel* 的呼叫、隨機選邊
+                    //    全部原封不動 —— 那是行為，不是診斷。
                     if (gamba.LeftWheelItems.Length == 0)
                     {
-                        IceLogging.Info($"Found a pure stellar mission gamba. Choosing left wheel", tag);
+                        if (WheelDecisionChanged(WheelPureStellarLeft, leftWeight, rightWeight))
+                            IceLogging.Info($"Found a pure stellar mission gamba. Choosing left wheel", tag);
                         SelectWheelLeft(gamba);
                     }
                     else if (gamba.RightWheelItems.Length == 0)
                     {
-                        IceLogging.Info($"Found a pure stellar mission gamba. Choosing right wheel", tag);
+                        if (WheelDecisionChanged(WheelPureStellarRight, leftWeight, rightWeight))
+                            IceLogging.Info($"Found a pure stellar mission gamba. Choosing right wheel", tag);
                         SelectWheelRight(gamba);
                     }
                     else if (leftWeight > rightWeight)
                     {
-                        IceLogging.Info($"[Gamba] First wheel is better with total weight: {leftWeight}");
+                        if (WheelDecisionChanged(WheelLeftBetter, leftWeight, rightWeight))
+                            IceLogging.Info($"[Gamba] First wheel is better with total weight: {leftWeight}");
                         SelectWheelLeft(gamba);
                     }
                     else if (rightWeight > leftWeight)
                     {
-                        IceLogging.Info($"[Gamba] Second wheel is better with total weight: {rightWeight}");
+                        if (WheelDecisionChanged(WheelRightBetter, leftWeight, rightWeight))
+                            IceLogging.Info($"[Gamba] Second wheel is better with total weight: {rightWeight}");
                         SelectWheelRight(gamba);
                     }
                     else
                     {
-                        IceLogging.Info("[Gamba] Both wheels are equal in weight. Randomly selecting one.");
+                        if (WheelDecisionChanged(WheelBothEqual, leftWeight, rightWeight))
+                            IceLogging.Info("[Gamba] Both wheels are equal in weight. Randomly selecting one.");
                         if (new Random().Next(2) == 0)
                             SelectWheelLeft(gamba);
                         else
@@ -399,17 +481,25 @@ namespace ICE.Scheduler.Tasks
                 return true;
             }
         }
+        // 🔴 這兩支的唯一呼叫端（GamblingTime 的輪盤選擇分支）以 `return false` 結尾＝
+        //    NeoTaskManager 下一幀原地重跑。而這裡寫回去的 Flags **兩個值都帶 Enabled 位元**
+        //    （65792 = 0x10100、327936 = 0x50100），所以呼叫端的
+        //    `leftWheelEnabled || rightWheelEnabled` 下一幀依然成立 ⇒ 原本這行每幀都會噴一次。
+        //    ⚠️ 只節流 log，選輪盤的 Flags 寫入完全不動 —— 那是行為，不是診斷。
+        //    左右各自一把鑰匙，免得交替選擇時把對側那行吃掉。
         public static unsafe void SelectWheelLeft(WKSLottery gamba)
         {
             gamba.WheelLeftButton->Flags = 327936U; // Checked, Enabled, Selected
             gamba.WheelRightButton->Flags = 65792U; // Not Checked, Enabled, Not Selected
-            IceLogging.Debug($"[Gamba] Selecting Left Wheel");
+            if (EzThrottler.Throttle("ICE: gamba wheel select left log", 3000))
+                IceLogging.Debug($"[Gamba] Selecting Left Wheel");
         }
         public static unsafe void SelectWheelRight(WKSLottery gamba)
         {
             gamba.WheelLeftButton->Flags = 65792U; // Not Checked, Enabled, Not Selected
             gamba.WheelRightButton->Flags = 327936U; // Checked, Enabled, Selected
-            IceLogging.Debug($"[Gamba] Selecting Right Wheel");
+            if (EzThrottler.Throttle("ICE: gamba wheel select right log", 3000))
+                IceLogging.Debug($"[Gamba] Selecting Right Wheel");
         }
         public static bool BigBangGamba()
         {

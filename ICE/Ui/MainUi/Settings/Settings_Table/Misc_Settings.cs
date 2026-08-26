@@ -5,6 +5,8 @@ using Dalamud.Interface.Utility.Raii;
 using ECommons.GameHelpers;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using ICE.Config;
+using ICE.Ui.DebugWindowTabs;
+using ICE.Utilities.ImGuiTools;
 using ICE.Utilities.MechaOps;
 using Lumina.Excel.Sheets;
 using Pictomancy;
@@ -14,36 +16,58 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 {
     internal class Misc_Settings
     {
-        public static void Draw()
+        // ── 「設定」一級項（2026-08-08 UI 重構第四批）────────────────────────────
+        //
+        // 使用者反饋：第二／三批把設定拆成「顯示與疊加層」「自動化與安全」「介面」三個
+        // 一級項，但每一個底下只有一兩項，「沒整理效果」。⇒ 全部收回同一頁，改用分節。
+        //
+        // 📌 每一節的內容都是**原封不動**的既有區塊，一個字都沒改，只是換了位置；
+        //    節與節之間不再需要 Separator()，收合標題本身就是分隔。
+        // 🔴 這一頁**永遠不可以**被藏起來（側欄那邊刻意沒有 C.Show_Page_* 條件）：
+        //    分頁顯示／隱藏的開關本身就住在「介面與導覽」這一節裡。它自己也能被藏的話，
+        //    使用者就沒有任何辦法把藏掉的東西叫回來，只能去手改設定檔 —— 等於把人鎖在門外。
+        // ⚠️ 每個 PageSection 的第二個參數是不翻譯的唯一 id：ImGui 記收合狀態是用控制項 id，
+        //    而 id 預設就是標籤本身 —— 兩節翻成同一個字串會靜默共用開合狀態。
+        internal static void DrawSettingsPage()
         {
-            OverlaySettings();
-            Separator();
+            if (ImGui_Tools.PageSection("Stop When...".Loc(), "ICESecStopWhen", defaultOpen: true))
+                StopWhen.Draw();
 
-            MechaAoeSettings();
-            Separator();
+            if (ImGui_Tools.PageSection("Safety Settings".Loc(), "ICESecSafety"))
+                SafetySettings.Draw();
 
-            AutoUse();
-            Separator();
+            // 自動使用道具與自動修理原本是 Misc 頁上下相鄰的兩節，各自帶自己的小標題；
+            // 併成一節之後那兩個小標題留著當子標題，中間的 Separator() 也保留。
+            if (ImGui_Tools.PageSection("Automation".Loc(), "ICESecAutomation"))
+            {
+                AutoUse();
+                Separator();
+                RepairSettings();
+            }
 
-            RepairSettings();
-            Separator();
+            if (ImGui_Tools.PageSection("Mount Settings".Loc(), "ICESecMount"))
+                MountSelection();
 
-            TimeRecords();
-            Separator();
+            if (ImGui_Tools.PageSection("Post Mission Commands".Loc(), "ICESecPostMission"))
+                PostMissionCommands();
 
-            MountSelection();
-            Separator();
+            if (ImGui_Tools.PageSection("Mission Playlists".Loc(), "ICESecMissionPlaylists"))
+                MissionPlaylists();
 
-            ShowSystemButtons();
-            Separator();
+            if (ImGui_Tools.PageSection("Overlay Window".Loc(), "ICESecOverlay"))
+                OverlaySettings();
 
-            PostMissionCommands();
-            Separator();
+            if (ImGui_Tools.PageSection("Interface & Navigation".Loc(), "ICESecInterface"))
+                InterfaceSettings.Draw();
 
-            ImGuiEx.IconWithText(FontAwesomeIcon.ExclamationTriangle, "Safety Settings".Loc());
-            ImGui.Dummy(new Vector2(0, 5));
-            SafetySettings.Draw();
+            if (ImGui_Tools.PageSection("Record Settings".Loc(), "ICESecRecords"))
+                TimeRecords();
         }
+
+        // 📌 這裡原本有 Draw()（舊的「其他設定」頁）與 DrawDisplayPage()／DrawSafetyPage()
+        //    兩個第二批加的獨立頁入口。第四批把它們的內容全部收進 DrawSettingsPage() 的
+        //    對應節之後，三個組頁函式都沒有呼叫端了，一併移除 ——
+        //    移除的只是「把哪幾節排在一起」的外殼，每一節的內容都還在，而且只出現一次。
 
         private static void OverlaySettings()
         {
@@ -78,12 +102,219 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 C.Save();
             }
 
+            // ---- 疊加層各區塊（2026-08-08 使用者要求：「預報和成果 也能加開關嗎?」）----
+            // ⚠️ 三個都預設開＝現行版面零改變；這一組解決的是「我不想看這一塊」。
+            //    刻意縮排在「顯示疊加層」底下：它們全都只在疊加層開著時才有意義。
+            using (ImRaii.Disabled(!showOverlay))
+            {
+                ImGui.Indent();
+
+                bool showWeather = C.ShowOverlayWeather;
+                if (ImGui.Checkbox("Show Weather Forecast".Loc() + "###ICEShowOverlayWeather", ref showWeather))
+                {
+                    C.ShowOverlayWeather = showWeather;
+                    C.Save();
+                }
+                ImGui.SameLine();
+                ImGui.TextDisabled("?");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("The weather line on the overlay: what it is now, what comes next, and how long " +
+                                      "until it changes.\nOn by default - turning it off only hides the line.").Loc());
+                }
+
+                bool showTimed = C.ShowOverlayTimedMissions;
+                if (ImGui.Checkbox("Show Timed Missions".Loc() + "###ICEShowOverlayTimedMissions", ref showTimed))
+                {
+                    C.ShowOverlayTimedMissions = showTimed;
+                    C.Save();
+                }
+                ImGui.SameLine();
+                ImGui.TextDisabled("?");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("The job icons for the missions available this hour and the next one.\n" +
+                                      "On by default - turning it off only hides the line.").Loc());
+                }
+
+                bool showJobScore = C.ShowOverlayJobScore;
+                if (ImGui.Checkbox("Show Job Score Bars".Loc() + "###ICEShowOverlayJobScore", ref showJobScore))
+                {
+                    C.ShowOverlayJobScore = showJobScore;
+                    C.Save();
+                }
+                ImGui.SameLine();
+                ImGui.TextDisabled("?");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("The relic tool score bar for the job of your current mission.\n" +
+                                      "This is a different line from 'Show Total Score' above, which is the combined one.\n" +
+                                      "On by default - turning it off only hides the bars.").Loc());
+                }
+
+                ImGui.Unindent();
+            }
         }
 
         /// <summary>
-        /// 機甲行動技能範圍標示（Utilities/MechaOps）。純顯示、零自動化。
+        /// 一個機甲技能的形狀維度滑桿組（矩形：最遠距離＋最寬範圍；扇形：距離＋角度；圓形：半徑）。
+        ///
+        /// 🔑 <b>「預設」與「已覆蓋」必須在畫面上分得出來</b>：滑桿本身只看得到一個數字，
+        /// 看不出那是遊戲資料的原值還是自己拉出來的。所以已覆蓋的維度後面掛一個
+        /// 橘色的 <c>*</c>，tooltip 講預設值是多少，並且只有真的有覆蓋時才出現「重設」。
+        ///
+        /// ⚠️ 滑桿上限用 <c>max(常數上限, 該技能的預設值)</c>：42037 的預設距離是 60，
+        /// 若上限比預設值小，使用者一旦動過就再也拉不回預設（而且是靜默的）。
         /// </summary>
-        private static void MechaAoeSettings()
+        private static void DrawSkillShapeSliders(uint actionId, MechaAoeShape shape, bool enabled)
+        {
+            using var disabled = ImRaii.Disabled(!enabled);
+            ImGui.Indent();
+            ImGui.PushID((int)actionId);
+
+            var hasDefault = MechaActionShapes.TryResolveDefault(actionId, out var def, out _);
+            C.MechaShapeOverrides.TryGetValue(actionId, out var ov);
+
+            var kindLabel = shape.Kind switch
+            {
+                MechaAoeKind.Rect => "Rectangle".Loc(),
+                MechaAoeKind.Cone => "Cone".Loc(),
+                MechaAoeKind.SelfCircle => "Circle".Loc(),
+                _ => "Range ring".Loc(),
+            };
+            ImGui.TextDisabled(kindLabel);
+
+            var primaryLabel = shape.Kind switch
+            {
+                MechaAoeKind.Rect => "Max distance".Loc(),
+                MechaAoeKind.Cone => "Cone distance".Loc(),
+                _ => "Radius".Loc(),
+            };
+
+            var defPrimary = hasDefault ? def.Primary : shape.Primary;
+            if (Dim(primaryLabel, "P", shape.Primary, defPrimary,
+                    MechaActionShapes.PrimaryMin, MechaActionShapes.PrimaryMax,
+                    ov?.Primary != null, out var newPrimary))
+            {
+                Ensure().Primary = newPrimary;
+                C.SaveDebounced();
+            }
+
+            if (shape.Kind == MechaAoeKind.Rect)
+            {
+                var defHalf = hasDefault ? def.HalfWidth : shape.HalfWidth;
+                if (Dim("Max width (half)".Loc(), "W", shape.HalfWidth, defHalf,
+                        MechaActionShapes.HalfWidthMin, MechaActionShapes.HalfWidthMax,
+                        ov?.HalfWidth != null, out var newHalf))
+                {
+                    Ensure().HalfWidth = newHalf;
+                    C.SaveDebounced();
+                }
+            }
+
+            if (shape.Kind == MechaAoeKind.Cone)
+            {
+                var current = MechaActionShapes.ConeAngleFor(actionId);
+                var defAngle = MechaActionShapes.DefaultConeAngleFor(actionId);
+                if (Dim("Cone angle".Loc(), "A", current, defAngle,
+                        MechaActionShapes.ConeAngleMin, MechaActionShapes.ConeAngleMax,
+                        ov?.AngleDeg != null, out var newAngle))
+                {
+                    Ensure().AngleDeg = newAngle;
+                    C.SaveDebounced();
+                }
+            }
+
+            if (ov is { IsEmpty: false })
+            {
+                if (ImGui.SmallButton("Reset to default".Loc() + "###ICEMechaShapeReset"))
+                {
+                    // 整筆移除而不是把三個維度設回 null：留一個空物件在 yaml 裡只是噪音。
+                    C.MechaShapeOverrides.Remove(actionId);
+                    C.Save();
+                }
+            }
+
+            ImGui.PopID();
+            ImGui.Unindent();
+
+            // 需要寫入時才建立字典項目——沒動過的技能不該在 yaml 裡留下痕跡。
+            MechaShapeOverride Ensure()
+            {
+                if (!C.MechaShapeOverrides.TryGetValue(actionId, out var existing) || existing == null)
+                {
+                    existing = new MechaShapeOverride();
+                    C.MechaShapeOverrides[actionId] = existing;
+                }
+                return existing;
+            }
+
+            static bool Dim(string label, string tag, float current, float defaultValue,
+                            float min, float max, bool overridden, out float value)
+            {
+                // 上限至少要容得下預設值，否則「拉回預設」這件事做不到。
+                var hi = MathF.Max(max, defaultValue);
+                value = Math.Clamp(current, min, hi);
+                ImGui.SetNextItemWidth(140);
+                var changed = ImGui.SliderFloat(label + "###ICEMechaShape" + tag, ref value, min, hi, "%.1f");
+
+                ImGui.SameLine();
+                if (overridden)
+                    ImGui.TextColored(ImGuiColors.DalamudOrange, "*");
+                else
+                    ImGui.TextDisabled("=");
+
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(overridden
+                        ? ("You changed this. Default: ??").Loc(defaultValue.ToString("F1"))
+                        : ("Currently the default: ??").Loc(defaultValue.ToString("F1")));
+                }
+
+                return changed;
+            }
+        }
+
+        /// <summary>
+        /// 「這一列要不要畫」的核取方塊。機甲行動區塊底下的逐列開關都走這一個，
+        /// 免得同一段十行樣板複製七次（複製到第三次就會有一個忘記 <c>C.Save()</c>）。
+        /// </summary>
+        /// <param name="tooltip">需要額外說明時才給；多數列的標題本身就說完了。</param>
+        private static void RowToggle(string label, string id, bool current, Action<bool> setter, string? tooltip = null)
+        {
+            var value = current;
+            if (ImGui.Checkbox(label + "###" + id, ref value))
+            {
+                setter(value);
+                C.Save();
+            }
+
+            if (tooltip == null)
+                return;
+
+            ImGui.SameLine();
+            ImGui.TextDisabled("?");
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(tooltip);
+        }
+
+        /// <summary>
+        /// 「機甲行動」一級項（Utilities/MechaOps）。純顯示、零自動化。
+        /// </summary>
+        /// <remarks>
+        /// 2026-08-08 UI 重構第四批：原本是一整條四十幾個核取方塊的長捲軸，改成五節 ——
+        /// 技能範圍／目標點位／目的指示／狀態與進度／診斷與錄製。
+        /// <b>每一項的設定鍵、標籤、###id 與副作用都逐字未改</b>，只是分了節。
+        ///
+        /// ⚠️ 總開關（<c>ShowMechaAoeOverlay</c>）與「同時管兩邊」的身份分流刻意留在頁首、
+        /// <b>不進任何一節</b>：五節全部掛在總開關底下，把它收進某一節之後其他四節會變成
+        /// 「勾了沒反應」；身份分流則是同時作用於目標點位與目的指示，收進其中一節會誤導。
+        ///
+        /// ⚠️ 每一節的內容各自重新開一次 <c>ImRaii.Disabled(!showMechaAoe)</c>：
+        /// ImGui 的 disabled 是一個堆疊，push/pop 必須在同一幀內配對，跨不了收合標題的邊界。
+        /// 停用範圍與改版前逐字相同（右鍵選單與玩家名遮蔽本來就在停用範圍外）。
+        /// </remarks>
+        internal static void DrawMechaOpsPage()
         {
             ImGuiEx.IconWithText(FontAwesomeIcon.Crosshairs, "Mecha Skill Range Hints".Loc());
             ImGui.Dummy(new Vector2(0, 5));
@@ -104,22 +335,95 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
             using (ImRaii.Disabled(!showMechaAoe))
             {
-                float coneAngle = C.MechaConeAngleDeg;
-                ImGui.SetNextItemWidth(150);
-                if (ImGui.SliderFloat("Flamethrower Cone Angle".Loc() + "###ICEMechaConeAngle", ref coneAngle, 15f, 180f, "%.0f"))
+                // ---- 版面：併進主視窗 vs 獨立視窗 ----
+                bool mechaInOverlay = C.ShowMechaInOverlay;
+                if (ImGui.Checkbox("Show Mecha Ops In The ICE Overlay".Loc() + "###ICEShowMechaInOverlay", ref mechaInOverlay))
                 {
-                    C.MechaConeAngleDeg = coneAngle;
-                    C.SaveDebounced();
+                    C.ShowMechaInOverlay = mechaInOverlay;
+                    C.Save();
                 }
                 ImGui.SameLine();
                 ImGui.TextDisabled("?");
                 if (ImGui.IsItemHovered())
                 {
-                    ImGui.SetTooltip(("The game data does not contain this cone's angle.\n" +
-                                      "Default is 90 degrees - awaiting in-game calibration.").Loc());
+                    ImGui.SetTooltip(("On (default): the mecha ops status becomes a collapsible section inside the ICE " +
+                                      "overlay window, next to the relic tool XP one - one window less to arrange.\n" +
+                                      "Off: it gets its own small window again, which can be pinned and clicked through.\n" +
+                                      "The two are never shown at the same time. If the ICE overlay itself is turned off, " +
+                                      "the separate window takes over automatically, so this never hides mecha ops.").Loc());
                 }
 
-                // ---- 目標點位 ----
+                // ---- 身份分流 ----
+                // ⚠️ 刻意放在目標點位與目的指示**兩組之前**、而且不縮排：它同時管兩邊。
+                //    縮進任何一組底下都會讓人以為只對那一組有效。
+                bool showOtherRole = C.MechaShowOtherRoleTargets;
+                if (ImGui.Checkbox("Show The Other Role's Targets".Loc() + "###ICEMechaShowOtherRoleTargets", ref showOtherRole))
+                {
+                    C.MechaShowOtherRoleTargets = showOtherRole;
+                    C.Save();
+                }
+                ImGui.SameLine();
+                ImGui.TextDisabled("?");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("Off (default): only your own role's targets are drawn - as ground support you no " +
+                                      "longer see the pilot's giant target, and the other way round.\n" +
+                                      "Shared objects such as the field probe are always drawn for both roles.\n" +
+                                      "When your role cannot be worked out (before you board, or outside an event), or " +
+                                      "when a target cannot be attributed to either role, everything is drawn as before.\n" +
+                                      "On: draws every mecha event target again, whichever role it belongs to.").Loc());
+                }
+            }
+
+            // ── ① 技能範圍 ────────────────────────────────────────────────────
+            //    技能形狀是 per-skill 的，所以這一節就是「哪些技能要畫、畫多大」。
+            if (ImGui_Tools.PageSection("Skill Ranges".Loc(), "ICEMechaSecRanges", defaultOpen: true))
+            {
+                using var sectionDisabled = ImRaii.Disabled(!showMechaAoe);
+
+                // 🔑 <b>這裡原本有兩個全域滑桿</b>（宇宙火焰噴射器扇形角度／宇宙鑽頭矩形長度）。
+                //    2026-08-08 收斂進底下「個別技能開關」裡的 per-skill 滑桿——
+                //    同一個維度有兩個地方可調、而且 per-skill 靜默優先，是使用者
+                //    「這兩個滑桿還有用嗎」這個疑問的來源。舊值由設定版本 11→12 的遷移
+                //    自動搬進對應技能的覆蓋格，效果值不變（見 ConfigMigrator）。
+                ImGui.TextDisabled("Skill shapes are now per skill - see 'Per-skill Toggles' below.".Loc());
+
+                // 📌 這一段原本在整頁的最後面（紅色警報之後）。第四批把它搬到它真正屬於的
+                //    「技能範圍」節裡 —— 內容、###id、副作用逐字未改，只是換了位置。
+                //    刻意保留外面那層 TreeNode：技能數 × 三個滑桿展開後很長，
+                //    收合標題預設展開時直接攤開會把這一節撐爆。
+                if (ImGui.TreeNode("Per-skill Toggles".Loc() + "###ICEMechaSkillToggles"))
+                {
+                    // 保底清單（離線驗證過的六技）＋執行期在 PetHotbar 上發現的新技能。
+                    var ids = new List<uint>(MechaActionShapes.BaselineActionIds);
+                    foreach (var candidate in MechaOpsMonitor.ActiveCandidates)
+                    {
+                        if (!ids.Contains(candidate.ActionId))
+                            ids.Add(candidate.ActionId);
+                    }
+
+                    foreach (var id in ids)
+                    {
+                        var hasShape = MechaActionShapes.TryResolve(id, out var shape, out var name);
+                        bool enabled = !C.MechaAoeSkillToggles.TryGetValue(id, out var v) || v;
+                        if (ImGui.Checkbox($"{name}###ICEMechaSkill{id}", ref enabled))
+                        {
+                            C.MechaAoeSkillToggles[id] = enabled;
+                            C.Save();
+                        }
+
+                        if (hasShape)
+                            DrawSkillShapeSliders(id, shape, enabled);
+                    }
+                    ImGui.TreePop();
+                }
+            }
+
+            // ── ② 目標點位 ────────────────────────────────────────────────────
+            if (ImGui_Tools.PageSection("Target Markers".Loc(), "ICEMechaSecTargets"))
+            {
+                using var sectionDisabled = ImRaii.Disabled(!showMechaAoe);
+
                 bool showTargets = C.ShowMechaTargets;
                 if (ImGui.Checkbox("Show Target Markers".Loc() + "###ICEShowMechaTargets", ref showTargets))
                 {
@@ -204,8 +508,37 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     ImGui.TextDisabled("?");
                     if (ImGui.IsItemHovered())
                     {
-                        ImGui.SetTooltip(("Turn this off first if something you can clearly attack is not being marked - " +
-                                          "it drops the filter and shows every nearby object.").Loc());
+                        ImGui.SetTooltip(("This filter no longer applies to mission objectives: anything an objective " +
+                                          "marker has matched, and anything of the same kind, is always listed even if " +
+                                          "it cannot be targeted and has no name at all.\n" +
+                                          "Turn this off only if some ordinary object you can clearly attack is still " +
+                                          "missing - it then shows every nearby object instead.").Loc());
+                    }
+
+                    // 只有在上面那項關掉時才有意義：那個開關一關，過濾就只剩這一道。
+                    using (ImRaii.Disabled(targetableOnly))
+                    {
+                        ImGui.Indent();
+
+                        bool hideNoise = C.MechaTargetsHideSceneryAndNpcs;
+                        if (ImGui.Checkbox("Hide Scenery And NPCs".Loc() + "###ICEMechaHideSceneryAndNpcs", ref hideNoise))
+                        {
+                            C.MechaTargetsHideSceneryAndNpcs = hideNoise;
+                            C.Save();
+                        }
+                        ImGui.SameLine();
+                        ImGui.TextDisabled("?");
+                        if (ImGui.IsItemHovered())
+                        {
+                            ImGui.SetTooltip(("Only matters while 'Targetable Objects Only' is off.\n" +
+                                              "On (default): still hides things that are never a target - NPCs, aetherytes, " +
+                                              "gathering points, housing, area and cutscene objects, and unnamed scenery " +
+                                              "you cannot target.\n" +
+                                              "Mission objectives are never hidden by this, even when they have no name.\n" +
+                                              "Off: shows literally every object nearby.").Loc());
+                        }
+
+                        ImGui.Unindent();
                     }
 
                     bool includePlayers = C.MechaTargetsIncludePlayers;
@@ -217,8 +550,13 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
                     ImGui.Unindent();
                 }
+            }
 
-                // ---- 目的指示標示 ----
+            // ── ③ 目的指示 ────────────────────────────────────────────────────
+            if (ImGui_Tools.PageSection("Objective Markers".Loc(), "ICEMechaSecObjectives"))
+            {
+                using var sectionDisabled = ImRaii.Disabled(!showMechaAoe);
+
                 bool showObjectives = C.ShowMechaObjectives;
                 if (ImGui.Checkbox("Show Objective Markers".Loc() + "###ICEShowMechaObjectives", ref showObjectives))
                 {
@@ -287,6 +625,12 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                         C.Save();
                     }
 
+                    // 視窗裡那一列（「目的指示 2/5」＋事件名＋你的指示），跟地上的圈分開控制。
+                    RowToggle("Objectives Row In The Status Block".Loc(), "ICEShowMechaRowObjectives",
+                        C.ShowMechaRowObjectives, v => C.ShowMechaRowObjectives = v,
+                        ("Only hides that line in the mecha ops block. The rings drawn in the world are the " +
+                         "'Show Objective Markers' option above and stay as they are.").Loc());
+
                     // 🔴🔴 部署閘門下的選用路徑。這是這一組設定裡唯一一個「開了可能讓遊戲
                     //      直接關閉」的開關，所以警告不藏 tooltip —— 打開之後在列下面用紅字講。
                     bool useVector = C.MechaObjectiveUseMarkerVector;
@@ -326,6 +670,14 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
                     ImGui.Unindent();
                 }
+            }
+
+            // ── ④ 狀態與進度 ──────────────────────────────────────────────────
+            //    技能冷卻／觸發提示／報名狀態／事件進度／下一場時間／駕駛申請書／紅色警報，
+            //    也就是「機甲行動狀態」那個區塊要顯示哪幾列。
+            if (ImGui_Tools.PageSection("Status & Progress".Loc(), "ICEMechaSecStatus"))
+            {
+                using var sectionDisabled = ImRaii.Disabled(!showMechaAoe);
 
                 bool showCooldowns = C.ShowMechaCooldowns;
                 if (ImGui.Checkbox("Show Mecha Skill Cooldowns".Loc() + "###ICEShowMechaCooldowns", ref showCooldowns))
@@ -384,65 +736,135 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                                       "if it does not, nothing is shown at all.").Loc());
                 }
 
-                if (ImGui.TreeNode("Per-skill Toggles".Loc() + "###ICEMechaSkillToggles"))
+                // 進度區塊底下的逐列開關（2026-08-08 使用者要求：「機甲ui的各項 能加開關嗎」）。
+                // ⚠️ 縮排掛在上面那個總開關底下，而且總開關關著時一併 disable——
+                //    否則使用者會在一組「勾了也沒反應」的核取方塊上打轉。
+                using (ImRaii.Disabled(!showEventProgress))
                 {
-                    // 保底清單（離線驗證過的六技）＋執行期在 PetHotbar 上發現的新技能。
-                    var ids = new List<uint>(MechaActionShapes.BaselineActionIds);
-                    foreach (var candidate in MechaOpsMonitor.ActiveCandidates)
-                    {
-                        if (!ids.Contains(candidate.ActionId))
-                            ids.Add(candidate.ActionId);
-                    }
+                    ImGui.Indent();
 
-                    foreach (var id in ids)
-                    {
-                        MechaActionShapes.TryResolve(id, out _, out var name);
-                        bool enabled = !C.MechaAoeSkillToggles.TryGetValue(id, out var v) || v;
-                        if (ImGui.Checkbox($"{name}###ICEMechaSkill{id}", ref enabled))
-                        {
-                            C.MechaAoeSkillToggles[id] = enabled;
-                            C.Save();
-                        }
-                    }
-                    ImGui.TreePop();
+                    RowToggle("Event Progress Bar".Loc(), "ICEShowMechaRowEventProgress",
+                        C.ShowMechaRowEventProgress, v => C.ShowMechaRowEventProgress = v);
+                    RowToggle("Personal Progress Bar".Loc(), "ICEShowMechaRowPersonalProgress",
+                        C.ShowMechaRowPersonalProgress, v => C.ShowMechaRowPersonalProgress = v);
+                    RowToggle("Contribution Row".Loc(), "ICEShowMechaRowContribution",
+                        C.ShowMechaRowContribution, v => C.ShowMechaRowContribution = v);
+                    RowToggle("Event Time Remaining".Loc(), "ICEShowMechaRowEventEnd",
+                        C.ShowMechaRowEventEnd, v => C.ShowMechaRowEventEnd = v);
+                    RowToggle("Sign-up Deadline".Loc(), "ICEShowMechaRowSignupEnd",
+                        C.ShowMechaRowSignupEnd, v => C.ShowMechaRowSignupEnd = v);
+                    RowToggle("Teleport Deadline".Loc(), "ICEShowMechaRowTeleportEnd",
+                        C.ShowMechaRowTeleportEnd, v => C.ShowMechaRowTeleportEnd = v);
+
+                    ImGui.Unindent();
                 }
+
+                bool showSchedule = C.ShowMechaSchedule;
+                if (ImGui.Checkbox("Show Next Mecha Event Time".Loc() + "###ICEShowMechaSchedule", ref showSchedule))
+                {
+                    C.ShowMechaSchedule = showSchedule;
+                    C.Save();
+                }
+                ImGui.SameLine();
+                ImGui.TextDisabled("?");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("Shows when the next mecha event starts, as a clock time and a countdown.\n" +
+                                      "The game's own panel tells you there is a next event but never says when.\n" +
+                                      "The start time is readable well before the event begins (measured: 19 minutes " +
+                                      "ahead), and the countdown runs off the game's server clock, not your PC clock.\n" +
+                                      "Display only - it never signs you up.").Loc());
+                }
+
+                bool showPilotTicket = C.ShowMechaPilotTicket;
+                if (ImGui.Checkbox("Show Pilot Application".Loc() + "###ICEShowMechaPilotTicket", ref showPilotTicket))
+                {
+                    C.ShowMechaPilotTicket = showPilotTicket;
+                    C.Save();
+                }
+                ImGui.SameLine();
+                ImGui.TextDisabled("?");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("Shows whether you are carrying a pilot application - you can only hold one, " +
+                                      "and it is what lets you sign up as the mecha pilot.\n" +
+                                      "It is not an inventory item, so the game only shows it inside its own mecha " +
+                                      "ops panel; this puts it where you can see it before the sign-up window opens.\n" +
+                                      "Display only - it never signs you up and never buys anything.").Loc());
+                }
+
+                bool showEmergency = C.ShowMechaEmergency;
+                if (ImGui.Checkbox("Show Red Alert (Emergency) Events".Loc() + "###ICEShowMechaEmergency", ref showEmergency))
+                {
+                    C.ShowMechaEmergency = showEmergency;
+                    C.Save();
+                }
+                ImGui.SameLine();
+                ImGui.TextDisabled("?");
+                if (ImGui.IsItemHovered())
+                {
+                    // 🔴 這個 tooltip 必須誠實說出「這一項還沒有實機驗證過」——
+                    //    它是部署閘門，不是一般的顯示開關。
+                    ImGui.SetTooltip(("Shows the current Red Alert (magnetic storm / meteor shower / spore mist): " +
+                                      "which one it is and how long is left.\n\n" +
+                                      "OFF BY DEFAULT ON PURPOSE. This one reads a game structure whose size we could " +
+                                      "not verify offline on the TC client. If the layout differs there, the read goes " +
+                                      "out of bounds and that crashes the game outright - it cannot be caught.\n" +
+                                      "Everything else in this window has been verified offline; this has not. " +
+                                      "Turn it on only if you are willing to hit that.").Loc());
+                }
+
             }
 
-            // ⚠️ 下面兩項刻意放在總開關的 Disabled 範圍**之外**：
-            //    右鍵選單與角色名遮蔽都跟「有沒有畫技能範圍」無關，
-            //    總開關關著時它們照樣有作用，所以也必須照樣改得到。
-            ImGui.Dummy(new Vector2(0, 5));
+            // ── ⑤ 診斷與錄製 ──────────────────────────────────────────────────
+            // ⚠️ 這一節整節**不套** ImRaii.Disabled(!showMechaAoe)：右鍵選單、角色名遮蔽
+            //    與錄製器都跟「有沒有畫技能範圍」無關，總開關關著時它們照樣有作用
+            //    （錄製器自己會強制取樣），所以也必須照樣改得到。這與改版前逐字相同。
+            if (ImGui_Tools.PageSection("Diagnostics & Recording".Loc(), "ICEMechaSecDiagnostics"))
+            {
+                bool showContextMenu = C.ShowMechaContextMenu;
+                if (ImGui.Checkbox("Mecha Right-click Menu".Loc() + "###ICEShowMechaContextMenu", ref showContextMenu))
+                {
+                    C.ShowMechaContextMenu = showContextMenu;
+                    C.Save();
+                }
+                ImGui.SameLine();
+                ImGui.TextDisabled("?");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("Adds ICE entries to the right-click menu while you are in a cosmic zone: mark an object " +
+                                      "in the mecha overlay, and copy the mecha event diagnostics.\n" +
+                                      "Display only - nothing there acts for you.").Loc());
+                }
 
-            bool showContextMenu = C.ShowMechaContextMenu;
-            if (ImGui.Checkbox("Mecha Right-click Menu".Loc() + "###ICEShowMechaContextMenu", ref showContextMenu))
-            {
-                C.ShowMechaContextMenu = showContextMenu;
-                C.Save();
-            }
-            ImGui.SameLine();
-            ImGui.TextDisabled("?");
-            if (ImGui.IsItemHovered())
-            {
-                ImGui.SetTooltip(("Adds ICE entries to the right-click menu while you are in a cosmic zone: mark an object " +
-                                  "in the mecha overlay, and copy the mecha event diagnostics.\n" +
-                                  "Display only - nothing there acts for you.").Loc());
-            }
+                bool showFullNames = C.MechaShowFullPlayerNames;
+                if (ImGui.Checkbox("Show Full Player Names".Loc() + "###ICEMechaShowFullPlayerNames", ref showFullNames))
+                {
+                    C.MechaShowFullPlayerNames = showFullNames;
+                    C.Save();
+                }
+                ImGui.SameLine();
+                ImGui.TextDisabled("?");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("Off (default): other players' character names are shortened to initials both on the " +
+                                      "overlay and in ICE's own log history.\n" +
+                                      "Mecha ops is group content, so the log - which has a 'copy to clipboard' button - " +
+                                      "would otherwise carry other people's character names out of the game with it.\n" +
+                                      "Your own name is never shortened.").Loc());
+                }
 
-            bool showFullNames = C.MechaShowFullPlayerNames;
-            if (ImGui.Checkbox("Show Full Player Names".Loc() + "###ICEMechaShowFullPlayerNames", ref showFullNames))
-            {
-                C.MechaShowFullPlayerNames = showFullNames;
-                C.Save();
-            }
-            ImGui.SameLine();
-            ImGui.TextDisabled("?");
-            if (ImGui.IsItemHovered())
-            {
-                ImGui.SetTooltip(("Off (default): other players' character names are shortened to initials both on the " +
-                                  "overlay and in ICE's own log history.\n" +
-                                  "Mecha ops is group content, so the log - which has a 'copy to clipboard' button - " +
-                                  "would otherwise carry other people's character names out of the game with it.\n" +
-                                  "Your own name is never shortened.").Loc());
+                ImGui.Dummy(new Vector2(0, 5));
+                ImGui.Separator();
+                ImGui.Dummy(new Vector2(0, 5));
+
+                // 📌 錄製器面板本來只在 /ice d 的偵錯視窗裡（分頁 26）。這裡是**同一個函式的
+                //    第二個呼叫點**，不是複製 —— 兩邊讀寫的是 MechaEventRecorder 上同一組
+                //    記憶體內靜態旗標，不會不同步，偵錯視窗那個入口也照舊留著。
+                //    放進主視窗是因為要使用者交機甲行動的診斷時，「請開 /ice d 找第 26 個分頁」
+                //    這句話本身就是一道門檻。
+                // 📌 錄製旗標刻意不寫進設定檔（見 Ui_MechaRecorder 的註解），重開遊戲一律回到關閉。
+                Ui_MechaRecorder.Draw();
             }
         }
 
@@ -451,11 +873,23 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             ImGuiEx.IconWithText(FontAwesomeIcon.PersonRays, "Auto-Use".Loc());
             ImGui.Dummy(new Vector2(0, 5));
 
+            // 📌 英文鍵刻意維持 "Auto-Use Moon Sprint" 不改：那是 ini 的查找鍵，
+            //    改掉會讓既有的繁中條目與上游合併同時失配。要修的是中文譯名
+            //    （官方術語是「宇宙衝刺」，不是「月面疾跑」），已在 ini 那一側修好。
             bool AutoMoonSprint = C.MoonSprint;
             if (ImGui.Checkbox("Auto-Use Moon Sprint".Loc() + "###ICEAutoMoonSprint", ref AutoMoonSprint))
             {
                 C.MoonSprint = AutoMoonSprint;
                 C.Save();
+            }
+            ImGui.SameLine();
+            ImGui.TextDisabled("?");
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip(("In a Cosmic Exploration zone, keeps Stellar Sprint up while you are moving.\n" +
+                                  "Crafters and gatherers get Stellar Sprint (the 1-second-recast one). " +
+                                  "Any other job falls back to the ordinary Sprint, exactly as before.\n" +
+                                  "It never fires while mounted, casting, gathering, crafting, in a cutscene, or between areas.").Loc());
             }
 
             bool DisableLunarAura = C.RemoveStellarStatus;
@@ -675,46 +1109,77 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             }
         }
 
-        private static void ShowSystemButtons()
+        // B5（cycleapple 5ecca374）：任務預設組。儲存目前啟用的任務組合，載入時只切各任務的
+        //    Enabled，不動優先順序或個別任務設定。搬進我方分節架構（DrawSettingsPage 的
+        //    ICESecMissionPlaylists 節），內文沿用上游已翻好的繁中。
+        private static string playlistName = string.Empty;
+
+        private static void MissionPlaylists()
         {
-            ImGuiEx.IconWithText(FontAwesomeIcon.WindowRestore, "Show / Hide Tabs".Loc());
-            ImGui.Dummy(new(0, 5));
+            C.MissionPlaylists ??= new();
 
-            bool showStopWhen = C.Show_StopWhen;
-            if (ImGui.Checkbox("Show Stop When... Tab".Loc() + "###ICEShowStopWhenTab", ref showStopWhen))
+            ImGuiEx.IconWithText(FontAwesomeIcon.List, "任務預設");
+            ImGui.Dummy(new Vector2(0, 5));
+            ImGui.TextWrapped("儲存目前啟用的任務組合。載入預設會關閉未列入的任務，但不會改變任務優先順序或個別任務設定。");
+
+            ImGui.SetNextItemWidth(220);
+            ImGui.InputText("預設名稱", ref playlistName, 100);
+            ImGui.SameLine();
+
+            var normalizedName = playlistName.Trim();
+            using (ImRaii.Disabled(normalizedName.Length == 0))
             {
-                C.Show_StopWhen = showStopWhen;
-                C.Save();
+                if (ImGui.Button("儲存目前啟用項目"))
+                {
+                    C.MissionPlaylists[normalizedName] = C.MissionConfig
+                        .Where(entry => entry.Value.Enabled)
+                        .Select(entry => entry.Key)
+                        .Distinct()
+                        .Order()
+                        .ToList();
+                    playlistName = string.Empty;
+                    C.Save();
+                }
             }
 
-            bool showGProfile = C.Show_GatheringProfile;
-            if (ImGui.Checkbox("Show Gathering Profile Tab".Loc() + "###ICEShowGatheringProfileTab", ref showGProfile))
+            if (C.MissionPlaylists.Count == 0)
             {
-                C.Show_GatheringProfile = showGProfile;
-                C.Save();
+                ImGui.TextDisabled("尚未建立任務預設。");
+                return;
             }
 
-            bool showMissionPrio = C.Show_MissionPriority;
-            if (ImGui.Checkbox("Show Mission Priority Tab".Loc() + "###ICEShowMissionPriorityTab", ref showMissionPrio))
+            string? deletePlaylist = null;
+            foreach (var (name, missionIds) in C.MissionPlaylists)
             {
-                C.Show_MissionPriority = showMissionPrio;
-                C.Save();
+                var savedMissionIds = missionIds ?? [];
+                ImGui.PushID(name);
+                var knownMissionCount = savedMissionIds.Distinct().Count(C.MissionConfig.ContainsKey);
+                ImGui.Text($"{name}（{knownMissionCount} 個任務）");
+                ImGui.SameLine();
+                if (ImGui.Button("載入"))
+                {
+                    var selected = savedMissionIds.ToHashSet();
+                    foreach (var (missionId, settings) in C.MissionConfig)
+                        settings.Enabled = selected.Contains(missionId);
+                    C.Save();
+                }
+                ImGui.SameLine();
+                if (ImGuiEx.IconButton(FontAwesomeIcon.Trash, "刪除"))
+                    deletePlaylist = name;
+                ImGui.PopID();
             }
 
-            bool showMisc = C.Show_MiscSettings;
-            if (ImGui.Checkbox("Show Misc Settings Tab".Loc() + "###ICEShowMiscSettingsTab", ref showMisc))
+            if (deletePlaylist != null)
             {
-                C.Show_MiscSettings = showMisc;
-                C.Save();
-            }
-
-            bool showHubActivities = C.Show_HubActivities;
-            if (ImGui.Checkbox("Show Hub Activities Section".Loc() + "###ICEShowHubActivitiesSection", ref showHubActivities))
-            {
-                C.Show_HubActivities = showHubActivities;
+                C.MissionPlaylists.Remove(deletePlaylist);
                 C.Save();
             }
         }
+
+        // 📌 原本這裡有 ShowSystemButtons()（顯示／隱藏分頁的五個開關）。
+        //    UI 重構第三批整段搬到 InterfaceSettings.Draw()，因為那些開關要跟
+        //    「哪些分頁被藏起來了」的提示放在同一頁，而且「介面」是永遠藏不掉的分頁。
+        //    是搬家不是複製 —— 這裡不再畫它們。
         private static void PostMissionCommands()
         {
             ImGuiEx.IconWithText(FontAwesomeIcon.Play, "Post Mission Commands".Loc());

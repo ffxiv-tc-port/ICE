@@ -10,26 +10,26 @@ namespace ICE.Ui.DebugWindowTabs
             {
                 ImGui.Text(x.SelectedCraftingItem);
 
-                if (ImGui.Button("Fill NQ"))
+                if (ImGui.Button("Fill NQ".Loc()))
                 {
                     x.NQItemInput();
                 }
                 ImGui.SameLine();
 
-                if (ImGui.Button("Fill HQ"))
+                if (ImGui.Button("Fill HQ".Loc()))
                 {
                     x.HQItemInput();
                 }
                 ImGui.SameLine();
 
-                if (ImGui.Button("Fill Both"))
+                if (ImGui.Button("Fill Both".Loc()))
                 {
                     x.NQItemInput();
                     x.HQItemInput();
                 }
                 ImGui.SameLine();
 
-                if (ImGui.Button("Synthesize"))
+                if (ImGui.Button("Synthesize".Loc()))
                 {
                     x.Synthesize();
                 }
@@ -46,7 +46,7 @@ namespace ICE.Ui.DebugWindowTabs
             }
             else
             {
-                ImGui.Text("Waiting for \"WKSRecipeNotebook\" to be visible");
+                ImGui.Text("Waiting for \"WKSRecipeNotebook\" to be visible".Loc());
             }
         }
     }

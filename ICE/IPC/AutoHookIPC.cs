@@ -26,6 +26,113 @@ namespace ICE.IPC
         [EzIPC] public Func<uint, Task<bool>> SwapBaitById;
 
         /// <summary>
+        /// AutoHook 端資料夾匯入 IPC 的合約版本。<b>0 ＝ 這版 AutoHook 沒有這個功能</b>
+        /// （IPC 不存在時例外被 <see cref="SafeWrapper.AnyException"/> 吞掉，回傳 <c>default(int)</c>），
+        /// 所以 AutoHook 那邊的版本號刻意從 1 起跳。
+        /// </summary>
+        [EzIPC] public Func<int> GetFolderImportApiVersion;
+
+        /// <summary>
+        /// 匯入一整包 <c>AHFOLDER_</c> 資料夾。回傳實際掛上去的 preset 名稱，第一筆＝被選取的進入點。
+        /// <br/>📌 <b>回傳 <c>null</c> 與回傳空清單意義不同</b>：<c>null</c> ＝這版 AutoHook 沒有這個 IPC
+        /// （SafeWrapper 吞掉例外後的 default），空清單＝有這個 IPC 但匯入失敗。
+        /// </summary>
+        [EzIPC] public Func<string, List<string>> CreateAndSelectAnonymousFolder;
+
+        /// <summary>ICE 需要的最低資料夾匯入合約版本。</summary>
+        public const int RequiredFolderImportApiVersion = 1;
+
+        /// <summary>探測結果快取。null ＝ 還沒探測過。</summary>
+        private int? _folderImportApiVersion;
+
+        /// <summary>
+        /// 這版 AutoHook 支不支援整包資料夾匯入。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 <b>這是出貨順序的相容性閘門。</b>使用者可能只更新 ICE 沒更新 AutoHook，
+        /// 那些需要資料夾匯入的任務（494／495）必須<b>維持停用</b>而不是跑到一半才發現匯不進去——
+        /// 後者的失敗形式是「站在釣點不動直到逾時」，log 一行都沒有。
+        /// <br/><br/>
+        /// 📌 探測結果會快取，並且<b>只在第一次判定時寫一行 Information</b>
+        /// （使用者跑 LogLevel 2，Debug／Verbose 收不到；而這是「為什麼這個任務被跳過」唯一的線索）。
+        /// </remarks>
+        public bool SupportsFolderImport()
+        {
+            if (!Installed)
+                return false;
+
+            if (_folderImportApiVersion is { } cached)
+                return cached >= RequiredFolderImportApiVersion;
+
+            // IPC 不存在／簽名不符時，SafeWrapper.AnyException 會吞掉例外並回傳 default(int) = 0。
+            // 🔑 這正是「回 0 比報錯常見」的實例：0 要當成「沒有這個功能」，不能當成「版本 0」。
+            var version = 0;
+            if (GetFolderImportApiVersion != null)
+                version = GetFolderImportApiVersion();
+
+            _folderImportApiVersion = version;
+
+            if (version >= RequiredFolderImportApiVersion)
+            {
+                IceLogging.Info(
+                    $"AutoHook 支援整包資料夾匯入（API 版本 {version}），需要資料夾 preset 的任務可以執行。",
+                    "[AutoHook IPC]");
+                return true;
+            }
+
+            IceLogging.Info(
+                "這版 AutoHook 沒有提供資料夾匯入 IPC（CreateAndSelectAnonymousFolder / " +
+                $"GetFolderImportApiVersion 回報 {version}，需要 {RequiredFolderImportApiVersion} 以上）。" +
+                "需要整包資料夾 preset 的宇宙釣魚任務會維持停用—— " +
+                "請把 AutoHook 更新到與這版 ICE 同一波出貨的版本。",
+                "[AutoHook IPC]");
+            return false;
+        }
+
+        /// <summary>
+        /// 匯入整包資料夾 preset。
+        /// </summary>
+        /// <returns>實際匯入的 preset 筆數；0 代表沒有匯入任何東西（呼叫端應視為失敗）。</returns>
+        public int TryImportFolder(string folderExport)
+        {
+            if (!SupportsFolderImport())
+                return 0;
+
+            if (CreateAndSelectAnonymousFolder == null)
+                return 0;
+
+            var names = CreateAndSelectAnonymousFolder(folderExport);
+
+            // null ＝ IPC 呼叫本身失敗（被 SafeWrapper 吞掉）；空清單 ＝ AutoHook 收到了但匯不進去。
+            // 兩者對使用者的意義不同，分開講。
+            if (names == null)
+            {
+                IceLogging.Info(
+                    "呼叫 AutoHook 的 CreateAndSelectAnonymousFolder 失敗（例外被吞掉）。" +
+                    "AutoHook 版本可能在探測之後被換掉了，釣魚無法自動進行。", "[AutoHook IPC]");
+                _folderImportApiVersion = null; // 讓下一次重新探測，不要一路錯下去
+                return 0;
+            }
+
+            if (names.Count == 0)
+            {
+                IceLogging.Info(
+                    "AutoHook 收到了資料夾 preset 但一筆都沒匯進去（字串格式不對或解不開），釣魚無法自動進行。",
+                    "[AutoHook IPC]");
+                return 0;
+            }
+
+            IceLogging.Info(
+                $"已匯入 {names.Count} 筆資料夾 preset，AutoHook 選取的進入點是「{names[0]}」。"
+                + (names.Count > 1
+                    ? $"其餘 {names.Count - 1} 筆是同一台狀態機的後續階段，由 AutoHook 自己依 PresetToSwap 條件切換。"
+                    : string.Empty),
+                "[AutoHook IPC]");
+
+            return names.Count;
+        }
+
+        /// <summary>
         /// SwapBaitById 這個 IPC 是否已被判定為不可用（不存在或簽名不符）。
         /// 判定一次之後就一直走 /ahbait 退路，不再每幀重試 IPC。
         /// </summary>

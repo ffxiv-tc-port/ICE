@@ -595,6 +595,47 @@ namespace ICE.Scheduler.Tasks
                         }
                     }
 
+                    // 「最低金星率」門檻：把金星率不達標的任務排到同階級隊尾。
+                    // 🔴 是「降級」不是「過濾」—— 移除會把候選池掏空，讓 CheckReroll 無限重骰
+                    //    （見 MissionConfigs.MaxConsecutiveRerolls 的說明），那是行為回退不是保護。
+                    // ⚠️ 只在「依表格排序方式挑任務」開著時生效，門檻 0 = 關閉（預設）。
+                    // ⚠️ 放在最後一個排序步驟，所以它蓋過上面的「沒金星優先」：一個任務試了 3 次
+                    //    以上都沒金星，就算它還沒金星也不該再優先塞給使用者。
+                    if (C.UseTableSortForMissionOrder && C.MinGoldRatePercentForPicking > 0 && candidates.Count > 1)
+                    {
+                        int GoldRateRank(uint missionId)
+                        {
+                            if (!C.MissionConfig.TryGetValue(missionId, out var cfg)) return 0;
+                            var attempts = cfg.TotalCompletions + cfg.FailedCounters;
+                            // 樣本不足一律視為達標，否則第一次失敗就把任務永久打入冷宮，
+                            // 連累積數據的機會都沒有。
+                            // ⚠️ 一定要寫 global:: —— 在 ICE.Scheduler.Tasks 這個命名空間裡，
+                            //    裸寫的 ICE 會先綁到 ICE.ICE 這個類別（global using static 帶進來的），
+                            //    再取 .Config 就變成存取它的非公開成員，編譯錯誤看起來像「保護層級」問題。
+                            if (attempts < global::ICE.Config.MissionConfigs.MinGoldRateSampleSize) return 0;
+                            var rate = 100.0 * cfg.GoldCompletions / attempts;
+                            return rate < C.MinGoldRatePercentForPicking ? 1 : 0;
+                        }
+
+                        var demoted = candidates.Count(m => GoldRateRank(m.MissionId) == 1);
+                        if (demoted > 0 && demoted < candidates.Count)
+                        {
+                            // OrderBy 是穩定排序：達標的維持原順序，不達標的整批推到後面。
+                            candidates = candidates.OrderBy(m => GoldRateRank(m.MissionId)).ToList();
+                            IceLogging.Info(
+                                $"最低金星率 {C.MinGoldRatePercentForPicking}%：{demoted}/{candidates.Count} 個任務金星率不足，已排到隊尾（未移除）",
+                                "[FindMission: CheckStandard]");
+                        }
+                        else if (demoted > 0)
+                        {
+                            // 全部都不達標：重排等於沒排，但使用者需要知道門檻正在空轉，
+                            // 否則會以為門檻沒生效。
+                            IceLogging.Info(
+                                $"最低金星率 {C.MinGoldRatePercentForPicking}%：本階級 {demoted} 個候選全部不達標，維持原順序",
+                                "[FindMission: CheckStandard]");
+                        }
+                    }
+
                     foreach (var mission in candidates)
                     {
                         mission.Select();
@@ -1243,7 +1284,12 @@ namespace ICE.Scheduler.Tasks
                 }
                 else
                 {
-                    IceLogging.Debug("No valid missions found to abandon");
+                    // 🔴 這條路徑 `return false` ＝ NeoTaskManager **下一幀原地重跑同一個任務**
+                    //    （在 NeoTaskManager 裡 false 才是「還沒好，再來一次」，null 是中止整個佇列）。
+                    //    候選池空掉時條件不會自己改變，所以這行原本會一路噴到任務逾時為止。
+                    //    只節流 log，控制流完全不動。EzThrottler 首次必放行 ⇒ 第一次仍看得到。
+                    if (EzThrottler.Throttle("ICE: findreroll no abandon candidate", 5000))
+                        IceLogging.Debug("No valid missions found to abandon");
                     return false;
                 }
             }
@@ -1254,6 +1300,10 @@ namespace ICE.Scheduler.Tasks
         {
             // 這裡就是「已經決定要領哪一個」的時間點 —— 疊加層要顯示的正是這個。
             TargetMissionId = missionId;
+            // 真的挑到任務了，這一輪的「換職業已試過清單」就結束了。
+            // ⚠️ 不能只靠 CheckReroll 裡那個 ExecutingMission 分支清 —— 挑到任務的那一輪
+            //    CheckStandard 直接 return true，根本不會再走到 CheckReroll。
+            triedJobsThisSweep.Clear();
             P.TaskManager.InsertMulti(
                 new(() => Navmesh_MoveToMission(missionId), "Checking if movement is necessary", Utils.TaskConfig),
                 new(() => FrameDelay(8), "Waiting 8 frames before next action"),
@@ -1410,13 +1460,37 @@ namespace ICE.Scheduler.Tasks
                 var mapId = missionEntry.MapPosition;
                 var gatherInfo = GatheringRouteLoader.GetRoute(missionTerritory, mapId);
 
-                if (gatherInfo.Count == 0)
+                // ⚠️ GetRoute 查不到路線時回 null，不是空清單 —— 原本直接 .Count 是
+                //    NullReferenceException，表現成「卡住不動而且沒有訊息」。
+                if (gatherInfo == null || gatherInfo.Count == 0)
                 {
                     IceLogging.Info("HEY. This gathering location hasn't been set to gather, and should honestly be set to a manual state. Cause things are about to bug out. If it's a new area please let me know o/");
                     return true;
                 }
 
-                Vector3 closestNode = gatherInfo[0].LandZone;
+                // 🔴 原本這裡寫死 `gatherInfo[0].LandZone` —— 不管人站在哪，第一次進場一律
+                //    先走去「路線檔的第一個點」。路線是環狀的（PathandCheckNode 會遞增並回繞），
+                //    從哪一個點起跑都合法，所以挑最近的那個；用路線檔自己的座標算，
+                //    不依賴採集點有沒有載進 ObjectTable。
+                var entryNode = gatherInfo.OrderBy(x => Player.DistanceTo(x.LandZone)).First();
+                Vector3 closestNode = entryNode.LandZone;
+
+                // B4：套一層採集接近角。用 A8 補的角度資料（radius_start/end + max_distance）算出「從允許
+                //     角度接近」的點；只有當它確實落在導航網格上（NearestPoint）才採用，否則維持原本的
+                //     LandZone。🔴 fail-open 必須——角度資料是國際服作者標的、台服未驗，不讓它成為必經路徑。
+                var approach = Task_Gather.GetGatherApproachPosition(entryNode, entryNode.Position);
+                if (Task_Gather.TryResolveApproachOnMesh(approach, out var meshApproach))
+                {
+                    closestNode = meshApproach;
+                    if (EzThrottler.Throttle("ICE: gather approach angle", 5000))
+                        IceLogging.Info($"採集接近角：採集點 {entryNode.NodeId} 依角度資料算出接近點並吸附到導航網格，改用它當入口。",
+                                        "[FindMission: NavmeshMoveTo]");
+                }
+
+                if (EzThrottler.Throttle("ICE: gather route entry node", 5000))
+                    IceLogging.Info($"前往採集區域：路線共 {gatherInfo.Count} 個點，" +
+                                    $"選最近的採集點 {entryNode.NodeId}（距離 {Player.DistanceTo(entryNode.LandZone):N1}）當入口。",
+                                    "[FindMission: NavmeshMoveTo]");
 
                 if (!P.Navmesh.IsRunning())
                 {
@@ -1646,12 +1720,32 @@ namespace ICE.Scheduler.Tasks
         // 連續重骰但一直沒找到任務的次數。找到任務時歸零。
         private static int consecutiveRerolls = 0;
 
+        /// <summary>
+        /// 這一輪「候選池空了 → 換職業」已經試過的職業。真的領到任務、或全部職業都試完之後清空。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 沒有這個集合就會無限迴圈：換過去的職業如果同樣挑不到任務，重骰上限會再次觸發，
+        /// 然後又從 <c>JobPrio</c> 的第一個重新挑 —— 在兩個職業之間來回跳、永遠不收斂。
+        /// </remarks>
+        private static readonly HashSet<uint> triedJobsThisSweep = new();
+
+        /// <summary>換職業這件事本身的期限（<c>Environment.TickCount64</c>）。0 ＝ 目前沒有在換。</summary>
+        /// <remarks>
+        /// ⚠️ <see cref="SwitchJobStep"/> 只有真的換成功才回 true。沒有期限的話，換不過去
+        /// （主手缺裝、角色一直忙碌…）就會一路回 false，失敗形式是「安靜地卡住」而不是報錯。
+        /// </remarks>
+        private static long jobSwitchDeadline = 0;
+
+        /// <summary>換職業最多等多久（毫秒）。</summary>
+        private const int JobSwitchTimeoutMs = 15000;
+
         private static bool? CheckReroll()
         {
             if (SchedulerMain.State == IceState.ExecutingMission)
             {
                 IceLogging.Debug("No reason to reroll, you found a proper mission");
                 consecutiveRerolls = 0;
+                triedJobsThisSweep.Clear();
             }
             else
             {
@@ -1663,12 +1757,21 @@ namespace ICE.Scheduler.Tasks
                 var limit = C.MaxConsecutiveRerolls;
                 if (limit > 0 && consecutiveRerolls >= limit)
                 {
+                    // 停止是最後手段：先看看有沒有別的職業還有未金星的任務可以接。
+                    // 預設關閉，使用者開了才會走這條（見 C.AutoSwitchJobWhenPoolEmpty）。
+                    if (TrySwitchToJobWithMissions())
+                    {
+                        consecutiveRerolls = 0;
+                        return true;
+                    }
+
                     IceLogging.Info(
                         $"連續重骰 {consecutiveRerolls} 次仍找不到可接任務，停止。" +
                         "常見原因：啟用了「取得金星後自動停用該任務」，而目前可接的任務都已經拿過金星。" +
                         "可改用「沒金星的優先」（只排序不移出候選池），或放寬啟用中的任務清單。",
                         "[Check Reroll]");
                     consecutiveRerolls = 0;
+                    triedJobsThisSweep.Clear();
                     SchedulerMain.State = IceState.Idle;
                     P.TaskManager.Tasks.Clear();
 
@@ -1684,6 +1787,180 @@ namespace ICE.Scheduler.Tasks
                 IceLogging.Debug("Task for re-roll thrown in", "[Check Reroll]");
             }
             return true;
+        }
+        /// <summary>
+        /// 候選池空了：照「職業優先度」（<c>C.JobPrio</c>）找下一個還有未金星任務、而且真的換得
+        /// 過去的職業，把換職業的步驟排進佇列。<b>回傳 true 代表已經接手，呼叫端不要再走停止流程。</b>
+        /// </summary>
+        /// <remarks>
+        /// 🔑 「那個職業有沒有東西可挑」用 <see cref="CountViableMissions"/> 判斷，它的過濾條件與
+        /// <see cref="RefreshSelectedMissions"/> 逐條相同 —— 兩邊只要不一致，就會換到一個同樣挑不出
+        /// 任務的職業，然後在職業之間空轉。<br/>
+        /// ⚠️ 只走 <c>C.JobPrio</c> 裡列出來的職業。設定介面只能拖曳排序、不能增刪，所以正常情況下
+        /// 11 個職業都在；真的缺了就寫一行 Information 講出來，不要默默把使用者移掉的職業加回去。<br/>
+        /// ⚠️ 這條路徑只有標準任務流程走得到（宇宙工具經驗模式與臨時任務連刷都不經過重骰上限），
+        /// 所以不必再判斷那兩個模式。
+        /// </remarks>
+        private static bool TrySwitchToJobWithMissions()
+        {
+            if (!C.AutoSwitchJobWhenPoolEmpty)
+                return false;
+
+            var currentJob = Player.JobId;
+            triedJobsThisSweep.Add(currentJob);
+
+            var allJobCount = CosmicHelper.CrafterJobList.Count + CosmicHelper.GatheringJobList.Count;
+            if (C.JobPrio.Count < allJobCount)
+            {
+                IceLogging.Info(
+                    $"職業優先度清單裡只有 {C.JobPrio.Count} 個職業（完整是 {allJobCount} 個），" +
+                    "沒列出來的職業不會被自動換過去。要全部納入請到「優先度設定」按重設。",
+                    "[Check Reroll: 換職業]");
+            }
+
+            foreach (var jobId in C.JobPrio)
+            {
+                if (jobId == currentJob || triedJobsThisSweep.Contains(jobId))
+                    continue;
+
+                var (viable, ungolded, goldKnown) = CountViableMissions(jobId);
+                var ungoldedText = goldKnown ? ungolded.ToString() : "?";
+
+                // 使用者要的條件是「還沒全金星的職業」。讀不到 WKSManager 時退回「還有任務可接」——
+                // 那時每個任務的金星狀態都是不知道的，拿「不知道」去否決一個職業會更糟。
+                var wanted = goldKnown ? ungolded : viable;
+
+                // 不管選不選它，這一輪都算試過了：否則下一次觸發重骰上限又會把同一批職業重新
+                // 評估一遍，同樣的訊息會一直重印。
+                triedJobsThisSweep.Add(jobId);
+
+                if (wanted <= 0)
+                {
+                    IceLogging.Debug(
+                        $"職業 {(Job)jobId}：可接 {viable} 個、未金星 {ungoldedText} 個，跳過",
+                        "[Check Reroll: 換職業]");
+                    continue;
+                }
+
+                // ⚠️ 不要靜默跳過：使用者看到的會是「明明還有任務卻換不過去」，而且沒有任何線索。
+                if (!GearsetHandler.HasUsableGearset((Job)jobId))
+                {
+                    IceLogging.Info(
+                        $"{(Job)jobId} 還有 {viable} 個可接的任務（未金星 {ungoldedText} 個），" +
+                        "但找不到可以直接換過去的套裝 —— 沒有這個職業的套裝，或套裝的主手武器不在身上。跳過它。",
+                        "[Check Reroll: 換職業]");
+                    continue;
+                }
+
+                IceLogging.Info(
+                    $"目前職業（{(Job)currentJob}）已經沒有可接的任務了，換到 {(Job)jobId}：" +
+                    $"可接 {viable} 個，其中 {ungoldedText} 個還沒拿到金星。",
+                    "[Check Reroll: 換職業]");
+
+                jobSwitchDeadline = Environment.TickCount64 + JobSwitchTimeoutMs;
+                P.TaskManager.Tasks.Clear();
+                P.TaskManager.InsertMulti(
+                    new(() => RefreshMissionUi(), "Closing the mission board before changing job"),
+                    new(() => SwitchJobStep(jobId), "Switching to a job that still has missions")
+                );
+
+                // 換完之後從狀態判斷重跑：Task_CheckState 會用新職業重新決定要修理／萃取／接任務，
+                // 那是這個狀態機唯一的通用復原點。
+                SchedulerMain.State = IceState.Start;
+                return true;
+            }
+
+            IceLogging.Info(
+                "職業優先度裡的每一個職業都沒有可接的未金星任務，沒有可以換過去的對象。",
+                "[Check Reroll: 換職業]");
+            triedJobsThisSweep.Clear();
+            return false;
+        }
+
+        /// <summary>
+        /// 算出「如果現在是 <paramref name="jobId"/>，候選池裡會有幾個任務、其中幾個還沒金星」。
+        /// </summary>
+        /// <remarks>
+        /// 🔑 過濾條件與 <see cref="RefreshSelectedMissions"/> <b>逐條相同</b>：
+        /// 已啟用 → 在任務表裡 → 職業對得上 → 區域對得上 → ICE 跑得動。
+        /// 改其中一邊記得改另一邊，不然會換到一個同樣挑不出任務的職業。<br/>
+        /// 🔴 <c>WKSManager.Instance()</c> 的槽位內容在宇宙區外是 null，解參考＝AVE，
+        /// 而 AVE 是 corrupted-state exception，<c>try/catch</c> 攔不到。所以先判空，
+        /// 判不到就把 <c>GoldKnown</c> 回 false，讓呼叫端自己決定怎麼退。<br/>
+        /// ⚠️ 指標只在這個呼叫的堆疊框內使用，不跨幀保存。
+        /// </remarks>
+        private static unsafe (int Viable, int Ungolded, bool GoldKnown) CountViableMissions(uint jobId)
+        {
+            var viable = 0;
+            var ungolded = 0;
+
+            var manager = WKSManager.Instance();
+            var goldKnown = manager != null;
+
+            foreach (var mission in C.MissionConfig)
+            {
+                var enabled = mission.Value.Enabled;
+
+                if (C.XPRelicGrind)
+                {
+                    if (!enabled && C.XPRelicOnlyEnabled)
+                        continue;
+                }
+                else if (!enabled)
+                    continue;
+
+                if (!CosmicHelper.SheetMissionDict.TryGetValue(mission.Key, out var missionInfo))
+                    continue;
+                if (!missionInfo.Jobs.Contains(jobId))
+                    continue;
+                if (missionInfo.TerritoryId != Player.Territory)
+                    continue;
+                if (MissionSupport.IsUnsupported(mission.Key))
+                    continue;
+
+                viable++;
+                if (goldKnown && !manager->IsMissionGolded(mission.Key))
+                    ungolded++;
+            }
+
+            return (viable, ungolded, goldKnown);
+        }
+
+        /// <summary>
+        /// 真的把職業換過去。換到了回 true；等過頭了也回 true（帶一行 Information），
+        /// 讓流程繼續往下跑而不是安靜地卡住。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 <c>Mission_Settings.StartJob</c> 一定要等「換成功」之後才更新：交件流程的
+        /// <c>Task_TurninMission.JobSwapCheck</c> 每次交完任務都會把職業換回 StartJob，不更新的話
+        /// 下一件交完就被換回原本那個「沒任務可接」的職業，等於白換；但要是換失敗還先寫進去，
+        /// JobSwapCheck 就會一直想換去一個換不過去的職業。<br/>
+        /// ⚠️ <c>GearsetHandler.TaskClassChange</c> 自帶 250ms 節流、而且玩家忙碌時直接返回，
+        /// 所以這裡不必再包一層節流。
+        /// </remarks>
+        private static bool? SwitchJobStep(uint jobId)
+        {
+            if (Player.JobId == jobId)
+            {
+                // 換成功了才把「ICE 認定的主職業」換過來，交件之後才不會被換回去。
+                Mission_Settings.StartJob = jobId;
+                jobSwitchDeadline = 0;
+                IceLogging.Info($"已經換到 {(Job)jobId}，重新開始找任務。", "[Check Reroll: 換職業]");
+                return true;
+            }
+
+            if (jobSwitchDeadline != 0 && Environment.TickCount64 > jobSwitchDeadline)
+            {
+                jobSwitchDeadline = 0;
+                IceLogging.Info(
+                    $"等了 {JobSwitchTimeoutMs / 1000} 秒還是沒能換到 {(Job)jobId}，放棄這次換職業。" +
+                    "（常見原因：那個職業的套裝主手武器不在身上，或角色一直處於忙碌狀態。）",
+                    "[Check Reroll: 換職業]");
+                return true;
+            }
+
+            GearsetHandler.TaskClassChange((Job)jobId);
+            return false;
         }
         public static bool? FrameDelay(int amount)
         {

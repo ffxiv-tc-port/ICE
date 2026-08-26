@@ -11,22 +11,25 @@ namespace ICE.Ui.SettingTabs
 {
     internal class GambaWheel
     {
-        private static bool gambaEnabled = C.GambaEnabled;
-        private static int gambaDelay = C.GambaDelay;
-        private static int gambaCreditsMinimum = C.GambaCreditsMinimum;
-        private static bool gambaPreferSmallerWheel = C.GambaPreferSmallerWheel;
+        // 📌 這裡原本有四個 `private static x = C.某鍵;` 欄位當 widget 的暫存值。
+        //    static 初始化器一輩子只跑一次，之後就再也不看設定，所以設定頁可能畫的是
+        //    設定載入／遷移之前的舊值，而使用者一動控件就把舊值寫回去。
+        //    同檔的 gambaBetween 與 GambaSlider 一直都是「在使用點當場讀 C」的寫法，
+        //    這四個是沒跟上的遺留。⇒ 統一成同一種寫法，寫回的動作逐字不變。
 
         public static void Draw()
         {
             DrawManualRun();
             ImGui.Separator();
 
+            bool gambaEnabled = C.GambaEnabled;
             if (ImGui.Checkbox("Enable Auto Gamba".Loc() + "###ICEEnableAutoGamba", ref gambaEnabled))
             {
                 C.GambaEnabled = gambaEnabled;
                 C.Save();
             }
             ImGuiEx.HelpMarker("If you want to let it auto select the wheels and gamba, enable this. If you want to not auto run when you're running the gamble wheel, disable this.".Loc());
+            var gambaCreditsMinimum = C.GambaCreditsMinimum;
             ImGui.SetNextItemWidth(150);
             if (ImGui.SliderInt("Mininum credits to keep".Loc() + "###ICEGambaCreditsMinimum", ref gambaCreditsMinimum, 0, 10000))
             {
@@ -41,6 +44,7 @@ namespace ICE.Ui.SettingTabs
             }
             ImGui.SameLine();
             GambaSlider();
+            var gambaDelay = C.GambaDelay;
             ImGui.SetNextItemWidth(150);
             if (ImGui.SliderInt("Gamba Delay".Loc() + "###ICEGambaDelay", ref gambaDelay, 50, 2000))
             {
@@ -48,6 +52,7 @@ namespace ICE.Ui.SettingTabs
                 C.SaveDebounced();
             }
 
+            bool gambaPreferSmallerWheel = C.GambaPreferSmallerWheel;
             if (ImGui.Checkbox("Prefer smaller wheel".Loc() + "###ICEGambaPreferSmallerWheel", ref gambaPreferSmallerWheel))
             {
                 C.GambaPreferSmallerWheel = gambaPreferSmallerWheel;

@@ -89,7 +89,23 @@ namespace ICE.Scheduler.Tasks
 
                 if (critical)
                 {
-                    var collectionPoint = Utils.TryGetObjectCollectionPoint();
+                    // 這個任務的繳交點「應該」在哪。原本這個查表在下面 else 分支裡才做，
+                    // 現在提上來給 TryGetObjectCollectionPoint 當篩選用的預期座標。
+                    // 🔑 查不到（location == null 或原始座標是 Zero）就退回「不給預期座標」，
+                    //    也就是舊行為 —— 挑最近的。不因為缺資料就整個挑不到。
+                    Vector3? expectedLocation =
+                        GatheringUtil.CriticalLocations.TryGetValue(id, out var location) && location.RawLocation != Vector3.Zero
+                            ? location.RawLocation
+                            : null;
+
+                    // 允許半徑：任務自己的半徑再加 25，下限 100。
+                    // 🔑 turninMission 來自上面那個已經有守衛的 TryGetValue（critical 為真就代表查到了），
+                    //    不要改成 SheetMissionDict[id] —— 那正是這個檔修過兩次的無守衛索引形狀。
+                    var collectionPointRadius = Math.Max(100f, turninMission.Radius + 25f);
+
+                    var collectionPoint = expectedLocation is { } expectedForPick
+                        ? Utils.TryGetObjectCollectionPoint(expectedForPick, collectionPointRadius)
+                        : Utils.TryGetObjectCollectionPoint();
                     if (!PlayerHelper.CustomIsBusy)
                     {
                         if (collectionPoint != null && Player.DistanceTo(collectionPoint) <= 4)
@@ -142,8 +158,9 @@ namespace ICE.Scheduler.Tasks
                                 IceLogging.Debug("Need to move closer to this turnin");
                             }
 
-                            // We need to path to the collection point, and get as *-close-* as we can. 
-                            if (GatheringUtil.CriticalLocations.TryGetValue(id, out var location) && location.RawLocation != Vector3.Zero)
+                            // We need to path to the collection point, and get as *-close-* as we can.
+                            // （location 已在上面 critical 分支的開頭查過，這裡沿用。）
+                            if (expectedLocation is { } expectedPos)
                             {
                                 if (collectionPoint == null)
                                 {
@@ -153,13 +170,13 @@ namespace ICE.Scheduler.Tasks
                                         if (EzThrottler.Throttle("Telling navmesh to move to the spot"))
                                         {
                                             IceLogging.Debug("We're not close enough to the turnin point to find out where one's at. So going to the location where it might be at");
-                                            IceLogging.DestinationLogs.Log(location.RawLocation);
-                                            P.Navmesh.PathfindAndMoveTo(location.RawLocation, false);
+                                            IceLogging.DestinationLogs.Log(expectedPos);
+                                            P.Navmesh.PathfindAndMoveTo(expectedPos, false);
                                         }
                                     }
                                     else
                                     {
-                                        if (C.UseMountInMission && !Player.IsBusy && Player.DistanceTo(location.RawLocation) > C.MountRadius && !Svc.Condition[ConditionFlag.Mounted])
+                                        if (C.UseMountInMission && !Player.IsBusy && Player.DistanceTo(expectedPos) > C.MountRadius && !Svc.Condition[ConditionFlag.Mounted])
                                         {
                                             if (EzThrottler.Throttle("Mounting the mount"))
                                                 Utils.MountAction();
@@ -171,19 +188,30 @@ namespace ICE.Scheduler.Tasks
                                     if (EzThrottler.Throttle("We're pathfinding wooo"))
                                         IceLogging.Debug("We're pathfinding to the turnin point!");
 
-                                    if (Player.DistanceTo(location.RawLocation) > 75 && P.Navmesh.IsRunning())
+                                    if (Player.DistanceTo(expectedPos) > 75 && P.Navmesh.IsRunning())
                                     {
                                         if (EzThrottler.Throttle("Waiting to be in a better range", 1000))
                                         {
                                             IceLogging.Debug("Waiting to be within 50 yalms of the turnin point");
                                         }
                                     }
-                                    else if (Player.DistanceTo(location.RawLocation) <= 75 || !P.Navmesh.IsRunning())
+                                    else if (Player.DistanceTo(expectedPos) <= 75 || !P.Navmesh.IsRunning())
                                     {
 
                                         if (!PathfoundToRed)
                                         {
                                             P.Navmesh.Stop();
+                                            // 📌 Information：這是「挑到哪一個繳交點」的唯一可回報證據。
+                                            //    挑錯區的失敗形式是「跑很遠然後繳不掉」，事後從 log 只看得到
+                                            //    導航指令，看不到當時有哪些候選、為什麼挑這個。
+                                            //    「離任務中心多遠」與「允許半徑」一起印，才分得出
+                                            //    「篩選器挑對了但人跑錯」和「篩選器本身挑到別區」。
+                                            IceLogging.Info(
+                                                $"已選定緊急任務繳交點 {collectionPoint.Position}；" +
+                                                $"離玩家 {Player.DistanceTo(collectionPoint):F1}、" +
+                                                $"離任務中心 {Vector3.Distance(collectionPoint.Position, expectedPos):F1}、" +
+                                                $"允許半徑 {collectionPointRadius:F1}",
+                                                tag);
                                             IceLogging.DestinationLogs.Log(collectionPoint.Position);
                                             P.Navmesh.PathfindAndMoveTo(collectionPoint.Position, false);
                                             PathfoundToRed = true;
@@ -193,7 +221,7 @@ namespace ICE.Scheduler.Tasks
                                             if (EzThrottler.Throttle("dismounting"))
                                                 Utils.Dismount();
                                         }
-                                        else if (C.UseMountInMission && !Player.IsBusy && Player.DistanceTo(location.RawLocation) > C.MountRadius && !Svc.Condition[ConditionFlag.Mounted])
+                                        else if (C.UseMountInMission && !Player.IsBusy && Player.DistanceTo(expectedPos) > C.MountRadius && !Svc.Condition[ConditionFlag.Mounted])
                                         {
                                             if (EzThrottler.Throttle("Mounting the mount"))
                                                 Utils.MountAction();
@@ -275,9 +303,37 @@ namespace ICE.Scheduler.Tasks
             if (C.RemoveAfterGold && isGold)
             {
                 if (C.MissionConfig.TryGetValue(PreviousMissionId, out var goldConfig))
-                    goldConfig.Enabled = false;
+                {
+                    // 🔴 連續任務的前置不能因為「自己拿到金星了」就停用：後續任務不是永久解鎖的，
+                    //    要重跑前置才會再出現（同一個 GoldCheck 底下那段「沒金星就重新啟用所有前置」
+                    //    就是上游對這個機制的認定）。停掉前置＝整條後續鏈再也接不到，
+                    //    而且完全沒有提示，使用者只能自己回頭核對整張任務表。
+                    //    台服 7.20 共有 88 條這種邊、最長三層（見 MissionChain 的資料統計）。
+                    // 緊急任務的例外要排在鏈結檢查**之前**：兩者都是「不要停用」，
+                    // 先問哪一個都不影響結果，但先問這一個時 log 講的理由才是使用者
+                    // 自己勾的那個開關，而不是一個他沒設定過的鏈結規則。
+                    if (MissionChain.ShouldKeepEnabledForEmergency(PreviousMissionId, out var emergencyReason))
+                    {
+                        IceLogging.Info(
+                            $"保留任務 {MissionChain.DescribeMission(PreviousMissionId)}（不套用「取得金星後自動停用」）：{emergencyReason}。",
+                            "[Gold Check Task]");
+                    }
+                    else if (MissionChain.ShouldKeepEnabledForChain(PreviousMissionId, out var keepReason))
+                    {
+                        IceLogging.Info(
+                            $"保留任務 {MissionChain.DescribeMission(PreviousMissionId)}（不套用「取得金星後自動停用」）：{keepReason}。"
+                            + "它是連續任務的前置，停用它會讓後續任務再也接不到。",
+                            "[Gold Check Task]");
+                    }
+                    else
+                    {
+                        goldConfig.Enabled = false;
+                    }
+                }
                 else
+                {
                     IceLogging.Info($"任務 {PreviousMissionId} 在設定檔裡沒有對應的設定，跳過「達金後停用」。", "[Gold Check Task]");
+                }
             }
             if (C.RemoveAfterGold && !isGold)
             {
@@ -293,6 +349,11 @@ namespace ICE.Scheduler.Tasks
                     C.Save();
                 }
             }
+
+            // 收拾先前版本已經造成的損害：前置被停用、鏈上卻還有使用者啟用中且尚未金星的任務。
+            // 條件很緊（見 MissionChain.RepairSequentialPrerequisites 的說明），
+            // 而且每一筆改動都會留一行 Information。
+            MissionChain.RepairSequentialPrerequisites("[Gold Check Task]");
 
             IceLogging.Info("Gold Check is complete, and checking to see what state we need to be in post cleanup");
             if (Mission_Settings.StopAfterCurrent)

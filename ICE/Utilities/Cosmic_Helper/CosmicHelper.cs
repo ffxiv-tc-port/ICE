@@ -35,8 +35,15 @@ public static unsafe partial class CosmicHelper
         [CosmicWeather.Rain] = 60207,
     };
 
-    public static readonly int MinimumLevel = 10;
-    public static readonly int MaximumLevel = Player.MaxLevel;
+    // 📌 這裡原本有一對等級界限常數，兩個都是零讀取者的死碼，已刪：
+    //    ① `public static readonly int MaximumLevel = Player.MaxLevel;` ——
+    //       三個同形快照裡最糟的一個：static 初始化器只跑一次，而取的是 `Player.MaxLevel`，
+    //       登入前那個值未必可用，所以它不只是「可能過期」，是「可能一開始就取到不對的值，
+    //       然後永遠是那個值」。要用等級上限的話當場問 Player，不要再放一個模組層級的快照。
+    //    ② `public static readonly int MinimumLevel = 10;` ——
+    //       單純沒人讀的常數。它不像 ① 有取值時機的問題，但留著會讓人以為「宇宙探索有
+    //       等級下限 10 的判斷」，實際上碼裡沒有任何地方做這個判斷。
+    //       真的要擋等級請去 WKSMission 的資料層取，不要復活這個寫死的 10。
 
     public static readonly int MaxRelicLevel = 14;
 
@@ -99,6 +106,29 @@ public static unsafe partial class CosmicHelper
         public uint BronzeScore { get; set; } = 0;
         public uint SilverScore { get; set; } = 0;
         public uint GoldScore { get; set; } = 0;
+
+        /// <summary><c>WKSMissionUnit.MissionTime</c>（秒）。0 代表這個任務沒有時間限制。</summary>
+        public uint TimeLimitSeconds { get; set; } = 0;
+
+        /// <summary>
+        /// 這個任務的銀星／金星是不是用「交件時還剩多少時間」評的（而不是評價分數）。
+        /// </summary>
+        /// <remarks>
+        /// 📌 直接沿用既有的 <see cref="MissionAttributes.ScoreTimeRemaining"/>，<b>不另立判斷</b>——
+        /// 排程器的交件邏輯（<c>Task_CheckScore</c>）已經在用同一個旗標，兩邊共用才不會出現
+        /// 「顯示說是時間型、交件卻按分數走」的分岔。<br/><br/>
+        /// 🔑 <b>離線交叉驗證過</b>（<c>exd-tc/7.20</c>）：這個旗標（由 <c>WKSMissionText</c>
+        /// ∈ {104,110,113,114,115} 且職業是採集／釣魚推出來）與另一條完全獨立的路徑
+        /// —— <c>WKSMissionToDo.MissionType == 8</c> —— <b>命中同樣的 34 個任務，一個不差</b>。<br/>
+        /// 這一型任務的 <see cref="SilverScore"/>／<see cref="GoldScore"/> 單位是
+        /// <b>「剩餘秒數 × 10」而不是分數</b>：第 470 列（30:00 時限）的 15100 / 15500 換算是
+        /// 25:10 / 25:50，跟使用者 2026-08-06 實機面板上的「剩餘時間 25:10以上」
+        /// 「剩餘時間 25:50以上」逐字相符；34 個任務的門檻除以 10 也全部小於各自的
+        /// <see cref="TimeLimitSeconds"/>。<br/>
+        /// ⚠️ 但光看「門檻除以 10 塞得進時限」<b>不足以</b>判定型別——MissionType 3／4／9 也都
+        /// 通過那個測試，它們卻是評價型。所以不要拿數字範圍當判別依據。
+        /// </remarks>
+        public bool IsTimeGraded => Attributes.HasFlag(MissionAttributes.ScoreTimeRemaining);
     }
 
     public static Dictionary<uint, CosmicInfo> SheetMissionDict = new();

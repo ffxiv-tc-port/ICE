@@ -17,14 +17,81 @@ namespace ICE.Utilities.MechaOps;
 /// 命中判定半徑。見 <see cref="MechaCoverage"/> 的說明：AoE 的涵蓋判定是
 /// 「目標這個**圓**有沒有碰到形狀」，不是「目標中心點在不在形狀裡」。
 /// </param>
+/// <param name="Label">
+/// 已經解析好的顯示名稱（ObjectTable 的名字 → 資料表 <c>EObjName</c> → 空字串）。
+/// ⚠️ 空字串是合法值：台服機甲事件「有害菌床」在遊戲資料裡就是沒有名字，
+/// 顯示端要自己決定畫什麼，<b>不能因此什麼都不畫</b>。
+/// </param>
+/// <param name="Tier">這一筆有多可能是任務目標。見 <see cref="MechaTargetTier"/>。</param>
 internal readonly record struct MechaTarget(
     ulong GameObjectId,
     uint DataId,
     string Name,
+    string Label,
     Vector3 Position,
     float HitboxRadius,
     ObjectKind Kind,
-    bool IsCurrentTarget);
+    bool IsCurrentTarget,
+    MechaTargetTier Tier);
+
+/// <summary>
+/// 「這個 <c>DataId</c> 是**誰的**目標」——顯示層身份分流用的歸屬判定。
+///
+/// 🔑 <b>這跟 <see cref="MechaTargetTier"/> 是兩個不同的問題，不要混用</b>：
+/// 分級問的是「這東西是不是任務目標」（刻意寧多勿漏，寧可多列一個），
+/// 歸屬問的是「它屬於哪一種身份」（判不出來就是 <see cref="Unknown"/>，呼叫端照舊顯示）。
+/// 2026-08-08 使用者以協助員身份回報「看到駕駛員的目標（菌床本體 2014722）」，
+/// 就是因為<b>只有分級、沒有歸屬</b>——三層分級全都會把它判成任務目標，而且每一條都對：
+/// 它確實是這場事件的目標，只是不是<b>他的</b>。
+///
+/// ⚠️ <see cref="Unknown"/> 刻意是 0：這個型別會出現在 <c>TryGetValue</c> 失敗之後，
+/// <c>default</c> 必須落在「不知道 ⇒ 照舊顯示」這個安全的一邊。
+/// </summary>
+internal enum MechaTargetOwner
+{
+    /// <summary>沒有任何證據 ⇒ <b>不分流</b>，照舊顯示。</summary>
+    Unknown = 0,
+
+    /// <summary>
+    /// 資料明確說這是兩種身份<b>共用</b>的（台服目前只有 2014717 野外探測器，
+    /// 物件種類欄 7）。⚠️ 這跟 <see cref="Unknown"/> 的顯示結果一樣，但語意完全不同：
+    /// 「已知共用」會<b>中止</b>後續的 <c>ObjectKind</c> 推論，「不知道」不會。
+    /// 理由見 <c>MechaObjectiveTracker.OwnerOf</c>。
+    /// </summary>
+    Shared = 1,
+
+    /// <summary>駕駛員的目標（巨型目標，物件種類欄 3）。</summary>
+    Pilot = 2,
+
+    /// <summary>協助員的目標（per-player 生成的小型目標，物件種類欄 4）。</summary>
+    GroundSupport = 3,
+}
+
+/// <summary>
+/// 「這個東西有多可能是任務目標」——PalacePal 式的兩態標示再加一個底層。
+///
+/// 🔑 <b>為什麼不是布林</b>（2026-08-06 使用者回報）：機甲任務的目標物件可能
+/// <b>既沒有名字、也不可選取</b>，於是被「只顯示可選取的物件」整批擋掉；
+/// 而把那個開關關掉又會讓整片場景與 NPC 灌進清單。二元開關兩邊都不對，
+/// 真正缺的是「這一筆是不是任務目標」這個語意。
+/// </summary>
+internal enum MechaTargetTier
+{
+    /// <summary>一般物件。沒有任何線索指出它跟任務有關。</summary>
+    Other = 0,
+
+    /// <summary>
+    /// 疑似任務目標：<c>BaseId</c> 跟某個「被目的指示標記對上過」的物件相同，
+    /// 或落在資料表的機甲事件物件白名單裡。遊戲往往只標二十幾個同型目標裡的幾個，
+    /// 這一層就是把剩下的補回來。
+    /// </summary>
+    Likely = 1,
+
+    /// <summary>
+    /// 已確認：這一幀真的有一個目的指示標記對上了它。
+    /// </summary>
+    Objective = 2,
+}
 
 /// <summary>
 /// 「這個目標有沒有被這個技能的範圍蓋到」的純幾何判定。

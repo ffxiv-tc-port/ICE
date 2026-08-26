@@ -14,15 +14,31 @@ namespace ICE.Utilities.AddonMasters;
 /// 缺的就是這個與 <see cref="ShopExchangeCurrency"/> 兩個類別。原封不動搬進 ICE。
 /// 上游已刪除它，所以沒有「未來會與上游分岔」的問題。
 ///
-/// 📌 已知缺陷（沿用原樣，未修）：AtkValues 索引 2/75/441 全是寫死的，且沒有對
-/// <c>AtkValuesCount</c> 做邊界檢查。遊戲改版後會靜默指到錯的位置。
+/// 📌 AtkValues 索引 2/75/441 全是寫死的（上游值，照國際服寫的）。
+/// 2026-08-07 補上邊界檢查：<c>Addon->AtkValues[i]</c> 是沒有邊界檢查的原始指標索引，
+/// <c>NumEntries</c> 讀到垃圾值時迴圈會一路讀到配置外 —— 那是 AVE，<c>try/catch</c> 攔不到。
+/// 索引本身**沒有改**，只是超出 <see cref="AtkUnitBase.AtkValuesCount"/> 時當成「讀不到」。
 /// </summary>
 public unsafe class Shop : AddonMasterBase<AtkUnitBase>
 {
     public Shop(nint addon) : base(addon) { }
     public Shop(void* addon) : base(addon) { }
 
-    public uint NumEntries => Addon->AtkValues[2].UInt;
+    /// <summary>這個 addon 目前實際有幾個 AtkValue。診斷用。</summary>
+    public int AtkValueCount => Addon == null ? 0 : Addon->AtkValuesCount;
+
+    private bool TryGetUInt(int index, out uint value)
+    {
+        value = 0;
+        if (Addon == null || Addon->AtkValues == null)
+            return false;
+        if (index < 0 || index >= Addon->AtkValuesCount)
+            return false;
+        value = Addon->AtkValues[index].UInt;
+        return true;
+    }
+
+    public uint NumEntries => TryGetUInt(2, out var v) ? v : 0;
 
     public class ShopItemInfo(Shop master, int index)
     {
@@ -50,14 +66,18 @@ public unsafe class Shop : AddonMasterBase<AtkUnitBase>
         get
         {
             var ret = new List<ShopItemInfo>();
-            for (int i = 0; i < NumEntries; i++)
+            var count = NumEntries;
+            for (int i = 0; i < count; i++)
             {
-                var itemId = Addon->AtkValues[441 + (i * 1)].UInt;
+                if (!TryGetUInt(441 + i, out var itemId))
+                    break;
 
                 if (itemId == 0)
                     continue;
 
-                var costAmount = Addon->AtkValues[75 + (i * 1)].UInt;
+                if (!TryGetUInt(75 + i, out var costAmount))
+                    break;
+
                 ret.Add(new ShopItemInfo(this, i)
                 {
                     ItemId = itemId,

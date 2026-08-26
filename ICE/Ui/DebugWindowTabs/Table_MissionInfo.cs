@@ -47,13 +47,13 @@ namespace ICE.Ui.DebugWindowTabs
             ImGui.SliderUInt("Rank ID", ref RankSearch, 0, 6);
             ImGui.SetNextItemWidth(250);
             ImGui.SliderUInt("Class Selection", ref jobSearch, 7, 18);
-            if (ImGui.Button("Copy Scores"))
+            if (ImGui.Button("Copy Scores".Loc()))
             {
                 ImGui.SetClipboardText(GenerateMissionScoreDictionaryCode());
             }
             ImGui.SameLine();
 
-            if (ImGui.Button("Export Fishing Missions"))
+            if (ImGui.Button("Export Fishing Missions".Loc()))
             {
                 var fishingMissions = CosmicHelper.SheetMissionDict
                     .Where(kvp => kvp.Value.Attributes.HasFlag(MissionAttributes.Fish)) // Adjust flag name as needed
@@ -74,13 +74,13 @@ namespace ICE.Ui.DebugWindowTabs
                 }
                 else
                 {
-                    ImGui.SetTooltip("No fishing missions found!");
+                    ImGui.SetTooltip("No fishing missions found!".Loc());
                 }
             }
 
             ImGui.SameLine();
 
-            if (ImGui.Button("Clear stored scores"))
+            if (ImGui.Button("Clear stored scores".Loc()))
             {
                 C.ScoreKeeper.Clear();
                 C.Save();
@@ -90,7 +90,7 @@ namespace ICE.Ui.DebugWindowTabs
             ImGui.InputText("##ExportPath", ref exportPath, 500);
 
             ImGui.SameLine();
-            if (ImGui.Button("Browse..."))
+            if (ImGui.Button("Browse...".Loc()))
             {
                 fileDialogManager.SaveFileDialog(
                     "Select Export Location",
@@ -108,7 +108,7 @@ namespace ICE.Ui.DebugWindowTabs
             }
 
             ImGui.SameLine();
-            if (ImGui.Button("Export CSV"))
+            if (ImGui.Button("Export CSV".Loc()))
             {
                 ExportToCsv();
             }
@@ -361,7 +361,7 @@ namespace ICE.Ui.DebugWindowTabs
                         if (ImGui.IsItemHovered())
                         {
                             ImGui.BeginTooltip();
-                            ImGui.Text("Export this fishing mission entry");
+                            ImGui.Text("Export this fishing mission entry".Loc());
                             ImGui.EndTooltip();
                         }
                     }
@@ -384,9 +384,11 @@ namespace ICE.Ui.DebugWindowTabs
                     }
 
                     ImGui.TableSetColumnIndex(33);
-                    var manager = WKSManager.Instance();
-                    var isCompleted = manager->IsMissionCompleted(entry.Key);
-                    var isGold = manager->IsMissionGolded(entry.Key);
+                    // 🔴 同上：原本這兩行是沒有判空的解參考。改走共用讀取點。
+                    //    ⚠️ 順帶一提，這兩個區域變數**沒有任何人用**——下一行的 Completion()
+                    //    會自己再讀一次。刻意保留原本的形狀不刪，只把讀法換成安全的；
+                    //    要不要清掉這兩行留給呼叫者裁決。
+                    var (isCompleted, isGold) = MissionStatusHelper.GetStatus(entry.Key);
                     Completion(entry.Key);
 
                     ImGui.PopID();
@@ -505,9 +507,11 @@ namespace ICE.Ui.DebugWindowTabs
 
         private static unsafe void Completion(uint id)
         {
-            var manager = WKSManager.Instance();
-            var isCompleted = manager->IsMissionCompleted(id);
-            var isGold = manager->IsMissionGolded(id);
+            // 🔴 原本直接 manager->IsMissionCompleted(id)，沒有判空。WKSManager 在宇宙探索內容以外
+            //    是 null，直接解參考＝攔不到的 AccessViolationException。這是除錯視窗，
+            //    「不在宇宙區時把它打開」正是最容易發生的情境。
+            //    改用既有的共用讀取點 MissionStatusHelper.GetStatus（讀不到就回 (false, false)）。
+            var (isCompleted, isGold) = MissionStatusHelper.GetStatus(id);
 
             if (isCompleted)
             {

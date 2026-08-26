@@ -33,15 +33,49 @@ namespace ICE.Ui
             P.windowSystem.RemoveWindow(this);
         }
 
-        public override bool DrawConditions()
+        /// <summary>
+        /// 這一輪機甲區塊的內容<b>已經畫在 ICE 疊加層主視窗裡</b>，所以獨立視窗不要再開一份。
+        ///
+        /// 🔑 <b>為什麼不是直接把獨立視窗刪掉</b>（2026-08-08 使用者要求「併到主 ui 上」）：
+        /// 主視窗自己有一個開關（<c>C.ShowOverlay</c>，而且<b>預設是關的</b>）。
+        /// 無條件刪掉獨立視窗的話，沒開主視窗的人會發現機甲行動整組功能憑空消失，
+        /// 而且完全沒有徵兆。所以判斷式寫成「主視窗真的會畫到它」——
+        /// 主視窗沒開時獨立視窗自動接手，合併不會變成功能消失。
+        /// ⚠️ 兩邊的區域條件（<c>IsInCosmicZone</c>）本來就一樣，所以這裡不必再判一次。
+        /// </summary>
+        private static bool MergedIntoOverlay => C.ShowMechaInOverlay && C.ShowOverlay;
+
+        public override bool DrawConditions() => !MergedIntoOverlay && HasContent();
+
+        /// <summary>
+        /// 這一輪有沒有東西可畫。獨立視窗用它決定要不要開，
+        /// <see cref="OverlayWindow"/> 用它決定要不要畫那個可摺疊標題
+        /// （沒內容還畫一個空標題，只會讓人以為功能壞了）。
+        /// </summary>
+        public static bool HasContent()
         {
             if (!C.ShowMechaAoeOverlay)
                 return false;
             if (!C.ShowMechaCooldowns && !C.ShowMechaTargets && !C.ShowMechaProcAlert
-                && !C.ShowMechaEventStatus && !C.ShowMechaEventProgress && !C.ShowMechaObjectives)
+                && !C.ShowMechaEventStatus && !C.ShowMechaEventProgress && !C.ShowMechaObjectives
+                && !C.ShowMechaSchedule && !C.ShowMechaEmergency && !C.ShowMechaPilotTicket)
                 return false;
             if (!PlayerHelper.IsInCosmicZone())
                 return false;
+
+            // 🔑 排程與緊急事件刻意排在「有沒有機甲技能」之前：
+            //    這兩行的**全部價值就是在機甲階段以外**看得到（「下一場幾點」「現在有沒有紅色警報」）。
+            //    掛在 ActiveCandidates 底下等於只有已經在打的人才看得到，那就沒有意義了。
+            if (C.ShowMechaSchedule && MechaOpsMonitor.Schedule.Count > 0)
+                return true;
+            if (C.ShowMechaEmergency && MechaOpsMonitor.Emergency is { IsRedAlert: true })
+                return true;
+
+            // 駕駛申請書同理，而且更極端：這一列的<b>全部價值就在事件開始之前</b>——
+            // 等到報名視窗開了才發現自己沒票，那一場就沒了（要先去 NPC 換一張）。
+            // 所以它只要求「模組讀得到」，不要求現在有沒有事件。
+            if (C.ShowMechaPilotTicket && MechaOpsMonitor.EventFlagsValid)
+                return true;
 
             // 沒在機甲階段、也沒有任何事件旗標時就整個收起來，
             // 不要在宇宙探索全程掛一個空視窗。
@@ -50,7 +84,9 @@ namespace ICE.Ui
 
             // 目的指示只要讀到過標記（或使用者釘了東西）就值得掛著——
             // 協助員沒有機甲技能，這一行是他唯一看得到的東西。
-            if (C.ShowMechaObjectives
+            // ⚠️ 這裡要問到「視窗裡那一列」的開關：只開地上的圈、關掉這一列的人，
+            //    不該因此得到一個空視窗。
+            if (C.ShowMechaObjectives && C.ShowMechaRowObjectives
                 && (MechaObjectiveTracker.MarkerCount > 0 || MechaObjectiveTracker.PinnedCount > 0))
                 return true;
 
@@ -63,12 +99,43 @@ namespace ICE.Ui
             return C.ShowMechaEventProgress && MechaOpsMonitor.EventDetail != null;
         }
 
-        public override void Draw()
+        public override void Draw() => DrawContent();
+
+        /// <summary>
+        /// 機甲行動區塊的內容本體。獨立視窗與 ICE 疊加層主視窗<b>共用這一份</b>——
+        /// 抄一份過去的話兩邊遲早會漂開（其中一邊的新功能悄悄少一行）。
+        /// </summary>
+        public static void DrawContent()
         {
             var drewSomething = false;
 
+            // 排程與緊急事件放最上面：它們是「隨時掃視」的資訊，
+            // 而且在機甲階段以外這個視窗往往只有這兩行。
+            if (C.ShowMechaSchedule)
+                drewSomething = DrawSchedule();
+
+            // 駕駛申請書緊接在排程後面：兩者是同一個決策的兩半——
+            //「下一場幾點」與「我報得了名嗎」。
+            if (C.ShowMechaPilotTicket)
+            {
+                if (drewSomething)
+                    ImGui.Separator();
+                drewSomething |= DrawPilotTicket();
+            }
+
+            if (C.ShowMechaEmergency)
+            {
+                if (drewSomething)
+                    ImGui.Separator();
+                drewSomething |= DrawEmergency();
+            }
+
             if (C.ShowMechaEventStatus)
-                drewSomething = DrawEventStatus();
+            {
+                if (drewSomething)
+                    ImGui.Separator();
+                drewSomething |= DrawEventStatus();
+            }
 
             // 先確認真的有東西可畫，才畫分隔線——避免留下一條下面空無一物的線。
             if (C.ShowMechaEventProgress && MechaOpsMonitor.EventDetail != null)
@@ -78,7 +145,9 @@ namespace ICE.Ui
                 drewSomething |= DrawEventProgress();
             }
 
-            if (C.ShowMechaObjectives)
+            // ⚠️ 兩個開關都要問：ShowMechaObjectives 是目的指示這整個功能（含地上的圈），
+            //    ShowMechaRowObjectives 只管視窗裡這一列。想關掉這一行的人不該連圈一起失去。
+            if (C.ShowMechaObjectives && C.ShowMechaRowObjectives)
             {
                 if (drewSomething)
                     ImGui.Separator();
@@ -101,6 +170,233 @@ namespace ICE.Ui
         }
 
         /// <summary>
+        /// 「下次機甲事件：<c>名稱 HH:mm（N 分後）</c>」。
+        ///
+        /// 🔑 <b>這是使用者原本要的那一行</b>（原話：「機甲任務有下一次任務 但沒提示時間」）。
+        /// 遊戲自己的面板只說「有下一場」，不說幾點。
+        ///
+        /// 🔴 <b>時間換算</b>：時間戳是 <b>unix 秒</b>，倒數一律拿<b>伺服器時間</b>比
+        /// （遊戲自己判斷報名／傳送視窗就是拿它比，見 <see cref="MechaEventDetail"/>）；
+        /// 而「幾點幾分」那一段用 <c>DateTimeOffset.FromUnixTimeSeconds(x).LocalDateTime</c>
+        /// 轉成使用者的當地時間 —— <b>不要</b>用 <c>UtcDateTime</c>，那會整整差一個時區
+        /// （台服使用者就是差 8 小時，而且畫面上看起來完全正常）。
+        ///
+        /// 🔑 <b>「不知道」要看得見</b>：拿不到伺服器時間時不猜「還有幾分鐘」，
+        /// 改成灰色的「?」＋原始時鐘，而不是畫一個看起來很正常的錯誤倒數。
+        /// </summary>
+        private static bool DrawSchedule()
+        {
+            var entries = MechaOpsMonitor.Schedule;
+            if (entries.Count == 0)
+                return false;
+
+            var now = entries[0].ServerTimeNow;
+
+            // 下一場＝開始時間還在未來的那些裡面最早的。
+            MechaScheduleEntry? next = null;
+            MechaScheduleEntry? running = null;
+            foreach (var e in entries)
+            {
+                if (now > 0 && e.EventStart <= now)
+                {
+                    // 已經開始了：如果還沒結束，它就是「進行中」的那一場。
+                    if (e.EventEnd > now && (running == null || e.EventEnd < running.EventEnd))
+                        running = e;
+                    continue;
+                }
+                if (next == null || e.EventStart < next.EventStart)
+                    next = e;
+            }
+
+            // 進行中的那場已經有既有的進度區塊在講，這裡只在「沒有下一場」時才提一句，
+            // 免得同一件事在視窗裡出現兩次。
+            if (next == null && running == null)
+                return false;
+
+            if (next == null)
+            {
+                ImGui.TextUnformatted("Mecha Event".Loc());
+                ImGui.SameLine();
+                ImGui.TextColored(ImGuiColors.HealerGreen, "In progress".Loc());
+                ImGui.SameLine();
+                ImGui.TextDisabled(NameOf(running!.DataRowId));
+                return true;
+            }
+
+            ImGui.TextUnformatted("Next Mecha Event".Loc());
+            ImGui.SameLine();
+
+            // 事件名稱。查不到就是灰色問號——不要拿空字串充數。
+            var name = NameOf(next.DataRowId);
+            if (name.Length > 0)
+                ImGui.TextColored(ImGuiColors.DalamudWhite, name);
+            else
+                ImGui.TextColored(ImGuiColors.DalamudGrey3, "?");
+
+            ImGui.SameLine();
+
+            // 幾點幾分（當地時間）——這一段不需要伺服器時間，時間戳本身就是絕對時刻。
+            ImGui.TextColored(ImGuiColors.DalamudOrange, FormatClock(next.EventStart));
+
+            // 還有多久——這一段需要伺服器時間，拿不到就標「?」。
+            ImGui.SameLine();
+            if (TryGetRemaining(next.EventStart, now, out var remaining) && remaining > 0)
+            {
+                ImGui.TextDisabled($"({FormatDuration(remaining)})");
+            }
+            else
+            {
+                ImGui.TextColored(ImGuiColors.DalamudGrey3, "(?)");
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("The countdown needs the game's own server clock, and it could not be read " +
+                                      "this pass (or the timestamp is out of range).\n" +
+                                      "The start time itself is still correct - it is an absolute timestamp.").Loc());
+                }
+            }
+
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip(
+                    $"WKSMechaEventDataRowId = {next.DataRowId}\n" +
+                    $"EventStart = {next.EventStart} ({FormatClock(next.EventStart)})\n" +
+                    $"EventEnd = {next.EventEnd} ({FormatClock(next.EventEnd)})\n" +
+                    $"PilotRegistration = {next.RegistrationStart} .. {next.RegistrationEnd}\n" +
+                    $"TeleportStart = {next.TeleportStart}\n" +
+                    $"Flags = 0x{(uint)next.Flags:X}  slot={next.Slot}\n" +
+                    $"ServerTime = {now}");
+            }
+
+            return true;
+        }
+
+        private static string NameOf(uint dataRowId)
+            => MechaObjectNames.EventName(dataRowId) ?? string.Empty;
+
+        /// <summary>
+        /// 「駕駛申請書：持有／無／?」。
+        /// （2026-08-08 使用者原話：「駕駛申請書身上只能帶一張 能偵測到有沒有嗎」。）
+        ///
+        /// 🔑 <b>為什麼在列上而不是 tooltip</b>：這是「隨時掃視」的資訊。沒票就當不了駕駛員，
+        /// 而且要先去找 NPC 換 —— 等報名視窗開了才發現，那一場就報不上了。
+        ///
+        /// 🔑 <b>三種狀態必須分得開</b>（同 <see cref="DrawObjectiveRow"/> 的處理）：
+        /// <list type="bullet">
+        ///   <item>連模組都拿不到 → 這一列<b>不該存在</b>（不是「沒有申請書」）。</item>
+        ///   <item>模組在、但資料還沒送到 → 灰色「?」，那才是真正的「不知道」。</item>
+        ///   <item>讀到了 → 持有／無。</item>
+        /// </list>
+        /// 🔴 把「讀不到」畫成「無」會害使用者白跑一趟去換一張他其實已經有的票，
+        /// 而且畫面上完全看不出哪裡不對。
+        /// </summary>
+        private static bool DrawPilotTicket()
+        {
+            if (!MechaOpsMonitor.EventFlagsValid)
+                return false;
+
+            ImGui.TextUnformatted("Pilot Application".Loc());
+            ImGui.SameLine();
+
+            switch (MechaOpsMonitor.PilotTicketHeld)
+            {
+                case true:
+                    ImGui.TextColored(ImGuiColors.HealerGreen, "Held".Loc());
+                    break;
+                case false:
+                    // 警示色：想當駕駛員就得先去換一張，這是「現在就該處理」的狀態。
+                    ImGui.TextColored(ImGuiColors.DalamudOrange, "None".Loc());
+                    break;
+                default:
+                    ImGui.TextColored(ImGuiColors.DalamudGrey3, "?");
+                    break;
+            }
+
+            if (ImGui.IsItemHovered())
+            {
+                // ⚠️ 刻意不寫死 NPC 名字：駕駛申請書分成兩類、對應不同的探索區域，
+                //    兌換地點也就不只一處。座標是遊戲自己的提示文字（Addon 16964）在渴望灣的內容。
+                ImGui.SetTooltip(("You can only carry one - the game's own panel shows this as 0/1 or 1/1.\n" +
+                                  "Exchange it at the mecha ops counter in the exploration zone, paying that " +
+                                  "zone's own credits (Sinus Ardorum: 22, 20 - lunar credits).\n" +
+                                  "It is spent when you are picked as the pilot, and it is spent anyway if you " +
+                                  "decline or let the timer run out after being picked.\n" +
+                                  "'?' means the game has not sent this data yet - that is not the same as " +
+                                  "not having one.").Loc());
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// unix 秒 → 使用者當地時間的「HH:mm」。
+        /// 🔴 一定要用 <c>LocalDateTime</c>：<c>UtcDateTime</c> 會整整差一個時區，
+        ///    而且畫面上看起來完全正常（台服使用者差 8 小時）。
+        /// </summary>
+        private static string FormatClock(int unixSeconds)
+        {
+            if (unixSeconds <= 0)
+                return "?";
+            try
+            {
+                return DateTimeOffset.FromUnixTimeSeconds(unixSeconds).LocalDateTime.ToString("HH:mm");
+            }
+            catch
+            {
+                // 垃圾值（超出 DateTimeOffset 範圍）：照樣不要猜，直接說不知道。
+                return "?";
+            }
+        }
+
+        /// <summary>
+        /// 緊急事件（紅色警報：磁暴／流星雨／孢子霧）那一行。
+        ///
+        /// ⚠️ 整段掛在 <c>C.ShowMechaEmergency</c> 底下，而那是<b>預設關的部署閘門</b>
+        /// （理由見 <c>MissionConfigs</c> 的註解與 <c>MechaOpsMonitor.ReadEmergency</c>）。
+        ///
+        /// 🔑 類型名稱走純資料表查詢，查不到就畫灰色「?」——
+        /// <b>不要</b>因為查不到名字就整行不畫，那會讓「有紅色警報」這件事本身消失。
+        /// </summary>
+        private static bool DrawEmergency()
+        {
+            var em = MechaOpsMonitor.Emergency;
+            if (em == null || !em.IsRedAlert)
+                return false;
+
+            var (shortName, banner) = MechaEmergencyNames.Lookup(em.InfoRowId, em.InfoSubRowId);
+
+            ImGui.TextColored(ImGuiColors.DalamudRed, "Red Alert".Loc());
+            ImGui.SameLine();
+
+            if (shortName != null)
+                ImGui.TextColored(ImGuiColors.DalamudWhite, shortName);
+            else
+                ImGui.TextColored(ImGuiColors.DalamudGrey3, "?");
+
+            ImGui.SameLine();
+            ImGui.TextDisabled(em.IsIncoming ? "Incoming".Loc() : "In progress".Loc());
+
+            // 剩餘時間。EndTime 是 unix 秒；同樣拿伺服器時間比，拿不到就「?」。
+            var now = em.ServerTimeNow;
+            var end = em.EndTime is > 0 and <= int.MaxValue ? (int)em.EndTime : 0;
+            ImGui.SameLine();
+            if (TryGetRemaining(end, now, out var remaining) && remaining > 0)
+                ImGui.TextColored(ImGuiColors.DalamudOrange, FormatDuration(remaining));
+            else
+                ImGui.TextColored(ImGuiColors.DalamudGrey3, "?");
+
+            if (ImGui.IsItemHovered())
+            {
+                var raw = $"State = {em.State}\n" +
+                          $"EmergencyInfo = {em.InfoRowId}.{em.InfoSubRowId}\n" +
+                          $"EndTime = {em.EndTime} ({FormatClock(end)})\n" +
+                          $"ServerTime = {now}";
+                ImGui.SetTooltip(banner != null ? banner + "\n\n" + raw : raw);
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// 事件狀態（報名流程走到哪一步）。資料來源只有 <c>WKSMechaEventModule.Flags</c>
         /// 這一個純量位元欄位（取樣在 <see cref="MechaOpsMonitor.ReadEventFlags"/>）。
         ///
@@ -117,6 +413,10 @@ namespace ICE.Ui
             if (flags == 0)
                 return false;
 
+            // 🔑 整列包成一個 group，這樣原始值可以掛在**整列**的 tooltip 上
+            //    （UI 準則：隨時掃視的放列上、起疑才查的放 tooltip）。
+            ImGui.BeginGroup();
+
             ImGui.TextUnformatted("Mecha Event".Loc());
             ImGui.SameLine();
 
@@ -127,19 +427,31 @@ namespace ICE.Ui
             DrawFlagChip(flags, WKSEventModuleFlag.PilotCutscenePlaying, "Cutscene".Loc());
             DrawFlagChip(flags, WKSEventModuleFlag.IsJoined, "Joined".Loc());
 
-            // 已知位元以外的東西照原樣印出來，方便日後鑑識；正常情況不會出現。
+            // （每個 chip 結尾都已經 SameLine 過了，這裡不用再呼叫一次。）
+            ImGui.NewLine();
+            ImGui.EndGroup();
+
+            // 🔴 2026-08-08 使用者截圖回報：這一列原本還印著 `+0x83` 這種原始位元值。
+            //    那是開發期的殘留——它每一場都會出現（不是異常訊號），對使用者沒有意義，
+            //    卻佔著「隨時掃視」的版面。原始值整批移進 tooltip，列上只留人話狀態。
+            //    ⚠️ 未知位元本身仍然要留得住（日後鑑識用），只是改成起疑才查。
             const WKSEventModuleFlag known =
                 WKSEventModuleFlag.HasCurrentEvent
                 | WKSEventModuleFlag.PilotApplicationSubmitted
                 | WKSEventModuleFlag.PilotApplicationAccepted
                 | WKSEventModuleFlag.PilotCutscenePlaying
                 | WKSEventModuleFlag.IsJoined;
-            // （每個 chip 結尾都已經 SameLine 過了，這裡不用再呼叫一次。）
             var unknown = flags & ~known;
-            if (unknown != 0)
-                ImGui.TextDisabled($"+0x{(uint)unknown:X}");
 
-            ImGui.NewLine();
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip(
+                    "WKSMechaEventModule.Flags = 0x??\nknown bits = 0x??\nother bits = 0x??".Loc(
+                        ((uint)flags).ToString("X"),
+                        ((uint)(flags & known)).ToString("X"),
+                        ((uint)unknown).ToString("X")));
+            }
+
             return true;
         }
 
@@ -182,23 +494,36 @@ namespace ICE.Ui
             // 卡成一格一格跳，也不必在繪製執行緒上呼叫任何遊戲函式。0 = 拿不到。
             var nowServer = detail.ServerTimeNow;
 
+            // 旗標列（進行中／參加中／報名／傳送）是這一組的抬頭，沒有另外的開關：
+            // 它就是「現在到底能不能報名／傳送」，關掉它等於整組沒有意義。
             DrawEventFlagLine(detail, nowServer);
+
+            // ⚠️ 底下每一列各有一個開關（2026-08-08 使用者要求），全部預設開。
+            //    這裡只影響**畫不畫**，資料照樣取樣——別的功能（錄製、log）不受影響。
 
             // 🔴 兩條進度都可能 Max = 0（事件還沒開始，或欄位語意跟預期不同），
             //    除法一律走 DrawProgressRow 裡的防 0 分支。
-            DrawProgressRow("Event Progress".Loc(), detail.Progress, detail.ProgressMax);
-            DrawProgressRow("Personal".Loc(), detail.PersonalProgress, detail.PersonalProgressMax);
+            if (C.ShowMechaRowEventProgress)
+                DrawProgressRow("Event Progress".Loc(), detail.Progress, detail.ProgressMax);
+            if (C.ShowMechaRowPersonalProgress)
+                DrawProgressRow("Personal".Loc(), detail.PersonalProgress, detail.PersonalProgressMax);
 
-            ImGui.TextUnformatted("Contribution".Loc());
-            ImGui.SameLine();
-            ImGui.TextColored(ImGuiColors.DalamudWhite, detail.Contribution.ToString());
+            if (C.ShowMechaRowContribution)
+            {
+                ImGui.TextUnformatted("Contribution".Loc());
+                ImGui.SameLine();
+                ImGui.TextColored(ImGuiColors.DalamudWhite, detail.Contribution.ToString());
+            }
 
-            DrawDeadline("Event ends in".Loc(), detail.EventEnd, nowServer, "Ended".Loc());
-            DrawDeadline("Sign-up closes in".Loc(), detail.RegistrationEnd, nowServer, "Closed".Loc());
+            if (C.ShowMechaRowEventEnd)
+                DrawDeadline("Event ends in".Loc(), detail.EventEnd, nowServer, "Ended".Loc());
+            if (C.ShowMechaRowSignupEnd)
+                DrawDeadline("Sign-up closes in".Loc(), detail.RegistrationEnd, nowServer, "Closed".Loc());
 
             // 傳送視窗的結束時間就是事件開始時間（遊戲自己的 IsTeleportTimeframeOpen 是這樣判的），
             // 所以協助員也看得到一個真的倒數，不必再猜。
-            DrawDeadline("Teleport closes in".Loc(), detail.EventStart, nowServer, "Closed".Loc());
+            if (C.ShowMechaRowTeleportEnd)
+                DrawDeadline("Teleport closes in".Loc(), detail.EventStart, nowServer, "Closed".Loc());
 
             return true;
         }
@@ -211,6 +536,9 @@ namespace ICE.Ui
         {
             var flags = detail.Flags;
 
+            // 整列包成 group，原始值掛在整列的 tooltip 上（同 DrawEventStatus 的處理）。
+            ImGui.BeginGroup();
+
             DrawEventFlagChip(flags, WKSMechaEventFlag.IsEventActive, "Active".Loc());
             DrawEventFlagChip(flags, WKSMechaEventFlag.IsParticipating, "Participating".Loc());
 
@@ -220,28 +548,28 @@ namespace ICE.Ui
             DrawStaleableFlagChip("Sign-up".Loc(), detail.IsRegistrationOpen(nowServer));
             DrawStaleableFlagChip("Teleport".Loc(), detail.IsTeleportOpen(nowServer));
 
-            // 已知位元以外的東西照原樣印出來，方便日後鑑識；正常情況不會出現。
+            // 🔴 2026-08-08：這一列原本還印著 `+0x??`（未知位元）與 `#1`（事件列號）。
+            //    兩個都是開發期殘留：`#1` 每一場都在，`+0x??` 也不是異常訊號，
+            //    使用者掃視這一列時要看的是「報名開著沒／傳送開著沒」，不是十六進位。
+            //    ⇒ 兩者整批移進整列的 tooltip（原本就掛在 `#1` 上的那一份），列上一個都不留。
             const WKSMechaEventFlag known =
                 WKSMechaEventFlag.IsParticipating
                 | WKSMechaEventFlag.PilotRegistrationOpen
                 | WKSMechaEventFlag.GroundSupportTeleportOpen
                 | WKSMechaEventFlag.IsEventActive;
             var unknown = flags & ~known;
-            if (unknown != 0)
-            {
-                ImGui.TextDisabled($"+0x{(uint)unknown:X}");
-                ImGui.SameLine();
-            }
+
+            ImGui.NewLine();
+            ImGui.EndGroup();
 
             // 校準用的原始值。欄位語意與時間基準雖然已經離線證實，實機的實際內容仍未看過，
             // 使用者只要把游標移上去就能把原始數字回報回來，不必去翻 log。
             // （這裡全是欄位名與數字，不進翻譯表。）
-            ImGui.TextDisabled($"#{detail.DataRowId}");
             if (ImGui.IsItemHovered())
             {
                 ImGui.SetTooltip(
                     $"WKSMechaEventDataRowId = {detail.DataRowId}\n" +
-                    $"Flags = 0x{(uint)detail.Flags:X}\n" +
+                    $"Flags = 0x{(uint)detail.Flags:X} (other bits 0x{(uint)unknown:X})\n" +
                     $"EventStart = {detail.EventStart}\n" +
                     $"EventEnd = {detail.EventEnd}\n" +
                     $"PilotRegistrationStart = {detail.RegistrationStart}\n" +
@@ -254,8 +582,6 @@ namespace ICE.Ui
                     $"{(Environment.TickCount64 - detail.SampledTick) / 1000L}s ago)\n" +
                     $"LocalUtc = {DateTimeOffset.UtcNow.ToUnixTimeSeconds()}");
             }
-
-            ImGui.NewLine();
         }
 
         private static void DrawEventFlagChip(WKSMechaEventFlag flags, WKSMechaEventFlag bit, string label)
@@ -394,10 +720,16 @@ namespace ICE.Ui
             var hasEvent = MechaOpsMonitor.EventFlagsValid
                 && (MechaOpsMonitor.EventFlags & WKSEventModuleFlag.HasCurrentEvent) != 0;
 
+            var rowId = MechaOpsMonitor.EventDetail?.DataRowId ?? 0u;
+
             if (markerCount < 0 && !hasEvent && pins == 0)
                 return false;                       // (a)
+
+            // ⚠️ 「一個標記都沒有」不等於「沒事可做」。協助員的目標（小型變異菌床之類）
+            //    不見得會有事件地圖標記，舊碼在這裡直接 return false，結果最需要看到
+            //    「我這個身份該做什麼」的人反而什麼都看不到。至少要把指示那一行畫出來。
             if (markerCount == 0 && pins == 0)
-                return false;                       // 讀過了，真的沒有標記
+                return DrawRoleObjective(rowId);
 
             ImGui.TextUnformatted("Objectives".Loc());
             ImGui.SameLine();
@@ -463,6 +795,67 @@ namespace ICE.Ui
                                           "The fallback is safe, but positions may include stale entries.").Loc());
                     }
                     break;
+            }
+
+            // 這一場事件叫什麼（例如「有害菌床驅除指令」）。
+            // 🔑 為什麼放這裡：機甲事件的目標物件在遊戲資料裡可能**根本沒有名字**，
+            //    疊加層上只能畫「目標 1／目標 2」。事件名是使用者唯一看得到的
+            //    「我在打什麼」，所以放在列上而不是 tooltip 裡。
+            //    取不到就整段不畫（不畫成空白，也不猜）。
+            var eventName = MechaObjectNames.EventName(rowId);
+            if (eventName != null)
+            {
+                ImGui.SameLine();
+                ImGui.TextDisabled(eventName);
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("The mecha event currently running.\n" +
+                                      "Its objective objects often have no name in the game data at all, in which case " +
+                                      "the overlay falls back to numbering them.").Loc());
+                }
+            }
+
+            DrawRoleObjective(rowId);
+            return true;
+        }
+
+        /// <summary>
+        /// 「你這一場的指示」——依身份取 <c>WKSMechaEventData</c> 裡對應的那一段文字。
+        ///
+        /// 🔑 <b>為什麼這一段值得佔版面</b>（2026-08-06 使用者實機回報「協助員身份參加，目標不一樣」）：
+        /// 兩種身份的目標本來就不同——駕駛員剷除<b>巨型</b>變異菌床，協助員是用宇宙火焰噴射器
+        /// 焚燒<b>小型</b>變異菌床、再把灰燼投進野外探測器。疊加層畫的是遊戲標出來的點位，
+        /// 但「我到底該做什麼」只有這段文字講得清楚，所以放列上而不是塞進 tooltip。
+        ///
+        /// ⚠️ 判不出身份時整段不畫——寧可不講，也不要講錯身份的指示。
+        /// </summary>
+        private static bool DrawRoleObjective(uint rowId)
+        {
+            var role = MechaOpsMonitor.Role;
+            if (role == MechaRole.Unknown)
+                return false;
+
+            var text = MechaObjectNames.EventObjectiveText(rowId, role);
+            if (text == null)
+                return false;
+
+            var roleLabel = role == MechaRole.Pilot ? "Pilot".Loc() : "Ground Support".Loc();
+
+            ImGui.TextColored(ImGuiColors.DalamudViolet, roleLabel);
+            ImGui.SameLine();
+
+            // 指示文字本身可能兩行，而視窗是 AlwaysAutoResize——不設換行寬度會把視窗撐得很寬。
+            ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + 320f * ImGuiHelpers.GlobalScale);
+            ImGui.TextUnformatted(text.Replace("\n", " "));
+            ImGui.PopTextWrapPos();
+
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip(("What your own role is supposed to do this event.\n" +
+                                  "The pilot and the ground support have different objectives, so the objects you " +
+                                  "should be going for are not the same ones.\n" +
+                                  "Your role is worked out from the mecha actions currently on your hotbar; if it " +
+                                  "cannot be worked out, this line is not shown at all.").Loc());
             }
 
             return true;

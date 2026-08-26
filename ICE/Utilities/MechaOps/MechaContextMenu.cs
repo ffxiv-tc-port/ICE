@@ -204,6 +204,20 @@ internal static class MechaContextMenu
             sb.AppendLine($"  ServerTimeNow = {d.ServerTimeNow} (sampled {d.ServerTimeAtSample})");
         }
 
+        // 身份與兩條目標線索。⚠️ 「協助員看到駕駛員的目標」那一類回報，答案只在這幾行裡。
+        var role = MechaOpsMonitor.Role;
+        var roleRowId = d?.DataRowId ?? 0u;
+        sb.AppendLine($"  Role = {role} (from PetHotbar actions; module flags are informational only)");
+        sb.AppendLine($"  RoleObjective = {MechaObjectNames.EventObjectiveText(roleRowId, role)?.Replace("\n", " ") ?? "(none)"}");
+        sb.AppendLine($"  LearnedBaseIds = {MechaObjectiveTracker.LearnedBaseIdCount}" +
+                      $"  SheetWhitelist = {MechaObjectNames.KnownEventObjectIds.Count}" +
+                      $"  AfterRoleSplit = {(role == MechaRole.Unknown ? "not applied" : MechaObjectNames.RoleIdCount(roleRowId, role).ToString())}");
+
+        // 身份分流（畫不畫）。⚠️ 跟上面那三個數字不是同一層：那些是「算不算任務目標」，
+        // 這一行是「屬於誰、所以這一幀有沒有被畫出來」。
+        sb.AppendLine($"  RoleGate = {(C.MechaShowOtherRoleTargets ? "off (showing every role's targets)" : "on (own role only)")}" +
+                      $"  Owners = {MechaObjectNames.DescribeOwners(roleRowId)}");
+
         sb.AppendLine($"  Objectives: markers={MechaObjectiveTracker.MarkerCount} " +
                       $"confirmed={MechaObjectiveTracker.ConfirmedCount} " +
                       $"source={MechaObjectiveTracker.Source} " +

@@ -5,8 +5,10 @@ namespace ICE.Ui
 {
     internal class Relic_XP
     {
-        private static bool ShowXP = C.ShowExpBars;
-
+        // 📌 這裡原本有 `private static bool ShowXP = C.ShowExpBars;` —— 零讀取者的死碼，已刪。
+        //    ⚠️ 名字很像閘門，實際上不是：真正決定要不要畫經驗條的是
+        //    OverlayWindow 的 `if (C.ShowExpBars)`（直讀，每幀都對）。
+        //    留著它反而危險 —— 下次有人「順手用現成的旗標」就會接到一個永遠不更新的快照。
         private class XPType
         {
             public uint CurrentXP { get; set; }
@@ -218,8 +220,14 @@ namespace ICE.Ui
             uint totalComplete = 0;
             uint maxScore = 5_500_000;
             Dictionary<uint, uint> ClassInfo = new();
-            var wksManager = WKSManager.Instance();
 
+            // 🔴 判空理由同 CosmicHandler.GetCosmicClassScores：WKSManager 的 [StaticAddress] 槽位
+            //    在宇宙探索內容以外是 null，直接解參考是 try/catch 攔不到的 AccessViolationException。
+            //    這裡回「空的 ScoreInfo」而不是 11 個 0 —— 呼叫端（OverlayWindow 的總分條）
+            //    看 ScoreInfo 是不是空的就知道「這次讀不到」，不會把未知畫成 0。
+            var wksManager = WKSManager.Instance();
+            if (wksManager == null)
+                return (totalScore, totalComplete, maxScore, ClassInfo);
 
             foreach (var crafterJob in CosmicHelper.CrafterJobList)
             {

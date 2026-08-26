@@ -63,21 +63,25 @@ namespace ICE.Scheduler.Tasks
                 }
                 if (C.StopOnceHitLunarCredits)
                 {
-                    uint[] currencies = [45691, 48146, 48147, 48148];
-                    var manager = WKSManager.Instance();
-                    var zoneId = *((byte*)manager + 0x5D);
-                    var itemId = currencies[zoneId];
-
-                    PlayerHelper.GetItemCount(itemId, out var credits);
-                    if (credits >= C.LunarCreditsCap)
+                    // 🔴 原本是 `currencies[*((byte*)WKSManager.Instance() + 0x5D)]`，兩個洞：
+                    //    ① WKSManager 在宇宙探索內容以外是 null，直接解參考＝攔不到的 AVE；
+                    //    ② zoneId 是**原始位元組**（0–255），拿去索引長度 4 的陣列沒有上界檢查。
+                    //    改用 Task_Gamba 已經寫好的版本（判空＋上界都有）。
+                    //    讀不到就**跳過這一項檢查繼續往下**（不是 return）——後面還有別的停手條件要判，
+                    //    而「停手門檻讀不到」本身不該觸發停手。
+                    if (Task_Gamba.TryGetCosmoCreditItemId(out var itemId))
                     {
-                        IceLogging.ChatInfo("You've either hit the Lunar Credit threshold, or gone above it.\nStopping I.C.E.".Loc(), "[I.C.E.]");
-                        SchedulerMain.State = IceState.Idle;
-                        if (C.PlaySoundAlert)
+                        PlayerHelper.GetItemCount(itemId, out var credits);
+                        if (credits >= C.LunarCreditsCap)
                         {
-                            _ = SoundPlayer.PlaySoundAsync();
+                            IceLogging.ChatInfo("You've either hit the Lunar Credit threshold, or gone above it.\nStopping I.C.E.".Loc(), "[I.C.E.]");
+                            SchedulerMain.State = IceState.Idle;
+                            if (C.PlaySoundAlert)
+                            {
+                                _ = SoundPlayer.PlaySoundAsync();
+                            }
+                            return true;
                         }
-                        return true;
                     }
                 }
                 if (C.StopOnceHitCosmoCredits && !C.BuyItems)
@@ -140,6 +144,10 @@ namespace ICE.Scheduler.Tasks
                             return true;
                         }
                     }
+                }
+                if (TryStopWhenStandardMissionsGolded())
+                {
+                    return true;
                 }
                 if (currentMissionId != 0)
                 {
@@ -261,12 +269,11 @@ namespace ICE.Scheduler.Tasks
                     bool canBuyItems = C.BuyItems && Task_BuyCosmoItems.CanPurchaseAnyItem() && cosmoCreditAmount >= C.CosmoBuyAtAmount;
                     bool canGamba = false;
 
-                    uint[] currencies = [45691, 48146, 48147, 48148];
-                    var manager = WKSManager.Instance();
-                    var zoneId = *((byte*)manager + 0x5D);
-                    var itemId = currencies[zoneId];
-
-                    if (C.GambaBetweenRuns)
+                    // 🔴 這裡原本是上面 StopOnceHitLunarCredits 那段的複製品，同樣沒有判空、
+                    //    也沒有陣列上界檢查（zoneId 是原始位元組）。改用 Task_Gamba 的共用版本。
+                    //    另外把查表移進 GambaBetweenRuns 裡面：原本不論有沒有開這個功能都會解參考。
+                    //    讀不到就讓 canGamba 維持 false ——「不知道」不該變成「去賭」。
+                    if (C.GambaBetweenRuns && Task_Gamba.TryGetCosmoCreditItemId(out var itemId))
                     {
                         if (PlayerHelper.GetItemCount(itemId, out var lunarCredits))
                         {
@@ -310,6 +317,64 @@ namespace ICE.Scheduler.Tasks
                     return true;
                 }
             }
+        }
+
+        // 「本區、目前所選職業的普通任務全部金評就停」。cycleapple 2e270b6d 的
+        // StopOnceStandardMissionsGolded 子集（原本綁在整套 Cosmic Agenda 上，這裡只抽停手邏輯）。
+        // 改寫重點：
+        //   ① 金評旗標走我方 MissionStatusHelper.GetStatus（CustomCs.cs 原生 IsMissionGolded），
+        //      不重新引入已移除的 WKSManagerCustom。
+        //   ② 只有在宇宙探索區內才判——區外 WKSManager 為 null，且「本區任務」的概念不成立。
+        //   ③ total == 0 一律不停（本區、本職一個普通任務都沒有＝資料還沒載入或條件不成立，
+        //      「不知道」不該觸發停手，跟其他停手門檻讀不到就跳過的原則一致）。
+        private static unsafe bool TryStopWhenStandardMissionsGolded()
+        {
+            if (!C.StopOnceStandardMissionsGolded || !PlayerHelper.IsInCosmicZone())
+            {
+                return false;
+            }
+
+            int golded = 0;
+            int total = 0;
+
+            foreach (var mission in CosmicHelper.SheetMissionDict)
+            {
+                var info = mission.Value;
+                if (info.TerritoryId != Player.Territory || !info.Jobs.Contains(C.SelectedJob))
+                {
+                    continue;
+                }
+
+                var attributes = info.Attributes;
+                if (attributes.HasFlag(MissionAttributes.Critical)
+                    || attributes.HasFlag(MissionAttributes.ProvisionalTimed)
+                    || attributes.HasFlag(MissionAttributes.ProvisionalWeather)
+                    || attributes.HasFlag(MissionAttributes.ProvisionalSequential))
+                {
+                    continue;
+                }
+
+                total++;
+                if (MissionStatusHelper.GetStatus(mission.Key).Gold)
+                {
+                    golded++;
+                }
+            }
+
+            if (total == 0 || golded != total)
+            {
+                return false;
+            }
+
+            IceLogging.ChatInfo("All standard missions have been graded gold (??/??). Stopping I.C.E.".Loc(golded, total), "[I.C.E.]");
+            SchedulerMain.State = IceState.Idle;
+            P.TaskManager.Tasks.Clear();
+            if (C.PlaySoundAlert)
+            {
+                _ = SoundPlayer.PlaySoundAsync();
+            }
+
+            return true;
         }
 
         private static void UpdateMissionState(uint missionId)

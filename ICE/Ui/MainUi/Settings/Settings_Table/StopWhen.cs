@@ -113,6 +113,21 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
             #endregion
 
+            #region Standard Missions Golded
+
+            bool stopStandardGold = C.StopOnceStandardMissionsGolded;
+            if (ImGui.Checkbox("Stop when all standard missions golded".Loc() + "###ICEStopWhenStandardMissionsGolded", ref stopStandardGold))
+            {
+                C.StopOnceStandardMissionsGolded = stopStandardGold;
+                C.Save();
+            }
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip("Stops once every standard mission for the currently selected job in the current zone has a gold rating.\nCritical and provisional (timed/weather/sequential) missions are not counted.".Loc());
+            }
+
+            #endregion
+
             #region Sound Alert
 
             bool playSoundAlert = C.PlaySoundAlert;

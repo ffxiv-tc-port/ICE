@@ -1,4 +1,7 @@
-﻿using System;
+﻿using ICE.Utilities;
+using ICE.Utilities.Cosmic;
+using ICE.Utilities.Cosmic_Helper;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -15,6 +18,158 @@ public static partial class GatheringUtil
         public bool UniqueFish = false;
         public Dictionary<string, List<uint>> Baits = new();
         public Dictionary<string, List<uint>> RequiredFish = new();
+    }
+
+    /// <summary>
+    /// 用資料表補上還沒手寫的 <see cref="FishingTools.AmountRequired"/>。
+    /// 在 <c>DictionaryCreation()</c> 之後呼叫一次。
+    /// </summary>
+    /// <remarks>
+    /// 來源鏈：<c>WKSMissionUnit[任務].MissionToDo[0]</c> → <c>WKSMissionToDo[todo].Unknown17</c>。
+    /// <br/><br/>
+    /// 🔑 <b>離線對 exd-tc/7.20 校準過</b>：全表 1073 個任務裡 <c>Unknown17 &gt; 0</c> 的只有
+    /// <b>5 列，而且全部是 MissionType == 8</b>（＝數量交付型）。這 5 列對到的任務是
+    /// 451／470／474／480／493；前四個我們本來就有手寫值 5／13／18／18，
+    /// <b>四個全部逐字相符、零例外</b>。<br/>
+    /// ⚠️ 反過來說 <c>Unknown17 == 0</c> 的意思是<b>「這張表沒有這個資訊」而不是「不需要數量」</b>：
+    /// 我們手寫值 &gt; 0 的 28 個任務（生態調查那一類）在表上都是 0。
+    /// 所以這裡<b>只補、不覆蓋</b>——手寫值永遠優先。
+    /// <br/><br/>
+    /// 🔴 <b>還有一個前置：<see cref="FishingTools.RequiredFish"/> 不能是空的。</b>
+    /// <c>Task_CheckScore.MinRequirementsMet</c> 是靠列舉 RequiredFish 去數身上有幾條魚的；
+    /// RequiredFish 空的時候數出來恆為 0，這時若把 AmountRequired 設成 18，
+    /// <c>0 &gt;= 18</c> 永遠不成立 ⇒ <b>任務永遠不會被交出去，直接卡死</b>。
+    /// <br/><br/>
+    /// 📌 <b>2026-08-06 更新：這個函式不再是 no-op。</b>493 的 <c>RequiredFish</c> 已經補上
+    /// （目標魚＝深月海龍 45912，來源見該筆 preset 的註解），所以啟動時它會被補成表上的
+    /// <c>Unknown17 == 18</c>，交件判定改走「數到 18 條」的數量語意，不再落到
+    /// <c>TimeGradedFishRequirementsMet</c> 的「沒有任何依據」那一條。
+    /// 這正是當初把補值邏輯留在這裡的目的：數量的真值來源只有資料表一份，不手寫第二份。
+    /// <br/><br/>
+    /// ⚠️ 若 18 這個數字對 493（時限僅 240 秒）其實偏高，行為會退回**與補值前完全相同**的
+    /// 「釣到逾時再放棄」，不會卡死也不會誤交件——因為逾時路徑本來就會重跑一次
+    /// <c>MinRequirementsMet</c> 再決定交件或放棄。
+    /// </remarks>
+    public static void BackfillAmountRequiredFromSheet()
+    {
+        var unitSheet = ExcelHelper.MoonMissionSheet;
+        var toDoSheet = ExcelHelper.ToDoSheet;
+        if (unitSheet == null || toDoSheet == null)
+        {
+            IceLogging.Info("讀不到 WKSMissionUnit／WKSMissionToDo，跳過 AmountRequired 的資料表補值。", "[FishingPresets]");
+            return;
+        }
+
+        var filled = 0;
+        var skippedNoRequiredFish = new List<uint>();
+
+        foreach (var (missionId, tools) in FishingPreset)
+        {
+            if (tools.AmountRequired != 0)
+                continue; // 手寫值優先，絕不覆蓋
+
+            if (!unitSheet.TryGetRow(missionId, out var unit))
+                continue;
+
+            var toDoId = unit.MissionToDo[0].RowId;
+            if (toDoId == 0 || !toDoSheet.TryGetRow(toDoId, out var toDo))
+                continue;
+
+            int amount = toDo.Unknown17;
+            if (amount <= 0)
+                continue;
+
+            if (tools.RequiredFish.Count == 0)
+            {
+                // 見上面的 remarks：填了會讓這個任務永遠交不出去。
+                skippedNoRequiredFish.Add(missionId);
+                continue;
+            }
+
+            tools.AmountRequired = amount;
+            filled++;
+            IceLogging.Info($"任務 {missionId} 的 AmountRequired 由資料表補為 {amount}（WKSMissionToDo {toDoId}）。", "[FishingPresets]");
+        }
+
+        if (skippedNoRequiredFish.Count > 0)
+        {
+            IceLogging.Info(
+                $"這些任務資料表上有數量需求但 RequiredFish 是空的，維持 AmountRequired = 0 走分數保底："
+                + string.Join("、", skippedNoRequiredFish)
+                + "。（填了數量卻沒有魚種清單會讓任務永遠交不出去。）", "[FishingPresets]");
+        }
+
+        IceLogging.Info($"AmountRequired 資料表補值完成：補了 {filled} 筆、因缺 RequiredFish 跳過 {skippedNoRequiredFish.Count} 筆。", "[FishingPresets]");
+
+        ReportTimeGradedTurninCriteria();
+    }
+
+    /// <summary>
+    /// 把每個<b>時間型</b>釣魚任務的「交件依據會落在哪一層」寫進 log。
+    /// </summary>
+    /// <remarks>
+    /// 📌 <b>Information 級、啟動時只跑一次</b>——使用者跑 LogLevel 2，Debug／Verbose 收不到，
+    /// 而這是「486／493 到底修好了沒」唯一能離線回答的證據。
+    /// <br/><br/>
+    /// 對應 <c>Task_CheckScore.TimeGradedFishRequirementsMet</c> 的三層優先序：<br/>
+    /// ① 資料表 <c>Gathering_Min</c>（來自 <c>WKSMissionToDo.RequiredItem[]</c>）<br/>
+    /// ② preset 的 <c>RequiredFish</c>「至少一條目標魚」<br/>
+    /// ③ 兩者皆無 ⇒ 不宣稱達標，會一路釣到逾時再放棄。<br/>
+    /// 另外 <c>AmountRequired != 0</c> 的任務根本不會走進那個函式，直接走數量語意，
+    /// 所以也一併標出來，免得看 log 的人以為它落在第 ③ 層。
+    /// <br/><br/>
+    /// ⚠️ 只列時間型（<c>IsTimeGraded</c>）：評價型的交件依據是分數，不走這條優先序。<br/>
+    /// ⚠️ 也<b>跳過 <see cref="UnsupportedMissions.Ids"/> 上的任務</b>：停用中的任務不會被接，
+    /// 對它們報「沒有交件依據」只會製造雜訊。494 仍在名單上（見該筆 preset 的註解），所以
+    /// 它依舊不會出現在這份清單裡。
+    /// <br/>📌 2026-08-07：495 解除停用但<b>不會</b>出現在這裡——它的 <c>WKSMissionText</c> 是 121，
+    /// <c>ICEDictornaryCreation</c> 對應到單純的 <c>Fish</c>（沒有 <c>ScoreTimeRemaining</c>），
+    /// 所以它是評價型不是時間型，交件走分數路徑。
+    /// </remarks>
+    private static void ReportTimeGradedTurninCriteria()
+    {
+        var noCriteria = new List<uint>();
+        var lines = new List<string>();
+
+        foreach (var (missionId, tools) in FishingPreset)
+        {
+            if (!CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var entry))
+                continue; // 空名佔位列／非本服任務，DictionaryCreation 就沒收進來
+            if (!entry.IsTimeGraded)
+                continue;
+            if (UnsupportedMissions.Ids.Contains(missionId))
+                continue; // 停用中的任務不會被接，報警只會製造雜訊
+
+            string basis;
+            if (tools.AmountRequired != 0)
+                basis = $"數量語意（AmountRequired = {tools.AmountRequired}"
+                      + $"{(tools.UniqueFish ? "，計不重複魚種" : "，計總條數")}"
+                      + $"、魚種 {tools.RequiredFish.Count} 種）";
+            else if (entry.Gathering_Min.Count > 0)
+                basis = $"① 資料表 RequiredItem（{entry.Gathering_Min.Count} 項）";
+            else if (tools.RequiredFish.Count > 0)
+                basis = $"② preset RequiredFish 至少一條（{tools.RequiredFish.Count} 種）";
+            else
+            {
+                basis = "③ 無任何依據 ⇒ 會釣到逾時才放棄";
+                noCriteria.Add(missionId);
+            }
+
+            lines.Add($"{missionId}＝{basis}");
+        }
+
+        IceLogging.Info(
+            $"時間型釣魚任務的交件依據（共 {lines.Count} 個）：" + string.Join("｜", lines),
+            "[FishingPresets]");
+
+        if (noCriteria.Count > 0)
+            IceLogging.Info(
+                "⚠️ 這些時間型釣魚任務仍然沒有任何交件依據，接到的話會白白釣到逾時："
+                + string.Join("、", noCriteria)
+                + "。（要修：補該筆 preset 的 RequiredFish，或確認資料表上有 RequiredItem[]／Unknown17。）",
+                "[FishingPresets]");
+        else
+            IceLogging.Info("✅ 所有時間型釣魚任務都有可用的交件依據。", "[FishingPresets]");
     }
 
     public static Dictionary<uint, FishingTools> FishingPreset = new()
@@ -586,9 +741,7 @@ public static partial class GatheringUtil
         {
             FishingPreset = new List<string>()
             {
-                "AH4_H4sIAAAAAAAACu1WTW/bOBD9KwbPIiBRJPVxc7xJNoCbDeos9hAUC1oa2URk0qWottnA/72gZMWSYidNN4cFtjeJnHnzZvg4w0c0ra2eicpWs2KF0kd0rsSyhGlZotSaGjzkNudSwWEz77aucpSSOPHQjZHaSPuA0sBDV9X5t6ysc8gPy85+12J90DpbO7Dmg7ivBofHHrrc3q4NVGtd5igNfH+A/DJ0g5FEAw//VTKzdb05kRgNfPoKow5ElyVktsuEBn7QNyOvs9Aml6I8QSQgnA9qTPduF7Janz9A1QvMRowZGzDm3RmIe1isZWHPhGx4u4WqW1hYkd1XKGX7qvL4OW4fNdmj3ggrQWXQ48PHfnxYQdK5GvkPzIRtldFFHXuTUf3DvfftWpRS3FcX4os2DmCw0KUTesP1j5DpL2BQGrgiHZM2j50EegG7+p3J1aXYNIlO1aoEU3VB3GHnKA0jnz5jP4CKdzsPnX+zRuwvnqv8rV58FdsrZWtppVaXQqquHjjw0Lw28AGqSqwApQh56Lohga61AuS1CA9bQKkrzBG8ua7sT+PdGKjgOEOE0Yn9NmKzf+Cz2EJmjShntTGg7DtlOUJ9t1yPsn2W8dHojVUrkIXVW3dfpVotLGybRnngvhfR1LwP5T5cw+FPJT/X4HARZ4wUueA4XDLAlLMAizApcB6GOWOEFcJfop2H5rKyfxQuRoXSu1aeLoEngklymuG0LCet65jmtTYbUf6u9b0D6jrGXyCa//YSut0KrMuku477pRaHBpFrOZ3zwhqtVm9x98Oe+xxWoHJhHt6M8Juul+UT94EF4cmTwYHfSZMBhyNWt0ZuT0WKGAmfTE7FGhi9EG1v59Q6LSyYmahXazuXGzcmgnZjLOPmgVCbdg65j17DbXshS8bz48XR7KZ510A6pXyEz7U0kC+ssLWbTe65MJbPj6nkh8Xw68z/1ZnTN555r0nRwI+zgvk4AcEx5STHy4RHOBNJkfMkiCgFtPvUdan9k/LuaaFtVHePqN+xKIuS8HTPujRC5ZOZ0V+VFbKcnIG1YtC/gpeqdJWDsjITpSuNC9kaTDe6VgMzRyQZvw3C4TstdpFqU4gMFqVrQl0Gzy7S+EnEdh76z7ywDwPup8eac3YrM1fGpoL9QYdSJJRWf9/RiGLyaTJNJxda55Wti2JyvgGzApU9oBamdTwAHdN1T4MkDimhhOKlz5aYMiGwoDzHge8HLAiLhFE3KJ9rjJxOcV4rYSYLWVkwVSbKYb6/9PV/0ldWQESWUYJpVHBMA1LgmMUx5nkIWcziZSDCpse1uPskGibhC0x6EYQPBAj3cZAUMaYkITgu8gzTxKehEDynPkO7783hftMDEAAA",
-                "AH4_H4sIAAAAAAAACuVW227bOBD9FYPPEqALdX1zXCdrwE2DOsE+BMWCkkY2EVl0SSppNvC/FxTFWnJkpy2CYoF9k4YzZ86Mjmb4gqaNZDMipJiVa5S+oHlNsgqmVYVSyRuwkDpc0hoOh4U5WhQo9eLEQjecMk7lM0pdCy3E/FteNQUUB7Py32usj4zlGwXWPnjqqcUJYwtd7W43HMSGVQVKXccZIJ+HbjGSaBDhvElmtmm2hgF2HfwGBRPFqgpy2Qt0+27e22kZLyipFMC0qtjTp0fgOdktZqazI412vTActBp3YJdUbObPIHp0gqM6gmBQR2g+BXmA1YaW8oLQthplEMawkiR/ECgNuuaG8WvcPmrSod4QSaHOoccnPI4Lh331TCin/8KMSC0Qk/U42jv6Kn4XfbshFSUP4pI8Mq4ABgZTjm8N7Z8hZ4/AUeqqJo0pPIyVMHoJTf8u6PqKbNtCp/W6Ai5MEiWBAqV+5OBX7AdQ8X5vofk3yUn3/6nO37LVE9ktatlQSVl9RWht+mG7Flo2HD6CEGQNKEXIQtctCXTNakCWRnjeAUpVY0bwlkzI38a74SBgnCGy0YlznbE9P/BZ7SCXnFSzhnOo5TtVeYT6brWOsn1V8Wj21ksLZCXZTv2vtF6vJOzaeXng3oloyt+Hch+u5XBX068NKFwUxlFQYkjswssdGxO/sOMwSOzY8fwMHMfL8xDtLbSkQn4qVQ6B0nstT1XAD4JJcprhtKomOvSY5jXjW1L9xdiDAjIT428g7bv+CdWpAKkqMb9jZ9I42I3UyDHBK8lZvf6VcMfvhS9hDXVB+PMvI9wJ+MCazt84aospaBDmhYq2djiQPukyIDbidSfgltPdML22jKePAk/R1i6nCAyczlDo/JSup6UEPiPNeiOXdKsWiqsPjgXf3igarjeWeuiNZj01g+T1Jj6zVNX6N6PGaOozfG0oh2IliWzUFlP3i2Oh/Zyeflo2Y45/Tgj/u2/eG2fEiUnuYdd2wfFtXGaJTRw/t0PPD0McRGWWEbT/YuZZdwe9/2HQI+3+BfVnGw6ixD893a44qYvJjLOnWhJaTS5ASjKYdO65Li0KqCXNSaVao1Jqh+mWNfXATRFJjm8R/vBGF6tMDS9JDqtKjStTQRK8cXkK9hb6z1zJD6vwtxegClaWmWqjluMT2em1KMx47G9JpZ6a1f/c4wjb/pfJNJ1cMlYI2ZTlZL4FvoY6f0Z9nB72iNR7snQyz49wFtpeWICNYw/bSeZHth/FblwmcRBh3MpS43Z1tUy8M0x6GXwnLLw8xrbjuo6NS8+1YycEG2cZZDGOiyQp0P470FuRLucNAAA=",
-                "AH4_H4sIAAAAAAAACu1WTW/jNhD9KwbPEiDqW7o5rpMG8KbBOkUPwaKgxJFNRCa9FLVZN/B/LyiJtqTYzibIoYfeJHLmzZvh4wxf0LRWYkYqVc2KFUpf0JyTrIRpWaJUyRospDcXjMNxk5qtW4pSN04sdC+ZkEztUIotdFvNf+ZlTYEel7X9vsX6IkS+1mDNh6u/GpwwttDN9mEtoVqLkqIUO84A+TJ0g5FEAw/nTTKzdb0xDHzs+G9QMF6iLCFXPUfcN3PfDiskZaQ8U1LshuGgqH7nds2q9XwHVS9wMGIcBAPGoSk6eYLlmhXqirCGt16ozMJSkfypQmnQlTGMX+P2UZMO9Z4oBjw/Jw0fO+EYJhwW1DVIkv0DM6JaZRgSY293dBxe5/2wJiUjT9U1+SGkBhgsmOw8a7j+FXLxAyRKsa7ZKWmHsVZEL6Ap5xVb3ZBNk/eUr0qQlQmiz56i1Isc/xX7AVS831to/lNJ0l08fRAPYvlMtrdc1UwxwW8I46YeNrbQopbwBaqKrAClCFnoriGB7gQHZLUIuy2gVBfmBN5CVOrDePcSKjjNENnozH4bsdk/8lluIVeSlLNaSuDqk7IcoX5arifZvsr4ZPTGqhXIUomtvr6Mr5YKtk2jPHLvRDSVn0O5D9dw+JOz7zVoXBRg8LIk8mzAsW/71MV25tDM9r0cO4EX5zTHaG+hBavUH4WOUaH0sZWnTuBAMEnOM5yW5aR1HdO8E3JDyt+FeNJApoH8BaT5by+h3q1A6UzMdeyWWhwfR7oDGeelkoKv3uPueD33BayAUyJ370b4TdRZeeA+sHDD5GBw5HfWZMDhhNWDZNtzkaLA9Q4m52INjC5E6+y0WqeFAjkj9WqtFmyjpwZuN8Yybh4ItWzHkv7oNdwTXdWLgmQ8XS5Oaj3cTT8xwvkK32smgS4VUbWeXPr1MFbTr4nml7XxvwQ+JAFz5v47z7zXs6IsiUIfgx0mmWP7NA/tmOaO7ReQkTx2aZAEaP/NNK3uhfl4WGj71uML6jcwP4gS73wLu5GE08lMimeuCCsnV6AUGbQzfKlKtxS4YjkpdWl0yNZguhE175mdejUFyfjl4A0fdbEOXMuC5LAsdYsyCb26V+MHU7C30H/m/X0cfx8eetpZr8x0VVt1PpNtOworU9T+ZEQpIlzwvx/9yLfdb5NpOrkWglaqLorJfANyBTzfoT5OD/uE8nsqjYPIDQta2A4GsH0n9OwYZ7GdYew4XoQzkkWNSlvcLq+GCb7ApBcBUzcMo8Sz84T4tu+GgR1TiOwwK7LMw15BIET7fwGbARl41A0AAA==",
+                "AH6_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",
             },
             AmountRequired = 18,
             UniqueFish = false,
@@ -696,9 +849,23 @@ public static partial class GatheringUtil
             {
             },
         },
-        [479] = new FishingTools
+        // Export for Mission [479] - 【高難】協助月底魔泉瀑布的技術實驗
+        // 來源：上游 Ices-Cosmic-Exploration Main-Branch @ 81d9961 的 Fishing_Sinus.cs。
+        // ⚠️ AH6_ 格式，需要同一波出貨的 AutoHook 才吃得下（舊版會靜默把匯入丟掉）。
+        [479] = new FishingTools()
         {
-            // Need Info on this one
+            FishingPreset = new List<string>()
+            {
+                "AH6_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",
+            },
+            AmountRequired = 0,
+            UniqueFish = false,
+            Baits = new Dictionary<string, List<uint>>()
+            {
+            },
+            RequiredFish = new Dictionary<string, List<uint>>()
+            {
+            },
         },
         // Export for Mission [480] - EX: Foodstuff Emergency
         [480] = new FishingTools()
@@ -739,12 +906,50 @@ public static partial class GatheringUtil
                 },
             },
         },
-        [481] = new FishingTools { },
-        [482] = new FishingTools
+        // Export for Mission [481] - 【高難+】砷海的生態調查
+        // 來源：上游 Ices-Cosmic-Exploration Main-Branch @ 81d9961 的 Fishing_Sinus.cs。
+        // ⚠️ AH6_ 格式，需要同一波出貨的 AutoHook 才吃得下（舊版會靜默把匯入丟掉）。
+        [481] = new FishingTools()
         {
-            // Need Info on this one
+            FishingPreset = new List<string>()
+            {
+                "AH6_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",
+            },
+            AmountRequired = 0,
+            UniqueFish = false,
+            Baits = new Dictionary<string, List<uint>>()
+            {
+            },
+            RequiredFish = new Dictionary<string, List<uint>>()
+            {
+            },
+        },
+        // Export for Mission [482] - 【高難+】大型水產品的捕獲調查
+        // 來源：上游 Ices-Cosmic-Exploration Main-Branch @ 81d9961 的 Fishing_Sinus.cs。
+        // ⚠️ AH6_ 格式，需要同一波出貨的 AutoHook 才吃得下（舊版會靜默把匯入丟掉）。
+        [482] = new FishingTools()
+        {
+            FishingPreset = new List<string>()
+            {
+                "AH6_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",
+            },
+            AmountRequired = 0,
+            UniqueFish = false,
+            Baits = new Dictionary<string, List<uint>>()
+            {
+            },
+            RequiredFish = new Dictionary<string, List<uint>>()
+            {
+            },
         },
         // Export for Mission [483] - Aquatic Inspection I
+        // 🔴 這裡的兩筆**不是死重，不要壓成一筆**。
+        //    ImportPresetsSequentially 會對每一筆呼叫 AutoHook 的 CreateAndSelectAnonymousPreset，
+        //    而那個 IPC 是「**每筆都 AddNewPreset、但 SelectedPreset 只留最後一筆**」——
+        //    也就是說多筆只有最後一筆被「選中」，其餘的仍然**存在於 AutoHook 的 preset 清單裡**。
+        //    這兩筆正是靠這點互相切換的：[483-2] 的 PresetToSwap 指向 "anon_[483-1] …"、
+        //    [483-1] 又指回 "anon_[483-2] …"（anon_ 前綴是 CreateAndSelectAnonymousPreset 自己加的）。
+        //    砍掉任何一筆，另一筆的 PresetToSwap 就會指向不存在的 preset。
         [483] = new FishingTools()
         {
             FishingPreset = new List<string>()
@@ -798,9 +1003,23 @@ public static partial class GatheringUtil
                 },
             },
         },
-        [484] = new FishingTools
+        // Export for Mission [484] - 【高難】檢驗釣場的多樣性
+        // 來源：上游 Ices-Cosmic-Exploration Main-Branch @ 81d9961 的 Fishing_Sinus.cs。
+        // ⚠️ AH6_ 格式，需要同一波出貨的 AutoHook 才吃得下（舊版會靜默把匯入丟掉）。
+        [484] = new FishingTools()
         {
-            // Need Info on this one
+            FishingPreset = new List<string>()
+            {
+                "AH6_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",
+            },
+            AmountRequired = 0,
+            UniqueFish = false,
+            Baits = new Dictionary<string, List<uint>>()
+            {
+            },
+            RequiredFish = new Dictionary<string, List<uint>>()
+            {
+            },
         },
         // Export for Mission [485] - Fine-grade Water Filter Materials I
         [485] = new FishingTools()
@@ -818,8 +1037,92 @@ public static partial class GatheringUtil
             {
             },
         },
-        [486] = new FishingTools { },
-        [487] = new FishingTools { },
+        // Export for Mission [486] - 【高難】採集精密淨水裝置所需的材料
+        // 來源：上游 Ices-Cosmic-Exploration Main-Branch @ 81d9961 的 Fishing_Sinus.cs。
+        // ⚠️ AH6_ 格式，需要同一波出貨的 AutoHook 才吃得下（舊版會靜默把匯入丟掉）。
+        [486] = new FishingTools()
+        {
+            FishingPreset = new List<string>()
+            {
+                "AH6_H4sIAAAAAAAACu1dW2/bOhL+KwafrUL3i4GzQOImXWNzKWIHXaDIAyWNbCKy6ENRbrNB/vuCknyRLCVO4pzYLp8SDy+aIT/ODDUc8RGdZJz2ccrTfjRGvUd0lmA/hpM4Rj3OMuiirzThfZwEEF9SGkwW5BsIcMpPEjLFnNCkqIF6EY5T6KJRxpI+jWMI+HUULcn9STbdrskPwic0y/uv1RPMXpAEBLODcUIZVPgq+A8XPwch6umu10XfZqMJg3RC4xD11FaxvjNCGeEPqKd10SA9+x3EWQjhilxUW+vtxKdzWND7NAmJEG4IXDA4zZ81Rr2fi/8D1Pt510W4aPF010WAekkWx09PhWwlO48o/0dfzUm4HIJcKNutCaWpW4m1A7lydrvNbHnOW8Za3RlTYggFzCrjtsKCqanm28atmcNS9A/EQ7km2nBgaqr2hhHXdzrgwwSPxyQZP8Ok+gYmjd2igrKQ4DjXG8kc2IKwMZmFVhmRKfwgSUh/LQsa8KTptr29drmeAwvwbJPFdanNHSBtTexzkk7OHiDd0Jd1oarzZdWEsqxtZszeLe+X+B6GExLxU0zyFSAI6YIw5Di4T1HPalFFtrspxRYyeJ+10r9jTiAJcst2A5F4yhlm8YNAYt5Dy1TZdSHtrRSa/mlyMvI/6GNemLm2qatLpW+npo3Pkmo0wTHB9+k5nlMm+qgQFlg1ulX6DQR0Dgz1NLG+mpwX292wWFsNhP1ZA3FKxt+wQOwjOknGMbB0IbzeDGHDUc2N2d5GRPezRLzMYk4mlN63GjxdtepmQdtCpN35QSvz1ey7/eYMV1z+JepuIAXep1nCgX1n4sfwF54tSs8pCyDXvjmxlDmnhoKcS295QnqxtbgOACe5CaqNUqXwJI6HnM7S5tLhjObdqjW6ELGJ/p4J7qIRI+MxsDSvXhua7Xp+RBz1UMFJlvD+V9RFM1Gd5GPjipVOZ6iH/oWe8ifnTHRbm5V1u4v2prvZrJ8xBkluFteel8wXnJNQCGTpumnerbVuGwQxucXcL6ek+DmixbwjBRW1CstcPET8v6jwWKwDyxPG6CJjcAlpiseAegh10VWuINCQQxxj1hnieEqTzg0FVPbyMBMmT3DC6ewkEGOej+8NpDSeQ+kUi8lJa05aQ40cnVd0WWXIMcv9otxlXbYLswAEdY00pXMYcsyzFTSLnyNaFC6Ygry/Ps7Gk8XaWba4opxED9fJMAsCSHNHrL4azoIJ7U8wXw7ScsOM+Qh+ixlGXfSVpLMYPwjtOqI4Xc3NkrJRN6fmDJAg33Wv9tvV+ucxTicjnN77mA2CtXqnjCS5Qj+nDMaMZsmK7VOA2ZpcOfVJIOk2IX9n+eJEURiErm57im05pmJqoa14tm0rju9EmuUHjuZrYh0M0pOEJg9TujbWFyTl15EARONyFAXFhC3RJvROG9ousgSzjmjkZ+N0A2lXlE1x/O9Sq9/A3xlhEC5mX+2ihX/2A3BeRVRNgdeYKn6WZeuasyQVDzQ1x+ui2xRyUzIrGoii9DT391bouU1hxZmoUa9QLb0kYqF8UTfo+HdJv03hO4OApIQmbX1uVFh1u1lU6Zn+AhZlrczWy9f6rZesd1sqirZea8WrTusFyz4bNLn2ek1uOqUm/6tBkxfIEbprDustBZQ1VzXuuisF3aySu6/ixftQXirmYTGe77O0VYA2b4prWGusVANOU50aDhpdosXyHnJGi1cZ71vgqiEX+F4t8FdA86gBfgFjSELMHpowXnkrJEH+54G8wNOeQfc2ha80KxG5cg8Lr/ssDfCsqbwgvdpdK1tX1Lku3vJKd00C/YOBXkD2DS6IBK3Uzp8L2mfdConbg94bH61XMWKLly/NXkVDeUHajVfhWLrcJUqofzzUC9Duyq+QsN0nDV2g4ODAuEN/QeJxn/B4xB6DGCia8TXJJ9l0g3ibQj9LOZ0Wr90r3kN+fDVjxXks8c/ayZDiaMAJ5zCdrYJ7otIIs7FgQ288I2I4lrd5qvGfOW6wMdnaC+GKMkbxbDR7i2aW+mKcYjVfTdO9NnONUz1IeJYT2yKCljiB++aYYJMek0HBfVJjB2dW3xHAakajjGBJNH5stEkC8mDfCx2cepQxJHnk54DhKyNDx3r67EChKOM9Eo37gEYZxZGHeQ9ancrYzPGeLD9QMMrYjMTjnuDxkyMuLWnXnxlyqY7MW2IbeVJdxIGtcj3XNB6dlblxQw6zPKAz/EWmPia80FViHIXmLImrgW58VFlrGU55Ves/LHWuGP2mGV1LqPMcQ3Vd01Bc8ALFVG1QPFWNFM23IVJt07WcEIlI2svZcu/MzZQZczJjbpcZc6eE559dYatmDPV+ul/UrmZ9Ue8+Okuu5fmasQsGNgLY2vYMeF/Urq7tmAHTaUgjLw1HjQExAO4/MAEtj7e/WF1N3c3zLe31zxfDr+mtzz/Uwywvx4tlMtjBbjyP+BCWzGP8A7LxjxO6MgYtY9AH/HJQxqCPVeceKBRlDFqicR/QKGPQMgZ90OpUxqCPdz91oGCUMWiJxz3Bo4xBv/uzyTITr6a85ec5j9eAyUw86U7tHxplJp707/cCkDIKIqMgB2zdZRRE7kz3CooyCiLf2+0DGmUUREZBDnrfLqMgMgqyZ2CUURC5a98TPMooiMzEk5l4a5l4amQ62NUtJYgCVzEtFyuuHxiKHZm+aus6xnaERBysuMeuzAj9uSQU2Xib99pVs/Rc023P0hsBZiGjs85/EhJBJBquZ+lpLyR7DkJIOAlwLJJkWy8ztbz69azGVrdBf8r9rMOMRTiAYVzcQtl0B7zlWW+7XNj6QIFeTJxyX3draP2y0Uq+U+volZI/Fv/oz1zQvJH8vNUIajtLf25ky3PeclXy7nKyhzPMQNhaLFJ9H1uvO7ZeMXpibgfhiPYnENwvobBiU1c/Y5kdwBXIm9fRKlq7Jr2iSTXD2SjvwRWUBtXZcB/uFcyBlWI9k00/GCeUvftqOZkYX3iu5Qw1erXLW4xfSKl3NS0MPMdXTNMwFDMwIsUPA0OJHE23ceAbtg5NKfV1Q/3M5bM/AGYkGXf6DPvSREsT/eJ94NJEH7SJ9qSJliZafrtmZyZaDZ3ItjVVifwQFBODq/gAoHhgmJoeWbof6tuYaKfdRJ+kHAdZ2rnAU0g4Zdn0yAz1QgNK8yvN75HvkJ2dm9+Sf7nvlfveozGqnok1Heu2EmBbV0zDNhXsq7aiYQ1bqq56Aba3MKrWc5+RI/Ec2JTSpDMiMZ4RLI3qQb52/uttr53lnvZojKqYU2lU5cvk4/3K6k6MamhZFtiao/iOMKp64ChuqEaK7bm+b3mqbju1l8kls3Wrqr38NvmSJAn9dWQWdWch36pAexjzle94D9YeLg5gyT2mjK1Kc0ie22MGqupZlhJgCBXTBUvBeugqvmVoVhSYoW4G+SEpYdrC5XJOC/U4SL/F1BffnK+E3Usz+NN07bvO2X97nXOSgDJmOITOD8yBdc5JLP5cih8Ex2lnMEBVvnTPNC3VVCzbxooZ4kjxVMdQXBW7lmmpmqFj9PR/uroQZCGlAAA=",
+            },
+            // 2026-08-06 使用者實機回報「釣了一種就中斷」後修正：**這個任務要 5 種**。
+            //    先前給的是「至少一條目標魚在身上」這個權宜規則（表上查不到數量），
+            //    所以釣到第一種就判達標。5 這個數字有兩個獨立來源互相印證：
+            //      ① 使用者實測原話「任務要求5種」；
+            //      ② 上面那串 preset 的 ListOfFish 正好列 5 筆（45847~45851）。
+            //    45851（Weeping Minnow）在 preset 裡是 Enabled=false —— 那是「沒有專屬提鉤
+            //    規則」不是「不會咬」，同釣點照樣釣得到，要算進 5 種裡；先前排除它是誤判。
+            AmountRequired = 5,
+            UniqueFish = true,
+            Baits = new Dictionary<string, List<uint>>()
+            {
+            },
+            // 🔑 2026-08-06 補上：486 是**表上完全沒有數量資訊**的時間型任務
+            //    （WKSMissionToDo[43]：RequiredItem[] 全 0、Unknown17 也是 0），
+            //    在此之前 Task_CheckScore.TimeGradedFishRequirementsMet 的三層依據會**全部落空**
+            //    ⇒ 不宣稱達標 ⇒ 一路釣到逾時才放棄，整段任務時間全部浪費。
+            //    補了 RequiredFish 之後走第 ② 層「至少一條目標魚在身上」。
+            //
+            //    魚種來源＝**上面那串 AH6_ preset 自己的 ListOfFish**（離線解碼，
+            //    ~/.claude/tools/ahpreset/ahpreset.py）。這條來源對得起來的證據有三條：
+            //    ① 校準：對 469 解出來的 5 個 ListOfFish 物種，與下方 469 既有的 5 個
+            //       RequiredFish 鍵**逐一相同**；463（4 種）同樣全同。
+            //    ② 486 的 PlaceName 是 5206「儲淚池」，而解出來的魚正是
+            //       淚滴刀背魚／淚蟹／淚鯧 這一組「淚」字系 —— 地點與魚名互證。
+            //    ③ 45847..45851 是連續 id 區塊，正是同一個釣點的魚群。
+            //    道具 id 已用 tools/ahpreset/tc_item_exists.py 驗過：台服 5 個全部有名字，
+            //    不是 47680/47703 那種「列存在但 Name 空」的未實裝佔位列。
+            //
+            //    ⚠️ 刻意**不收** 45851（淚鯧）：它在 preset 裡是 "Enabled": false。
+            //    第 ② 層是「任一條就算達標」，多收一種只會讓交件**更早**觸發；
+            //    少收一種最多只是多釣幾竿。方向取保守的那邊。
+            //    ⚠️ 另外 45847（嘆息螯蝦）與同在儲淚池的 451／455 目標魚重疊 ——
+            //    身上若有那兩個任務留下的存貨，486 會在還沒釣到之前就判定可交件。
+            //    這是 ICE 全域「用背包當進度代理」的既有限制，不是這次新增的類別，
+            //    但 486 走的是「任一條」規則所以敏感度較高，先記在這裡。
+            RequiredFish = new Dictionary<string, List<uint>>()
+            {
+                ["Astacus Lamentorum"] = new List<uint>()
+                {
+                    45847,
+                },
+                ["Teardrop Knifefish"] = new List<uint>()
+                {
+                    45848,
+                },
+                ["Weeping Crab"] = new List<uint>()
+                {
+                    45849,
+                },
+                ["Silvermoon Tilapia"] = new List<uint>()
+                {
+                    45850,
+                },
+                ["Weeping Minnow"] = new List<uint>()
+                {
+                    45851,
+                },
+            },
+        },
+        // Export for Mission [487] - 【高難+】採集精密淨水裝置所需的材料
+        // 來源：上游 Ices-Cosmic-Exploration Main-Branch @ 81d9961 的 Fishing_Sinus.cs。
+        // ⚠️ AH6_ 格式，需要同一波出貨的 AutoHook 才吃得下（舊版會靜默把匯入丟掉）。
+        [487] = new FishingTools()
+        {
+            FishingPreset = new List<string>()
+            {
+                "AH6_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",
+            },
+            AmountRequired = 0,
+            UniqueFish = false,
+            Baits = new Dictionary<string, List<uint>>()
+            {
+            },
+            RequiredFish = new Dictionary<string, List<uint>>()
+            {
+            },
+        },
         // Export for Mission [488] - EX: Coexisting Species I
         [488] = new FishingTools()
         {
@@ -836,13 +1139,203 @@ public static partial class GatheringUtil
             {
             },
         },
-        [489] = new FishingTools { },
-        [490] = new FishingTools { },
-        [491] = new FishingTools { },
-        [492] = new FishingTools { },
-        [493] = new FishingTools { },
-        [494] = new FishingTools { },
-        [495] = new FishingTools { },
+        // Export for Mission [489] - 【高難+】調查共生物種的生態
+        // 來源：上游 Ices-Cosmic-Exploration Main-Branch @ 81d9961 的 Fishing_Sinus.cs。
+        // ⚠️ AH6_ 格式，需要同一波出貨的 AutoHook 才吃得下（舊版會靜默把匯入丟掉）。
+        [489] = new FishingTools()
+        {
+            FishingPreset = new List<string>()
+            {
+                "AH6_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",
+            },
+            AmountRequired = 0,
+            UniqueFish = false,
+            Baits = new Dictionary<string, List<uint>>()
+            {
+            },
+            RequiredFish = new Dictionary<string, List<uint>>()
+            {
+            },
+        },
+        // Export for Mission [490] - 採集魔泉環境的樣本
+        // 來源：上游 Ices-Cosmic-Exploration Main-Branch @ 81d9961 的 Fishing_Sinus.cs。
+        // ⚠️ AH6_ 格式，需要同一波出貨的 AutoHook 才吃得下（舊版會靜默把匯入丟掉）。
+        [490] = new FishingTools()
+        {
+            FishingPreset = new List<string>()
+            {
+                "AH6_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",
+            },
+            AmountRequired = 0,
+            UniqueFish = false,
+            Baits = new Dictionary<string, List<uint>>()
+            {
+            },
+            RequiredFish = new Dictionary<string, List<uint>>()
+            {
+            },
+        },
+        // Export for Mission [491] - 【高難】採集魔泉環境的樣本
+        // 來源：上游 Ices-Cosmic-Exploration Main-Branch @ 81d9961 的 Fishing_Sinus.cs。
+        // ⚠️ AH6_ 格式，需要同一波出貨的 AutoHook 才吃得下（舊版會靜默把匯入丟掉）。
+        [491] = new FishingTools()
+        {
+            FishingPreset = new List<string>()
+            {
+                "AH6_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",
+            },
+            AmountRequired = 0,
+            UniqueFish = false,
+            Baits = new Dictionary<string, List<uint>>()
+            {
+            },
+            RequiredFish = new Dictionary<string, List<uint>>()
+            {
+            },
+        },
+        // Export for Mission [492] - 【高難+】採集魔泉環境的樣本
+        // 來源：上游 Ices-Cosmic-Exploration Main-Branch @ 81d9961 的 Fishing_Sinus.cs。
+        // ⚠️ AH6_ 格式，需要同一波出貨的 AutoHook 才吃得下（舊版會靜默把匯入丟掉）。
+        [492] = new FishingTools()
+        {
+            FishingPreset = new List<string>()
+            {
+                "AH6_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",
+            },
+            AmountRequired = 0,
+            UniqueFish = false,
+            Baits = new Dictionary<string, List<uint>>()
+            {
+            },
+            RequiredFish = new Dictionary<string, List<uint>>()
+            {
+            },
+        },
+        // Export for Mission [493] - 【高難+】調查未知水生生物
+        // 來源：上游 Ices-Cosmic-Exploration Main-Branch @ 81d9961 的 Fishing_Sinus.cs。
+        // ⚠️ AH6_ 格式，需要同一波出貨的 AutoHook 才吃得下（舊版會靜默把匯入丟掉）。
+        [493] = new FishingTools()
+        {
+            FishingPreset = new List<string>()
+            {
+                "AH6_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",
+            },
+            AmountRequired = 0,
+            UniqueFish = false,
+            Baits = new Dictionary<string, List<uint>>()
+            {
+            },
+            // 🔑 2026-08-06 補上：493 是 Unknown17 > 0 的 5 個任務裡**唯一**先前沒有
+            //    RequiredFish 的，所以 BackfillAmountRequiredFromSheet() 一直把它跳過
+            //    （見該函式的 remarks），AmountRequired 維持 0；而它表上又沒有 RequiredItem[]
+            //    ⇒ TimeGradedFishRequirementsMet 的三層依據全部落空，只能釣到逾時再放棄。
+            //    填上目標魚之後，那個補值函式會在啟動時自動把 AmountRequired 設成表上的
+            //    Unknown17（＝18），交件判定改走「數到 18 條」的數量語意。
+            //    **這裡刻意維持 0**：數量的真值來源是資料表，不要手寫第二份。
+            //
+            //    魚種來源＝上面那串 AH6_ preset 的 ListOfFish（唯一一筆，"Enabled": true），
+            //    離線解碼；校準方式與 486 同一套（對 469／463 逐一相符）。
+            //    深月海龍在 WKSItemInfo 子分類 2 裡是**獨一無二的名稱**（只有 45912 這一個 id），
+            //    所以不存在同名多 id 要不要展開的問題。
+            //    tc_item_exists.py 已驗：45912 在台服有名字「深月海龍」，非空佔位列。
+            RequiredFish = new Dictionary<string, List<uint>>()
+            {
+                ["Deepmoon Seadragon"] = new List<uint>()
+                {
+                    45912,
+                },
+            },
+        },
+        // Export for Mission [494] - EX+: Unidentified Aquatic Specimens II（【高難+】調查未知水生生物 II）
+        //
+        // 🔴 **這筆資料是對的，但 494 仍在 UnsupportedMissions 名單上**——擋住它的不是匯入，
+        //    是「交件依據」：494 是時間型（WKSMissionText 113 → ScoreTimeRemaining），而資料表沒有
+        //    RequiredItem、preset 也給不出 RequiredFish，會落在 TimeGradedFishRequirementsMet 的
+        //    第三層「沒有任何依據 ⇒ 釣到逾時才放棄」。完整推導與否決掉的 Unknown15 假設寫在
+        //    UnsupportedMissions.cs 的 494 那一段。**補上 RequiredFish/AmountRequired 才能解除。**
+        //
+        // 🔴 這一筆是**整包資料夾**（AHFOLDER_）不是單筆 preset —— 匯入路徑完全不同，
+        //    見 Task_ExecuteMission.ImportPresetsSequentially 的 AHFOLDER 分支。
+        //    資料夾裡是 3 個 preset 組成的**狀態機**：彼此用 PresetToSwap（比對**名稱字串**）互指，
+        //    正確語意是「整包裝進 AutoHook、只選進入點（第 1 筆）」，之後由 AutoHook 自己換。
+        //    ⚠️ 絕不能逐筆丟給 CreateAndSelectAnonymousPreset —— 那個 IPC 每一筆都重設 SelectedPreset，
+        //    迴圈送 3 筆的結果是「只有最後一筆生效」（474 那個「開耐心」的 bug 就是這樣來的）。
+        //
+        // ⚠️ **階段切換在我們這版 AutoHook 目前不會真的發生**（離線用 bindcheck 對出貨的 AutoHook.dll
+        //    型別圖證實）：上游這份是 config v6/v7 的序列化結果，切換的閘門是
+        //    `ExtraCfg.Triggers` 與 `ListOfFish[*].SwapPresetConditionSet`，兩者我們的設定類別
+        //    **都沒有宣告**，Newtonsoft 會靜默忽略；而我們用的舊閘門 `FishConfig.SwapPresets`（bool）
+        //    在這份 JSON 裡**根本沒有這個鍵**，反序列化後停在欄位初始值 false。
+        //    ⇒ 實際行為＝**全程用第 1 階段的提鉤設定**。這是**效率損失不是功能失效**：
+        //      交件與否的判定在 ICE 這邊（Task_CheckScore），完全不看 AutoHook 選了哪個 preset。
+        //    📌 之所以仍然整包匯入而不是只匯第 1 筆：PresetToSwap 的目標必須存在，
+        //      否則 AutoHook 每次嘗試切換都會在聊天視窗印一次「Preset X not found」。
+        //
+        // 來源：上游 Ices-Cosmic-Exploration 的 Fishing_Sinus.cs（離線以 ahpreset.py 解碼驗證：
+        // gzip ISIZE 與實際解壓長度相符、3 個 preset、0 個子資料夾）。
+        [494] = new FishingTools()
+        {
+            FishingPreset = new List<string>()
+            {
+                "AHFOLDER_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",
+            },
+            // 2026-08-07 解除停用：494 要「用同一種餌釣到 6 種」。
+            //    6 這個數字有三個獨立來源互相印證：
+            //      ① 日文攻略「短時間で同じ餌から6種類釣る必要があり」（弱振 2 種＋強震 4 種）；
+            //      ② 本任務資料夾 preset 的 ListOfFish 去重後正好 6 筆（45895~45900）；
+            //      ③ 這 6 個 id 在台服 Item 表都有名字（月蠍／砷海角箱魨／砷化歐洛浦肯／
+            //         月油鰻／銀河噪聲／爪網蟲）＝都已實裝。
+            //    先前停用是因為交件判定三層依據全空（表上 RequiredItem 全 0、preset 沒給 RequiredFish），
+            //    會一路釣到逾時；補上 RequiredFish＋UniqueFish 之後走「湊滿 6 種」語意，與 486 同構。
+            AmountRequired = 6,
+            UniqueFish = true,
+            Baits = new Dictionary<string, List<uint>>()
+            {
+            },
+            RequiredFish = new Dictionary<string, List<uint>>()
+            {
+                ["Lunar Scorpion"] = new List<uint>()
+                {
+                    45895,
+                },
+                ["Eolactoria Arsenici"] = new List<uint>()
+                {
+                    45900,
+                },
+                ["Arsenical Proto-hropken"] = new List<uint>()
+                {
+                    45896,
+                },
+                ["Lunar Oil Eel"] = new List<uint>()
+                {
+                    45897,
+                },
+                ["Galactic Noise"] = new List<uint>()
+                {
+                    45898,
+                },
+                ["Onychodictyon"] = new List<uint>()
+                {
+                    45899,
+                },
+            },
+        },
+        // Export for Mission [495] - EX+: Unidentified Aquatic Specimens III（【高難+】調查未知水生生物 III）
+        // 同 494：整包資料夾，5 個 preset 的狀態機，進入點是第 1 筆。切換同樣是效率損失不是功能失效。
+        [495] = new FishingTools()
+        {
+            FishingPreset = new List<string>()
+            {
+                "AHFOLDER_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",
+            },
+            AmountRequired = 0,
+            Baits = new Dictionary<string, List<uint>>()
+            {
+            },
+            RequiredFish = new Dictionary<string, List<uint>>()
+            {
+            },
+        },
         // Export for Mission [508] - EX: Processed Aquatic Metals
         [508] = new FishingTools()
         {
@@ -875,8 +1368,42 @@ public static partial class GatheringUtil
             },
         },
 
-        [510] = new FishingTools { },
-        [511] = new FishingTools { },
+        // Export for Mission [510] - 【高難+】如水晶一般的寶石
+        // 來源：上游 Ices-Cosmic-Exploration Main-Branch @ 81d9961 的 Fishing_Sinus.cs。
+        // ⚠️ AH6_ 格式，需要同一波出貨的 AutoHook 才吃得下（舊版會靜默把匯入丟掉）。
+        [510] = new FishingTools()
+        {
+            FishingPreset = new List<string>()
+            {
+                "AH6_H4sIAAAAAAAACu1bbW+jOBD+K5W/HlkBgSTwLU1frlK7rZpUe9KqHxyYgFWCc7Zpm6v63082JLyE7KVd1Ove+RuMB/OM/TBjPJ4XNM4EnWAu+GQRIf8FnaZ4nsA4SZAvWAYGOqGpmOA0gOSK0iDeiG8hwFyMU7LEgtA010D+AiccDDTLWDqhSQKBuF4stuJJnC0Pe+QbETHNVP8NPQn2kqQgwV5EKWVQw5XjDze3FyHy7ZFnoPPVLGbAY5qEyDf3mnXDCGVErJFvGeiCnz4HSRZCWIpztUpv4zl9hI18QtOQSOOmIJCfZknymiMuXvKC1IVdjnS4NUxBHYwaUC3zILDdoW2F5Q3fM4Jmp0MoybNv3BzLdN43cO0Qi67fjjEn8A9gWu8YSLvTcZymOIpIGv0ApPkOkP1uJ5uykOBEfeTpI7CNYGeKchcwI0v4RtKQPm0bWhzBwHIOH/7rR2ABXu0irBrtdEufM8Lj0zXwHd/WtKk+XW7DKNc9ZMIG3WK/wg8wjclCHGOiPgAp4BvBVODggSPf3eNgBqNdKw6wwevWhhssCKSBii23sJDPnmKWrCW9FFf2TMCgCX1wkO+xO0bPyF8wwSIPNPuGuYnVPsxP9rvFOotxQvADP8OPlEm4NcGGLX2jLr+FgD4CQ74lGb7PwmYkOMi+jr+GYxKdY0maFzROowQY39hktwPvD01nZ2oOAT7q+DPOEkFiSh/2hgfbdJvrKesAoN0tBkpn376AeRYM11azpQG3wEFMaJYKYDdM3kyf8GrbfEZZAMpd7UhDKZb2m4ZaM18HgFPlrxuvqDWOk2Qq6Iq3t05XtLVLaWCbvC0WzRiJImAc+d/vDXSXkj8z9Szy3NAMhwHumf3hvOfYLvSwB9CzR54NXt90+n0bvcpJGac0XS9pVqK8JFxcL6TFst/KMOazIhskHhWmJCVcb+Aa6DJjcAWc4wiQj5CBvqovAI1BxMBoEMPyaMxEzGiSMUB5P7P1SrrWVwN9pWyJk98L6t3CnxlhEE4FFhKZaaCNd/4GWKlIVQ6iOQH5fdGYT2QOuxDlb3SsoWegOw6K8Kv8AdnEj5W7Z9v+7jiU0KRGU6HeekVS5JtfzB05fi7kdxxuGASEE5ru63NHoex2t6nWM30Ctsj2gm22V/pttlS7nQpIEsz29dpoLjttNmz7bOPyRqutrT6Y7auyxri0KjWMbNNpYG51MhsuTgWj+VL6J9lo9jUbNRt/ko2XEEEaYrbWhNTu8d90j3ccTmhWOL5yWQH5Hy4P8KqtPRftC+/V/b2aPy2erjlUe6Cju/an76VvTsT9sV1TUS80P5SKPwzsmo2ajR8X12ds87e8YV4trFebN5k9JXr7X3trXB+6tv5T0pH9vQTOudhVZNdk/EybSC9oqfYJI7VnmV8H6logHx0TodKEbHKCDLSS6gz5323ri2nYgy/m/auBin3n13sD4fIStuz55Yj+zg0BTXa9Y9o5IckSaCYqH2+cLXeEdxwmGRd0me/719YR6uRPxvL0uLyopAnz1NNYCFiuRLnhkDGYYRZJGHsShv2h6+0eHfnwfBbNRNvAVsao9dGLVGRKuC9t4soDRf+UOHlT0NOJk88U8/6DiZM3slEnTjQbf5qN3e2vaEJq96gTJ/pYxP8zuuvEiT6h86moqBMn+rzYJ0yctB2IeHPmRO9V6wOPH7yfrBMn+vTtr5Hc0M5RO8eP46PObXSf25CFM+OFAFYW7VS2zelKrpxIGk0FrFQF0vSJLOeYiPyXWPoEuf1eCMskUuurCq1tOuVNT3+lgizW1+k0CwLgKju1k2MNYjqJsdiWx2wL4rGYwbPMTyMDnRC+SvBaFo7NKObla7eSHV0lVQBIoKrqy7VjXf8swTyeYf4wx+wiqOgdM5KqWrUzyiBiNEtL2McAq4pdSlrMTNuMVqqPAst07OHC6Q0C2+05nh30sGePeoOF1e/PHccaug6SyfW81KjIsckSplyQlxfJe1lEFG7fVtQ5XfDzhM7lLJf1MhxEUXD03bXM+6PTP37zjyZszQVOEhIcncOSoxrIvj03Pc+D3mJuOT3HNoc9zzIHvbkzcrBtjvBg6KLXvwGg1pK5JEEAAA==",
+            },
+            AmountRequired = 0,
+            UniqueFish = false,
+            Baits = new Dictionary<string, List<uint>>()
+            {
+            },
+            RequiredFish = new Dictionary<string, List<uint>>()
+            {
+            },
+        },
+        // Export for Mission [511] - 【高難+】製作鰻魚預製菜
+        // 來源：上游 Ices-Cosmic-Exploration Main-Branch @ 81d9961 的 Fishing_Sinus.cs。
+        // ⚠️ AH6_ 格式，需要同一波出貨的 AutoHook 才吃得下（舊版會靜默把匯入丟掉）。
+        [511] = new FishingTools()
+        {
+            FishingPreset = new List<string>()
+            {
+                "AH6_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",
+            },
+            AmountRequired = 0,
+            UniqueFish = false,
+            Baits = new Dictionary<string, List<uint>>()
+            {
+            },
+            RequiredFish = new Dictionary<string, List<uint>>()
+            {
+            },
+        },
 
         #endregion
 
@@ -902,7 +1429,50 @@ public static partial class GatheringUtil
                 },
             },
         },
-        [543] = new FishingTools { },
+        // Export for Mission [543] -  Submerged Drone（搜索落水的無人機）
+        //
+        // 📌 這一筆是**我們自己組出來的**，不是上游給的。理由與依據：
+        //    ① 上游 Fishing_Sinus.cs 的 FishingPreset[543] 用的是與 542／544 共用的同一段
+        //       AH6_「Red Alerts」preset，而那一段鎖的是餌 47703／魚 47680 ——
+        //       這兩個 id 在台服 exd-tc/7.20 的 Item.csv 裡**列存在但 Name 是空字串**
+        //       （＝保留給未實裝內容的佔位列），拿來釣台服的 543 一定落空。
+        //    ② 台服 543 的真實需求（逐欄查 exd-tc/7.20）：
+        //       WKSMissionUnit[543] → MissionToDo[0]=581 → RequiredItem[0]=291
+        //         → WKSItemInfo[291].Item = 45939「落水的無人機」，RequiredItemQuantity[0]=3
+        //       任務發的餌：WKSMissionSupplyItem[410].Item[0]=319 → WKSItemInfo[319].Item
+        //         = 45967「淡水萬能機械臂」×999（WKSItemSubCategory=5 ⇒ ICE 的 MoonBaits 認得它）
+        //    ③ 542／543／544 在資料表上是**同構**的任務（MissionType 都是 10、WKSMissionText 都是
+        //       141／144、數量都是 3、時限都是 1200 秒），差別只有目標魚與餌的 id。
+        //       所以這一段是拿我們自己出貨的 542 preset 逐位元組複製後，只改兩個 id：
+        //         ListOfBaits[0].BaitFish.Id  45966 → 45967
+        //         ListOfFish[0].Fish.Id       45937 → 45939
+        //       （另外重新配發了 4 個 UniqueId，避免與 542 共用 FishingHelper 的計數鍵。）
+        //       離線驗證：解出來的鍵集合與 542 **完全相同**，非 UniqueId 的差異只有上面那兩個 id
+        //       加 PresetName；gzip ISIZE 與實際解壓長度相符；bindcheck 對出貨的 AutoHook.dll
+        //       型別圖零型別衝突。
+        //
+        // ⚠️ **提鉤時序是沿用 542 的，沒有針對 45939 調校過**（台服沒有這筆公開資料）。
+        //    最壞情況是每分鐘釣到的數量變少、任務逾時後由 ICE 放棄 —— 那是既有的安全路徑。
+        //    交件判定不受影響：走的是下面 AmountRequired = 3 ＋ RequiredFish 的實際道具計數。
+        [543] = new FishingTools()
+        {
+            FishingPreset = new List<string>()
+            {
+                "AH4_H4sIAPyvdGoC/+1WzW7bRhB+FWPPWoDLf/qmyI4bwHGNyEUORg5LcigtTHGV5TKNa/iSBug1516C9FaghxwKFAiQtykcP0Z3Sa5FSZRDBO6l6G01nPnmV9/MFRpXkk9oKctJNkP7V+iwoHEO4zxH+1JUMEIHvJATWiSQP+U8maP9jOalkmujY1bAyig1Jk/Uyw6j3bangnHB5CXaJ0q7PHyd5FUK6Uqsca4bH63lFaoftn7V+H44QkfLs7mAcs5zJSGWtYZ8P3SNEQWDYrS+GuRkXi1MZC6x3L7QBjgyaDzPIZEdQDLE3P56mFykjOYG2CfuIGC3NX/MyvnhJZSdwLyNTD1vUKa+aS69gOmcZfIRZXW+WlAawVTS5EJ580am5dv+hniLWm+nVDJQip34/U08f1inbAMp2E8wobIZURPlJqo9sP9Oi3o2pzmjF+Vj+ooLDbwmMGVxRuvyZ5DwV6D0iW6CicUd5Nk05BGbHdFFXaFxMctBlMab3UA6geVupTfIRXitfBy+loK2VKNbfManP9Llk0JWTDJeHFFWmEJiNZvHlYCnUJZ0pkJCaIRO6uDQCVfEM2oQLpdKoivXg3fMS/nNeKcqQeiPEGG043vjsf6+ime6VH9nQfNJJQQU8oGy3EB9sFx7o93KuNd7rdUMzlTypSYMVsymEpY11a9ib4drLB4m5C5cHcMPBXtZgcZFThzGie0DTkkSYDelBIdhRLDvJzQNooQ6tocU3jEr5feZ9qGm/bwZT53AHVt4kR/sjvHmrw83H/+8fffH7c+fb35/f/Pbx9tf3mjcEy4WNP+O8wuNZDjoOdD6t5brNOq0XBJorjI6Uyl4MevRspyO1jHMoEipuNyleMArtZ17Hdp+dKeww1tXZberRutMsOUuT4FnO3cqu3ytKd3jrdXTMzbOJIgJrWZzdY4s9BYhzYfN4asPFtW8en3pR4dHG2bzou3Ffc9O1VeE+dub9j6DlxUTkCpsWenVpc+U/3v+X+p5h1oCCJLQggAH4LjYJSnBkRenOHFt3wrCILPtFF2/MNzSrsbzO0FDL4prNnjGiXbzzO27z4pnvvz69svbD39/+qSoZo0ZyXaJzFneX7m6EorAWaK4nDYrpFEYL3hVdArcc+VrTtwon+OtneGhjqcSGVWjndNlJ0mv70jq3Auesvy3j//BR/5qc33zvtLGWjLRVa0L2t1g7d7Sz0a8UtsebMt21+YwymISBp6FCQ1D7CaQ4Ch2CHYC2/KSMCCQ+fUcNtBtlOee6+zhvYlKVDf/xd60ihcgZpDuHYgmg46PLMkcElkxDizIsBuQFNM4cXCU0pCCDX7shOj6H6/50glRDgAA",
+            },
+            AmountRequired = 3,
+            UniqueFish = false,
+            Baits = new Dictionary<string, List<uint>>()
+            {
+            },
+            RequiredFish = new Dictionary<string, List<uint>>()
+            {
+                ["Submerged Drone"] = new List<uint>()
+                {
+                    45939,
+                },
+            },
+        },
         [544] = new FishingTools()
         {
             FishingPreset = new List<string>()

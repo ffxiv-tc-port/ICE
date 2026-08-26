@@ -20,7 +20,10 @@ namespace ICE.Ui
 {
     internal class OverlayWindow : Window
     {
-        private uint selectedJob = C.SelectedJob;
+        // 📌 這裡原本有 `private uint selectedJob = C.SelectedJob;` —— 零讀取者的死碼，已刪。
+        //    它比一般的死欄位更值得記一筆：它是 **instance** 欄位，取值時機綁在建構子，
+        //    而這個視窗是在 ICE.cs 的建構子裡建出來的、設定遷移在那之後才跑，
+        //    所以它存的必定是「遷移前」的值。真正在用的地方一律直讀 C.SelectedJob。
         public OverlayWindow() : base("ICE Overlay".Loc() + "###ICEOverlayWindow", ImGuiWindowFlags.AlwaysAutoResize)
         {
             P.windowSystem.AddWindow(this);
@@ -45,13 +48,22 @@ namespace ICE.Ui
         {
             ImGui.Text("Current state: ".Loc() + SchedulerMain.State.ToString());
             var currentMissionId = CosmicHelper.CurrentLunarMission;
+
+            // 沒有進行中的任務就把金星通知的門閂放掉：交件／放棄之後重接**同一個**任務時，
+            // 門閂若還鎖在那個 ID 上，第二趟達標就會靜默地不通知。
+            if (currentMissionId == 0)
+                MedalNotifier.ObserveScore(0, null, null);
+
             if (CosmicHelper.SheetMissionDict.TryGetValue(currentMissionId, out var missionName) && SchedulerMain.State != IceState.AbandonMission)
             {
                 ImGui.Text("Current Mission: [??]".Loc(currentMissionId));
                 ImGui.SameLine(0, 4);
                 DrawMissionTypeTag(missionName);
                 DrawUnsupportedTag(currentMissionId);
-                ImGui.Text(missionName.Name);
+                // ⚠️ 任務名開頭夾著私用區圖示字元（實測第 470 列是 U+E0BE），ImGui 的字型畫不出來，
+                //    直接畫會在名字前面多一個「�」。任務類型另外有 DrawMissionTypeTag 的標籤在，
+                //    剝掉不會少掉資訊。
+                ImGui.Text(GameTextUtil.StripGameIcons(missionName.Name));
                 ImGui.SameLine();
                 DrawMissionStatusIcons(currentMissionId);
                 DrawObjectives(currentMissionId);
@@ -69,7 +81,7 @@ namespace ICE.Ui
                     ImGui.SameLine(0, 4);
                     DrawMissionTypeTag(targetInfo);
                     DrawUnsupportedTag(target);
-                    ImGui.TextColored(ImGuiColors.DalamudYellow, targetInfo.Name);
+                    ImGui.TextColored(ImGuiColors.DalamudYellow, GameTextUtil.StripGameIcons(targetInfo.Name));
                     ImGui.SameLine();
                     DrawMissionStatusIcons(target);
                 }
@@ -88,90 +100,99 @@ namespace ICE.Ui
             ImGui.Separator();
             ImGuiHelpers.ScaledDummy(2);
 
-            (string currentWeather, uint currentWeatherId, string nextWeather, uint nextWeatherId, string nextWeatherTime) = WeatherForecastHandler.GetNextWeather();
+            // ⚠️ 區塊開關放在**查資料之前**：關掉的意思是「這一塊我不想看」，
+            //    沒必要為了不畫的東西去算一次天氣預報。
+            if (C.ShowOverlayWeather)
+            {
+                (string currentWeather, uint currentWeatherId, string nextWeather, uint nextWeatherId, string nextWeatherTime) = WeatherForecastHandler.GetNextWeather();
 
-            if (currentWeather != null)
+                if (currentWeather != null)
+                {
+                    ImGui.AlignTextToFramePadding();
+                    ImGui.Text("Weather Forcast:".Loc());
+                    Svc.Texture.TryGetFromGameIcon(currentWeatherId, out var currentWeatherIcon);
+                    ImGui.SameLine(0, 2);
+                    ImGui.Image(currentWeatherIcon.GetWrapOrEmpty().Handle, new Vector2(23, 23));
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.BeginTooltip();
+                        ImGui.Text($"{currentWeather}");
+                        ImGui.EndTooltip();
+                    }
+                    ImGui.SameLine(0, 2);
+                    ImGui.AlignTextToFramePadding();
+                    ImGuiEx.Icon(FontAwesomeIcon.LongArrowAltRight);
+                    Svc.Texture.TryGetFromGameIcon(nextWeatherId, out var nextWeatherIcon);
+                    ImGui.SameLine(0, 2);
+                    ImGui.Image(nextWeatherIcon.GetWrapOrEmpty().Handle, new Vector2(23, 23));
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.BeginTooltip();
+                        ImGui.Text($"{nextWeather}");
+                        ImGui.EndTooltip();
+                    }
+                    ImGui.SameLine(0, 2);
+                    ImGui.AlignTextToFramePadding();
+                    ImGui.Text("Next in: ??".Loc(nextWeatherTime));
+                }
+            }
+
+            if (C.ShowOverlayTimedMissions)
             {
                 ImGui.AlignTextToFramePadding();
-                ImGui.Text("Weather Forcast:".Loc());
-                Svc.Texture.TryGetFromGameIcon(currentWeatherId, out var currentWeatherIcon);
-                ImGui.SameLine(0, 2);
-                ImGui.Image(currentWeatherIcon.GetWrapOrEmpty().Handle, new Vector2(23, 23));
-                if (ImGui.IsItemHovered())
+                ImGui.Text("Timed Mission(s): ".Loc());
+                // GetMissionsForHour() 已經濾掉「這個客戶端查不到資料」的任務
+                //（見 PlayerHandlers.KnownMissionsOnly），所以下面的 TryGetValue 正常情況不會落空。
+                var (currentList, nextList) = PlayerHandlers.GetMissionsForHour();
+                foreach (var mission in currentList)
                 {
-                    ImGui.BeginTooltip();
-                    ImGui.Text($"{currentWeather}");
-                    ImGui.EndTooltip();
+                    if (CosmicHelper.JobIconDict.TryGetValue(mission.ClassId, out var jobIcon))
+                    {
+                        ImGui.SameLine(0, 2);
+                        var imageSize = new Vector2(23, 23);
+                        ImGui.Image(jobIcon.GetWrapOrEmpty().Handle, imageSize);
+                        if (ImGui.IsItemHovered())
+                        {
+                            ImGui.BeginTooltip();
+                            ImGui.Text($"[{mission.MissionId}]");
+                            ImGui.SameLine(0, 2);
+                            // ⚠️ 來源是寫死的 PhaennaMapV2/SinusMapV2，跟 SheetMissionDict 沒有共同保證。
+                            //    PhaennaMapV2 的任務 ID 是 574..1004 —— 台服 WKSMissionUnit **有這些列，
+                            //    但整列是空的**（第二顆星 Phaenna 的預留列），所以建不進 SheetMissionDict。
+                            //    上游那條路徑目前走不到只是因為台服沒有 territory 1291。
+                            ImGui.Text(CosmicHelper.SheetMissionDict.TryGetValue(mission.MissionId, out var timedEntry) ? GameTextUtil.StripGameIcons(timedEntry.Name) : "???");
+                            ImGui.EndTooltip();
+                        }
+                    }
                 }
                 ImGui.SameLine(0, 2);
                 ImGui.AlignTextToFramePadding();
                 ImGuiEx.Icon(FontAwesomeIcon.LongArrowAltRight);
-                Svc.Texture.TryGetFromGameIcon(nextWeatherId, out var nextWeatherIcon);
-                ImGui.SameLine(0, 2);
-                ImGui.Image(nextWeatherIcon.GetWrapOrEmpty().Handle, new Vector2(23, 23));
-                if (ImGui.IsItemHovered())
+                ImGui.SameLine();
+                foreach (var mission in nextList)
                 {
-                    ImGui.BeginTooltip();
-                    ImGui.Text($"{nextWeather}");
-                    ImGui.EndTooltip();
+                    if (CosmicHelper.JobIconDict.TryGetValue(mission.ClassId, out var jobIcon))
+                    {
+                        ImGui.SameLine(0, 2);
+                        var imageSize = new Vector2(23, 23);
+                        ImGui.Image(jobIcon.GetWrapOrEmpty().Handle, imageSize);
+                        if (ImGui.IsItemHovered())
+                        {
+                            ImGui.BeginTooltip();
+                            ImGui.Text($"[{mission.MissionId}]");
+                            ImGui.SameLine(0, 2);
+                            // ⚠️ 來源是寫死的 PhaennaMapV2/SinusMapV2，跟 SheetMissionDict 沒有共同保證。
+                            //    PhaennaMapV2 的任務 ID 是 574..1004 —— 台服 WKSMissionUnit **有這些列，
+                            //    但整列是空的**（第二顆星 Phaenna 的預留列），所以建不進 SheetMissionDict。
+                            //    上游那條路徑目前走不到只是因為台服沒有 territory 1291。
+                            ImGui.Text(CosmicHelper.SheetMissionDict.TryGetValue(mission.MissionId, out var timedEntry) ? GameTextUtil.StripGameIcons(timedEntry.Name) : "???");
+                            ImGui.EndTooltip();
+                        }
+                    }
                 }
-                ImGui.SameLine(0, 2);
-                ImGui.AlignTextToFramePadding();
-                ImGui.Text("Next in: ??".Loc(nextWeatherTime));
             }
 
-            ImGui.AlignTextToFramePadding();
-            ImGui.Text("Timed Mission(s): ".Loc());
-            // GetMissionsForHour() 已經濾掉「這個客戶端查不到資料」的任務
-            //（見 PlayerHandlers.KnownMissionsOnly），所以下面的 TryGetValue 正常情況不會落空。
-            var (currentList, nextList) = PlayerHandlers.GetMissionsForHour();
-            foreach (var mission in currentList)
-            {
-                if (CosmicHelper.JobIconDict.TryGetValue(mission.ClassId, out var jobIcon))
-                {
-                    ImGui.SameLine(0, 2);
-                    var imageSize = new Vector2(23, 23);
-                    ImGui.Image(jobIcon.GetWrapOrEmpty().Handle, imageSize);
-                    if (ImGui.IsItemHovered())
-                    {
-                        ImGui.BeginTooltip();
-                        ImGui.Text($"[{mission.MissionId}]");
-                        ImGui.SameLine(0, 2);
-                        // ⚠️ 來源是寫死的 PhaennaMapV2/SinusMapV2，跟 SheetMissionDict 沒有共同保證。
-                        //    PhaennaMapV2 的任務 ID 是 574..1004 —— 台服 WKSMissionUnit **有這些列，
-                        //    但整列是空的**（第二顆星 Phaenna 的預留列），所以建不進 SheetMissionDict。
-                        //    上游那條路徑目前走不到只是因為台服沒有 territory 1291。
-                        ImGui.Text($"{(CosmicHelper.SheetMissionDict.TryGetValue(mission.MissionId, out var timedEntry) ? timedEntry.Name : "???")}");
-                        ImGui.EndTooltip();
-                    }
-                }
-            }
-            ImGui.SameLine(0, 2);
-            ImGui.AlignTextToFramePadding();
-            ImGuiEx.Icon(FontAwesomeIcon.LongArrowAltRight);
-            ImGui.SameLine();
-            foreach (var mission in nextList)
-            {
-                if (CosmicHelper.JobIconDict.TryGetValue(mission.ClassId, out var jobIcon))
-                {
-                    ImGui.SameLine(0, 2);
-                    var imageSize = new Vector2(23, 23);
-                    ImGui.Image(jobIcon.GetWrapOrEmpty().Handle, imageSize);
-                    if (ImGui.IsItemHovered())
-                    {
-                        ImGui.BeginTooltip();
-                        ImGui.Text($"[{mission.MissionId}]");
-                        ImGui.SameLine(0, 2);
-                        // ⚠️ 來源是寫死的 PhaennaMapV2/SinusMapV2，跟 SheetMissionDict 沒有共同保證。
-                        //    PhaennaMapV2 的任務 ID 是 574..1004 —— 台服 WKSMissionUnit **有這些列，
-                        //    但整列是空的**（第二顆星 Phaenna 的預留列），所以建不進 SheetMissionDict。
-                        //    上游那條路徑目前走不到只是因為台服沒有 territory 1291。
-                        ImGui.Text($"{(CosmicHelper.SheetMissionDict.TryGetValue(mission.MissionId, out var timedEntry) ? timedEntry.Name : "???")}");
-                        ImGui.EndTooltip();
-                    }
-                }
-            }
-            if (PlayerHelper.UsingSupportedJob())
+            if (C.ShowOverlayJobScore && PlayerHelper.UsingSupportedJob())
             {
                 if (CosmicHelper.CurrentLunarMission != 0)
                 {
@@ -207,22 +228,29 @@ namespace ICE.Ui
             if (C.ShowTotalScore)
             {
                 (uint TotalScore, uint TotalComplete, uint MaxScore, Dictionary<uint, uint> ClassInfo) = Relic_XP.GetTotalScores();
-                var ScoreBarSize = new Vector2(340, 10);
-                Relic_XP.DrawXPBar("Total Score | Completed: [?? / 11]".Loc(TotalComplete), TotalScore, MaxScore, ScoreBarSize);
-                if (ImGui.IsItemHovered())
+
+                // ClassInfo 是空的＝這一輪讀不到 WKSManager（見 Relic_XP.GetTotalScores 的判空）。
+                // 這種時候整條總分條都不畫，不要畫一條「0 / 5,500,000」——那會被讀成「進度被清空了」。
+                // ⚠️ 刻意用 if 包起來而不是 return：底下還有開始／停止按鈕與相關工具經驗值。
+                if (ClassInfo.Count > 0)
                 {
-                    ImGui.BeginTooltip();
-                    foreach (var job in ClassInfo)
+                    var ScoreBarSize = new Vector2(340, 10);
+                    Relic_XP.DrawXPBar("Total Score | Completed: [?? / 11]".Loc(TotalComplete), TotalScore, MaxScore, ScoreBarSize);
+                    if (ImGui.IsItemHovered())
                     {
-                        var jobIdInfo = job.Key;
-                        var jobScore = job.Value;
-                        var jobImage = CosmicHelper.JobIconDict[jobIdInfo];
-                        ImGui.Image(jobImage.GetWrapOrEmpty().Handle, new Vector2(23, 23));
-                        ImGui.SameLine();
-                        ImGui.AlignTextToFramePadding();
-                        ImGui.Text("Score: ??".Loc(jobScore.ToString("N0")));
+                        ImGui.BeginTooltip();
+                        foreach (var job in ClassInfo)
+                        {
+                            var jobIdInfo = job.Key;
+                            var jobScore = job.Value;
+                            var jobImage = CosmicHelper.JobIconDict[jobIdInfo];
+                            ImGui.Image(jobImage.GetWrapOrEmpty().Handle, new Vector2(23, 23));
+                            ImGui.SameLine();
+                            ImGui.AlignTextToFramePadding();
+                            ImGui.Text("Score: ??".Loc(jobScore.ToString("N0")));
+                        }
+                        ImGui.EndTooltip();
                     }
-                    ImGui.EndTooltip();
                 }
             }
 
@@ -262,6 +290,20 @@ namespace ICE.Ui
             ImGui.Separator();
             ImGuiHelpers.ScaledDummy(2);
 
+            // 機甲行動：比照底下「宇宙工具經驗值」做成可摺疊區塊
+            // （2026-08-08 使用者要求「機甲行動 能和宇宙功工具經驗一樣 並到主 ui 上嗎?」）。
+            //
+            // 🔑 預設**展開**而不是像相鄰那塊一樣收合：這一區的主要內容是倒數
+            //    （下次事件幾點、報名還剩多久），收起來等於看不到，要點開才知道就失去意義了。
+            // ⚠️ 沒有內容時連標題都不畫——空標題會讓人以為功能壞了。
+            if (C.ShowMechaInOverlay && MechaOpsWindow.HasContent())
+            {
+                if (ImGui.CollapsingHeader("Mecha Ops".Loc() + "###ICEOverlayMechaOps", ImGuiTreeNodeFlags.DefaultOpen))
+                {
+                    MechaOpsWindow.DrawContent();
+                }
+            }
+
             if (C.ShowExpBars)
             {
                 var currentJobId = Player.JobId;
@@ -279,10 +321,11 @@ namespace ICE.Ui
         }
 
         /// <summary>
-        /// 畫出目前任務各目標的完成進度、時間限制剩餘時間，以及（沒有逐項目標列時的）分數進度。
+        /// 畫出目前任務各目標的完成進度，以及底下那一行的獎章達成摘要
+        /// （見 <see cref="DrawMedalProgress"/>）。
         /// 目標列資料完全來自遊戲的 <c>WKSMissionInfomation</c> 面板文字（見
         /// <see cref="MissionObjectiveReader"/>），抓不到符合形狀的資料就什麼都不畫，不會退回去猜。
-        /// 目標列與分數列可以並存：目標列優先顯示，分數列（若讀得到）附加在後面。
+        /// 目標列與獎章列可以並存：目標列優先顯示，獎章列附加在後面。
         /// </summary>
         private static void DrawObjectives(uint missionId)
         {
@@ -297,6 +340,10 @@ namespace ICE.Ui
                     ImGui.TextColored(ImGuiColors.HealerGreen, $"{objective.Text}  {objective.Progress}");
                     ImGui.SameLine(0, 4);
                     ImGuiEx.Icon(ImGuiColors.HealerGreen, FontAwesomeIcon.Check);
+
+                    // ImGuiEx.Icon 內部無條件 SameLine（見 DrawMissionStatusIcons 的 remarks），
+                    // 不收掉的話下一列目標（或底下的獎章列）會被黏到這一列尾巴。
+                    ImGui.NewLine();
                 }
                 else
                 {
@@ -304,76 +351,269 @@ namespace ICE.Ui
                 }
             }
 
-            var timeRemaining = MissionObjectiveReader.TimeRemaining;
-            if (timeRemaining != null)
-            {
-                ImGui.Text("    ");
-                ImGui.SameLine(0, 0);
-                ImGui.TextUnformatted("Time Remaining: ??".Loc(timeRemaining));
-            }
+            var scoreReadable = DrawMedalProgress(missionId);
 
-            var scoreReadable = DrawScoreProgress(missionId);
+            LogScanDiagnosticsOnce(missionId, objectives.Count, scoreReadable, MissionObjectiveReader.TimeRemaining != null);
+        }
 
-            LogScanDiagnosticsOnce(missionId, objectives.Count, scoreReadable, timeRemaining != null);
+        /// <summary>讀不到的值一律畫這個，<b>絕不畫 0</b>。</summary>
+        private const string UnknownMark = "?";
+
+        /// <summary>
+        /// 「目前任務」<b>下一行</b>的達成進度摘要（一行畫完）。
+        /// </summary>
+        /// <remarks>
+        /// 📌 刻意另起一行而不是接在任務名後面：那一行已經有「[任務 ID]＋類型標籤＋任務名＋
+        /// 完成狀態圖示」，再接下去會長到看不完。<br/><br/>
+        /// 任務分兩型，畫法不同：<br/>
+        /// • <b>評價型</b>——銀／金門檻是分數，比的是面板的「目前評價」。<br/>
+        /// • <b>時間型</b>——銀／金門檻是「交件時剩餘時間要多少以上」，比的是面板的時間限制列。
+        ///   🔴 這一型的 <c>AtkValues[2]</c>（目前評價）是 <c>Undefined</c>，所以舊的
+        ///   <c>CurrentScore is uint</c> 條件一定不成立，整段<b>什麼都不會畫</b>——這正是使用者
+        ///   2026-08-06 回報「目前任務底下一片空白」的原因。同時舊路徑若真的畫出來也是錯的：
+        ///   ECommons 的 <c>SilverScore</c> 會把「剩餘時間 25:10以上」用
+        ///   <c>Regex.Replace(@"[^\d]", "")</c> 壓成 <b>2510</b>，那不是分數。
+        /// </remarks>
+        /// <returns>供 <see cref="LogScanDiagnosticsOnce"/> 用的診斷旗標，不影響畫面。</returns>
+        private static bool DrawMedalProgress(uint missionId)
+        {
+            CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var sheet);
+
+            var silver = MissionObjectiveReader.SilverCondition;
+            var gold = MissionObjectiveReader.GoldCondition;
+
+            // 時間型的判定優先信面板自己印出來的條件文字（「剩餘時間 25:10以上」——零解讀）；
+            // 面板沒開、讀不到文字時才退回資料表的旗標（CosmicInfo.IsTimeGraded，就是排程器
+            // 交件邏輯在用的那個 ScoreTimeRemaining，兩邊共用不會分岔）。
+            var timeGraded = silver.IsTimeBased || gold.IsTimeBased || (sheet?.IsTimeGraded ?? false);
+
+            ImGui.Text("    ");
+            ImGui.SameLine(0, 0);
+
+            ImGui.BeginGroup();
+            var readable = timeGraded
+                ? DrawTimeGradedLine(sheet, silver, gold)
+                : DrawScoreGradedLine(missionId, sheet, silver, gold);
+            ImGui.EndGroup();
+
+            // 「起疑才查」的明細放 tooltip：面板原文、資料表數字。
+            if (ImGui.IsItemHovered())
+                DrawMedalTooltip(sheet, silver, gold, timeGraded);
+
+            DrawCriticalProgress(missionId);
+
+            return readable;
         }
 
         /// <summary>
-        /// 評價型任務（沒有逐項目標列、只看分數的任務，例如採集特殊裝甲板材料）的分數進度：
-        /// 目前評價／銀星／金星門檻，達標的門檻文字變綠。高難任務另外附加緊急進度那一段。
-        /// 資料來源是 ECommons AddonMaster 的 <c>WKSMissionInfomation.CurrentScore/SilverScore/
-        /// GoldScore/CriticalScore</c>，型別全是 <c>uint?</c>——讀不到就整段不畫，<b>不要 <c>?? 0</c></b>：
-        /// 0 會畫出一個假的「評價 0」，讓掛機使用者誤判進度。
+        /// 時間型任務那一行：<c>剩餘 26:34 / 30:00　✓ 銀星 25:10　✓ 金星 25:50</c>。
+        /// 勾／叉表示「<b>現在交件</b>拿不拿得到」，隨時間推移會從勾變叉。
         /// </summary>
-        /// <returns>供 <see cref="LogScanDiagnosticsOnce"/> 用的診斷旗標，不影響畫面。</returns>
-        private static bool DrawScoreProgress(uint missionId)
+        private static bool DrawTimeGradedLine(CosmicHelper.CosmicInfo? sheet,
+            MissionObjectiveReader.MedalCondition silver,
+            MissionObjectiveReader.MedalCondition gold)
         {
-            if (!GenericHelpers.TryGetAddonMaster<WKSMissionInfomation>("WKSMissionInfomation", out var missionInfo) || !missionInfo.IsAddonReady)
-                return false;
+            var remaining = MissionObjectiveReader.RemainingSeconds;
+            var total = MissionObjectiveReader.TotalSeconds
+                ?? (sheet is { TimeLimitSeconds: > 0 } ? (int)sheet.TimeLimitSeconds : null);
 
-            bool scoreReadable;
-            if (missionInfo.CurrentScore is uint current && missionInfo.SilverScore is uint silver && missionInfo.GoldScore is uint gold)
+            // 🔴 讀不到就畫「?」，不要畫 0 —— 掛機的人看到 0:00 會以為任務已經超時。
+            ImGui.TextUnformatted("Remaining: ?? / ??".Loc(
+                remaining is int r ? GameTextUtil.FormatDuration(r) : UnknownMark,
+                total is int t ? GameTextUtil.FormatDuration(t) : UnknownMark));
+
+            var silverThreshold = TimeThreshold(silver, sheet?.SilverScore);
+            var goldThreshold = TimeThreshold(gold, sheet?.GoldScore);
+
+            DrawMedalTag("Silver".Loc(), DurationOrRaw(silverThreshold, silver), Reached(remaining, silverThreshold));
+            DrawMedalTag("Gold".Loc(), DurationOrRaw(goldThreshold, gold), Reached(remaining, goldThreshold));
+
+            return remaining != null;
+        }
+
+        /// <summary>
+        /// 評價型任務那一行：<c>評價 1,820　✓ 銀星 1,200　✗ 金星 2,400　距金星還差 580</c>。
+        /// </summary>
+        /// <remarks>
+        /// 尾巴那個「距金星還差 ??」<b>只有在目前評價與金星門檻兩邊都讀得到、而且還沒達標時才畫</b>：<br/>
+        /// • 已達金星就不畫（畫「還差 0」等於在講廢話，還白白撐寬版面）。<br/>
+        /// • 🔴 任一邊是 null 就不畫。拿 <c>current ?? 0</c> 去算差距會畫出「還差一整個門檻」——
+        ///   一個看起來完全合理、卻是憑空捏造的數字。這一行的「不知道」由前面的
+        ///   <c>評價 ?</c>（黃字）負責表達，不要在後面再補一個假數字。<br/><br/>
+        /// 同一組數字順便餵給 <see cref="MedalNotifier"/> 做「剛跨過金星」的一次性通知——
+        /// 這裡本來就每幀讀一次面板，<b>不是新開的輪詢</b>，而且那邊純通知、不改任何行為。
+        /// </remarks>
+        private static bool DrawScoreGradedLine(uint missionId, CosmicHelper.CosmicInfo? sheet,
+            MissionObjectiveReader.MedalCondition silver,
+            MissionObjectiveReader.MedalCondition gold)
+        {
+            uint? current = null, panelSilver = null, panelGold = null;
+            if (GenericHelpers.TryGetAddonMaster<WKSMissionInfomation>("WKSMissionInfomation", out var missionInfo) && missionInfo.IsAddonReady)
             {
-                scoreReadable = true;
+                current = missionInfo.CurrentScore;
+                panelSilver = missionInfo.SilverScore;
+                panelGold = missionInfo.GoldScore;
+            }
 
-                ImGui.Text("    ");
-                ImGui.SameLine(0, 0);
-                ImGui.TextUnformatted("Current Score: ??".Loc(current.ToString("N0", CultureInfo.InvariantCulture)));
+            // 面板讀不到門檻就退回資料表（評價型的 SilverScore/GoldScore 就是分數本身）。
+            var silverThreshold = panelSilver ?? PositiveOrNull(sheet?.SilverScore);
+            var goldThreshold = panelGold ?? PositiveOrNull(sheet?.GoldScore);
 
-                ImGui.Text("    ");
-                ImGui.SameLine(0, 0);
-                var silverText = "Silver Threshold: ??".Loc(silver.ToString("N0", CultureInfo.InvariantCulture));
-                if (current >= silver)
-                    ImGui.TextColored(ImGuiColors.HealerGreen, silverText);
-                else
-                    ImGui.TextUnformatted(silverText);
-
-                ImGui.SameLine(0, 8);
-                var goldText = "Gold Threshold: ??".Loc(gold.ToString("N0", CultureInfo.InvariantCulture));
-                if (current >= gold)
-                    ImGui.TextColored(ImGuiColors.HealerGreen, goldText);
-                else
-                    ImGui.TextUnformatted(goldText);
+            // 🔴 讀不到分數時畫「評價 ?」而且是黃字（跟 DrawMedalTag 的第三態同色）——
+            //    「不知道」本身要在列上看得見，不能只有一個不起眼的問號，更不能畫成 0。
+            if (current is uint c)
+            {
+                ImGui.TextUnformatted("Rating: ??".Loc(c.ToString("N0", CultureInfo.InvariantCulture)));
             }
             else
             {
-                scoreReadable = false;
+                ImGui.TextColored(ImGuiColors.DalamudYellow, "Rating: ??".Loc(UnknownMark));
             }
 
-            var isCritical = CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var missionEntry)
-                && missionEntry.Attributes.HasFlag(MissionAttributes.Critical);
+            DrawMedalTag("Silver".Loc(), ScoreOrRaw(silverThreshold, silver), Reached(current, silverThreshold));
+            DrawMedalTag("Gold".Loc(), ScoreOrRaw(goldThreshold, gold), Reached(current, goldThreshold));
 
-            if (isCritical && missionInfo.CriticalScore is { } critical)
+            if (current is uint cur && goldThreshold is uint goldTarget && cur < goldTarget)
             {
-                ImGui.Text("    ");
-                ImGui.SameLine(0, 0);
-                var criticalText = "Critical Progress: ??/1".Loc(critical);
-                if (critical >= 1)
-                    ImGui.TextColored(ImGuiColors.HealerGreen, criticalText);
-                else
-                    ImGui.TextUnformatted(criticalText);
+                ImGui.SameLine(0, 10);
+                ImGui.TextColored(ImGuiColors.DalamudGrey3,
+                    "?? to gold".Loc((goldTarget - cur).ToString("N0", CultureInfo.InvariantCulture)));
             }
 
-            return scoreReadable;
+            MedalNotifier.ObserveScore(missionId, current, goldThreshold);
+
+            return current != null;
+        }
+
+        /// <summary>
+        /// 一個獎章標記：圖示＋名稱＋門檻。三態——達成（綠勾）／未達成（灰叉）／
+        /// <b>不知道</b>（黃問號）。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 第三態是刻意的：把「讀不到」畫成灰叉等於斷言「還沒達成」，那是在騙人。
+        /// 顏色與圖示<b>同時</b>帶訊息，所以就算色弱也分得出來，且不疊背景色。
+        /// </remarks>
+        private static void DrawMedalTag(string label, string valueText, bool? achieved)
+        {
+            var (color, icon) = achieved switch
+            {
+                true => (ImGuiColors.HealerGreen, FontAwesomeIcon.Check),
+                false => (ImGuiColors.DalamudGrey3, FontAwesomeIcon.Times),
+                _ => (ImGuiColors.DalamudYellow, FontAwesomeIcon.Question),
+            };
+
+            ImGui.SameLine(0, 10);
+            ImGuiEx.Icon(color, icon);
+            ImGui.SameLine(0, 3);
+            ImGui.TextColored(color, $"{label} {valueText}");
+        }
+
+        /// <summary>
+        /// 時間型門檻：優先用面板條件文字解出來的秒數，面板沒開就換算資料表的值。
+        /// </summary>
+        /// <remarks>
+        /// 資料表那條路的單位是「剩餘秒數 × 10」（<see cref="CosmicHelper.CosmicInfo.IsTimeGraded"/>
+        /// 的註解裡有離線核對過程），所以要除以 10。
+        /// </remarks>
+        private static int? TimeThreshold(MissionObjectiveReader.MedalCondition condition, uint? sheetValue)
+        {
+            if (condition.RequiredRemainingSeconds is int fromPanel)
+                return fromPanel;
+
+            if (sheetValue is uint raw && raw > 0)
+                return (int)(raw / 10);
+
+            return null;
+        }
+
+        /// <summary>0 一律當成「沒有資料」——門檻 0 會讓「已達成」恆真。</summary>
+        private static uint? PositiveOrNull(uint? value) => value is uint v && v > 0 ? v : null;
+
+        /// <summary>
+        /// 門檻的顯示文字：解析得出來就畫成 <c>25:10</c>；解析不出來但面板有原文就<b>原樣顯示</b>；
+        /// 兩者皆無才畫「?」。
+        /// </summary>
+        private static string DurationOrRaw(int? seconds, MissionObjectiveReader.MedalCondition condition)
+            => seconds is int s ? GameTextUtil.FormatDuration(s)
+             : condition.HasText ? condition.Raw!
+             : UnknownMark;
+
+        /// <inheritdoc cref="DurationOrRaw"/>
+        private static string ScoreOrRaw(uint? score, MissionObjectiveReader.MedalCondition condition)
+            => score is uint v ? v.ToString("N0", CultureInfo.InvariantCulture)
+             : condition.HasText ? condition.Raw!
+             : UnknownMark;
+
+        /// <summary>「達成了沒」——任一邊不知道就回 null（＝畫成問號），不要當成未達成。</summary>
+        private static bool? Reached(int? currentValue, int? threshold)
+            => currentValue is int c && threshold is int t ? c >= t : null;
+
+        /// <inheritdoc cref="Reached(int?, int?)"/>
+        private static bool? Reached(uint? currentValue, uint? threshold)
+            => currentValue is uint c && threshold is uint t ? c >= t : null;
+
+        /// <summary>
+        /// 獎章那一行的 tooltip：面板原文與資料表數字。這些是「起疑才查」的東西，不占列上版面。
+        /// </summary>
+        private static void DrawMedalTooltip(CosmicHelper.CosmicInfo? sheet,
+            MissionObjectiveReader.MedalCondition silver,
+            MissionObjectiveReader.MedalCondition gold,
+            bool timeGraded)
+        {
+            ImGui.BeginTooltip();
+
+            ImGui.TextUnformatted("Time limit: ??".Loc(MissionObjectiveReader.TimeRemaining ?? "Not read from the mission panel".Loc()));
+            ImGui.TextUnformatted("Silver condition: ??".Loc(silver.HasText ? silver.Raw! : "Not read from the mission panel".Loc()));
+            ImGui.TextUnformatted("Gold condition: ??".Loc(gold.HasText ? gold.Raw! : "Not read from the mission panel".Loc()));
+
+            if (!timeGraded
+                && GenericHelpers.TryGetAddonMaster<WKSMissionInfomation>("WKSMissionInfomation", out var missionInfo)
+                && missionInfo.IsAddonReady)
+            {
+                ImGui.TextUnformatted("Panel scores: current ?? / silver ?? / gold ??".Loc(
+                    missionInfo.CurrentScore?.ToString() ?? UnknownMark,
+                    missionInfo.SilverScore?.ToString() ?? UnknownMark,
+                    missionInfo.GoldScore?.ToString() ?? UnknownMark));
+            }
+
+            if (sheet != null)
+            {
+                // ⚠️ 時間型任務的 SilverScore/GoldScore 單位是「剩餘秒數 × 10」不是分數，
+                //    所以這裡刻意標成「資料表原始值」，不要讓人以為那是評價分數。
+                ImGui.TextUnformatted("Sheet: limit ??s / silver ?? / gold ??".Loc(
+                    sheet.TimeLimitSeconds, sheet.SilverScore, sheet.GoldScore));
+            }
+
+            ImGui.EndTooltip();
+        }
+
+        /// <summary>
+        /// 高難任務的緊急進度。原行為不變（另起一行、達標變綠），只是從舊的
+        /// <c>DrawScoreProgress</c> 拆出來，好讓上面兩型任務共用。
+        /// </summary>
+        private static void DrawCriticalProgress(uint missionId)
+        {
+            if (!CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var missionEntry)
+                || !missionEntry.Attributes.HasFlag(MissionAttributes.Critical))
+                return;
+
+            if (!GenericHelpers.TryGetAddonMaster<WKSMissionInfomation>("WKSMissionInfomation", out var missionInfo)
+                || !missionInfo.IsAddonReady)
+                return;
+
+            // 🔴 CriticalScore 讀不出來時原本是整列不畫 —— 那會讓使用者以為「這個任務沒有緊急進度」，
+            //    而不是「進度讀不到」。未知本身要在列上看得見（畫 ?，而且刻意不畫成 0）。
+            var critical = missionInfo.CriticalScore;
+
+            ImGui.Text("    ");
+            ImGui.SameLine(0, 0);
+            var criticalText = "Critical Progress: ??/1".Loc(critical?.ToString() ?? UnknownMark);
+            if (critical is null)
+                ImGui.TextColored(ImGuiColors.DalamudYellow, criticalText);
+            else if (critical >= 1)
+                ImGui.TextColored(ImGuiColors.HealerGreen, criticalText);
+            else
+                ImGui.TextUnformatted(criticalText);
         }
 
         /// <summary>
@@ -445,7 +685,7 @@ namespace ICE.Ui
                 if (id == 0 || !MissionSupport.IsUnsupported(id, out var reason))
                     continue;
 
-                var name = CosmicHelper.SheetMissionDict.TryGetValue(id, out var info) ? info.Name : "???";
+                var name = CosmicHelper.SheetMissionDict.TryGetValue(id, out var info) ? GameTextUtil.StripGameIcons(info.Name) : "???";
                 unsupported.Add((id, name, reason));
             }
 
@@ -476,6 +716,17 @@ namespace ICE.Ui
         /// 金牌＝已完成且已拿金章；綠勾＝已完成但還沒金章；紅叉＝尚未完成。
         /// 另外比照主視窗，有採集座標旗標／緊急任務地點的任務也一併標出來。
         /// </summary>
+        /// <remarks>
+        /// 🔴 <b>畫完會自己把那一行收掉（<c>ImGui.NewLine()</c>），呼叫端接下來畫的東西一定在下一行。</b><br/>
+        /// 原因是 ECommons 的 <c>ImGuiEx.Icon</c> 內部<b>無條件</b>呼叫 <c>ImGui.SameLine()</c>
+        /// （<c>ImGuiMethods/ImGuiEx/Text.cs</c> 的 <c>IconWithText</c>，即使沒有附帶文字也照做），
+        /// 所以每個 <c>ImGuiEx.Icon</c> 都會留下一個<b>待處理的 SameLine</b>。這個函式最後一定
+        /// 以 Icon 收尾，不收掉的話呼叫端下一個 widget 會被黏到任務名那一行尾巴——
+        /// 使用者 2026-08-06 回報的「評價那串跑到任務名同一行」就是這樣來的。<br/><br/>
+        /// ⚠️ 這裡用 <c>NewLine()</c> 是安全的：本函式必定至少畫過一個圖示，
+        /// 也就是這一行必定有內容（<c>CurrLineSize.y &gt; 0</c>），此時 <c>NewLine()</c> 只是把行收掉、
+        /// <b>不會</b>多插一行空白。（在空行上呼叫 <c>NewLine()</c> 才會多一行，那不是這裡的情況。）
+        /// </remarks>
         private static void DrawMissionStatusIcons(uint missionId)
         {
             var (completed, gold) = MissionStatusHelper.GetStatus(missionId);
@@ -505,6 +756,9 @@ namespace ICE.Ui
                     ImGuiEx.Icon(FontAwesomeIcon.FlagCheckered);
                 }
             }
+
+            // 把 ImGuiEx.Icon 留下的待處理 SameLine 收掉（理由見上面的 remarks）。
+            ImGui.NewLine();
         }
 
         /// <summary>已經為哪個任務印過掃描結果診斷，避免每幀洗記錄檔——同款節流手法見 <see cref="MissionObjectiveReader"/>。</summary>

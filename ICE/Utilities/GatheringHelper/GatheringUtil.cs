@@ -237,6 +237,22 @@ public static unsafe partial class GatheringUtil
         { "CollectorsHigh", new GatheringActions
         {
             // Only available in certain missions... *-sighs-*
+            //
+            // 📌 台服對照（2026-08-07 以 exd-tc/7.20 逐表核對）：這一條就是宇宙採集任務的專屬
+            //    臨時技能 Action 41307「極致強化洞察」（WKSMissionToDo.Unknown0，全表 22 個採集
+            //    任務用到），效果＝「下一次大膽提煉的收藏價值上升量固定為最大／下一次慎重提煉
+            //    不消耗耐久的機率 +40%」。
+            // 🔴 它掛在任務指令槽上，所以這裡填的 ActionId 是 27（GeneralAction 27 =「任務指令2」）
+            //    而不是 41307 —— 拿「41307」去 grep 原始碼會 0 命中，看起來像全艦隊都沒支援，
+            //    其實 ICE 一直有在用。要找這個能力請搜 GeneralAction 27 或狀態 3911。
+            // 📌 下面那個 StatusId 3911 就是它賦予的「強化洞察」：Action 表裡全服只有 41307
+            //    這一個名字帶「洞察」的技能，而 41307 的 SecondaryCostType=46 / Value=3911
+            //    正是「本技能賦予的狀態」這個欄位語意（同型例：黑魔紋 3573 -> 737）。
+            // 📌 受它加成的兩個技能在 GathCollectableActions 裡分別叫 "Brazen"（22183/22187
+            //    大膽提煉）與 "Meticulous"（22184/22188 慎重提煉），
+            //    Task_Gather.NormalGpRotation 的 step 0~2 已經照這個關係在排順序。
+            // ⚠️ 只有「有 GP 的輪替」(Mission_Settings.SelectedRotation == 1) 會用到它；
+            //    NoGpRotation 完全不碰任務指令槽。那是刻意的極簡輪替，不是漏掉。
             ActionName = "Collectors High Standard",
             ClassAction = new()
             {

@@ -106,47 +106,69 @@ namespace ICE.Scheduler.Tasks
                     }
                     else
                     {
-                        IceLogging.Debug($"Actual text: '{select.Text}'");
-                        IceLogging.Debug($"Actual text length: {select.Text.Length}");
-                        IceLogging.Debug($"Trimmed text: '{select.Text.Trim()}'");
-                        IceLogging.Debug($"Trimmed length: {select.Text.Trim().Length}");
-
+                        // 🔴 這裡原本還有一整段作者查法文譯文用的逐字元 dump：把 select.Text 與一句
+                        //    寫死的法文確認句各自跑一次 for 迴圈，每個字元印一行 IceLogging.Error。
+                        //    節流器是 EzThrottler 的預設 500ms，所以那是**每半秒約 110 行 Error**
+                        //    （兩句各約 50 餘字元 ＋ 4 行標頭）。IceLogging.Error 除了寫 dalamud.log
+                        //    還會推進 LogSystem 那個 3000 筆的環形緩衝區 —— 也就是使用者要複製回報的
+                        //    那個視窗，十幾秒就會被這段 dump 洗光，真正有用的上下文全部被擠出去。
+                        //    法文比對的問題後來是靠 NormalizeWhitespace()（下面那個函式，處理 NBSP／
+                        //    細空格）解掉的，這段 dump 只是當時的鷹架，留著純粹是損害。
+                        // ⚠️ 只刪列印，判斷與動作完全不動：認不出來的確認框仍然按 No，
+                        //    仍然留一行 Error 說明是什麼視窗。cycleapple 9d5a8f0 在同一個位置改成
+                        //    「不碰這個視窗、只印 Warning 等它自己關掉」——那是行為變更（可能是別的
+                        //    外掛的確認框），**這一輪刻意不採用**，維持現行按 No。
+                        //
+                        // 🔴 2026-08-18：同一個 else 分支上面原本還留著 4 行 `IceLogging.Debug`
+                        //    （Actual text／Actual text length／Trimmed text／Trimmed length），
+                        //    **完全沒有節流，這個任務回 false 就是每一幀再印一次**。
+                        //    IceLogging.Debug 沒有等級閘門：它一律先 LogSystem.Log() 推進上面說的
+                        //    那個 3000 筆環形緩衝區、再組字串丟給 PluginLog.Debug。使用者跑 LogLevel 2，
+                        //    Dalamud 會把 PluginLog.Debug 整個丟掉 —— 也就是**這 4 行使用者永遠看不到**，
+                        //    卻以每幀 4 筆的速度洗掉他要複製回報的上下文。跟上面那段法文 dump 同一種損害。
+                        // 🔑 取捨：4 行裡有 3 行的內容跟下面那行已節流的 Error 重複（都印 select.Text），
+                        //    唯一不重複的是長度，所以長度**折進 Error 那一行**（`[len=…]`），不另外開 log 行。
+                        //    這樣既不新增任何一筆 log，又把這個訊息從使用者看不到的 Debug 升到看得到的 Error。
+                        // ⚠️ 但長度是**弱訊號**：等長的異體空白（NBSP ↔ 一般空格）長度一樣、印出來也一樣，
+                        //    這種只有碼位看得出來 —— 而逐字元碼位 dump 正是上面被刪掉的那段鷹架。
+                        //    **不要再把它加回來**：真的遇到就去擴充 NormalizeWhitespace() 的替換表。
                         if (EzThrottler.Throttle("Unexpected Abandon Window..."))
                         {
-                            var actualText = select.Text.Trim();
-                            var expectedFrench = "Êtes-vous sûre de vouloir abandonner la mission en cours ?";
-
-                            // Debug the ACTUAL text character by character
-                            IceLogging.Error("=== ACTUAL TEXT BREAKDOWN ===");
-                            for (int i = 0; i < actualText.Length; i++)
-                            {
-                                IceLogging.Error($"Actual char {i}: '{actualText[i]}' (Unicode: {(int)actualText[i]})");
-                            }
-
-                            // Debug the EXPECTED text character by character
-                            IceLogging.Error("=== EXPECTED TEXT BREAKDOWN ===");
-                            IceLogging.Error($"Expected: '{expectedFrench}'");
-                            IceLogging.Error($"Expected length: {expectedFrench.Length}");
-                            for (int i = 0; i < expectedFrench.Length; i++)
-                            {
-                                IceLogging.Error($"Expected char {i}: '{expectedFrench[i]}' (Unicode: {(int)expectedFrench[i]})");
-                            }
-
-                            IceLogging.Error($"Unexpected abandon window??? {select.Text}", "[Abandon Mission]");
+                            IceLogging.Error($"Unexpected abandon window??? {select.Text} [len={select.Text.Length}]", "[Abandon Mission]");
                             select.No();
                         }
                     }
                 }
                 else if(GenericHelpers.TryGetAddonMaster<WKSMissionInfomation>("WKSMissionInfomation", out var addon) && addon.IsAddonReady)
                 {
+                    // ⚠️ 這個 if 原本沒有大括號、下一行還是空行 —— 看起來像在 gate 下面的
+                    //    Report/Abandon，實際上只 gate 到「漁夫先收竿」那一整塊。補上大括號是為了
+                    //    讓讀的人看到真正的範圍，行為刻意維持完全一樣。
+                    //
+                    // 🔴 為什麼不把 Report/Abandon 也包進來（節流器的名字看起來就是那個意思）：
+                    //    包進來會讓「放棄任務」永遠不會發生。EzThrottler 的語意是「首次必放行，
+                    //    之後要 now > deadline 才放行並重設」，而下面那組是
+                    //      if (Throttle("Attempt to turnin", 500)) Report();
+                    //      else if (Throttle("Telling it to abandon the mission", 500)) Abandon();
+                    //    —— 現在是第一個 tick 走 Report，下一個 tick「Attempt to turnin」還沒到期，
+                    //    才會落到 else 去 Abandon。外面再包一層 1000ms 的話，每次外層放行時
+                    //    「Attempt to turnin」的 500ms 早就過了，於是每次都走 Report，
+                    //    else 那一支永遠碰不到。
+                    //
+                    // ⚠️ 為什麼也不直接把這個 Throttle 刪掉（讓漁夫判斷變成每個 tick 都檢查，
+                    //    跟 Task_TurninMission 裡一模一樣的那個區塊一致）：那會讓「還在釣魚時」
+                    //    完全不能回報／放棄，只能等 StopFishing() 生效。萬一收竿沒生效，這串任務
+                    //    用的是 Utils.TaskConfig（30 分鐘、abortOnTimeout: false），失敗形式會是
+                    //    「安靜地卡住半小時」。要改成那樣得先有實機證據。
                     if (EzThrottler.Throttle("Trying To Turnin/Abandon", 1000))
-
-                    if (Player.JobId == 18 && Svc.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.Gathering])
                     {
-                        if (EzThrottler.Throttle("Stop fishing so we can turn in this mission!", 2000))
-                            Task_DualClass.StopFishing();
+                        if (Player.JobId == 18 && Svc.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.Gathering])
+                        {
+                            if (EzThrottler.Throttle("Stop fishing so we can turn in this mission!", 2000))
+                                Task_DualClass.StopFishing();
 
-                        return false;
+                            return false;
+                        }
                     }
 
                     if (EzThrottler.Throttle("Attempt to turnin", 500))

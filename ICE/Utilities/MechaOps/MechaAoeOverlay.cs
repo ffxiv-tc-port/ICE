@@ -102,7 +102,7 @@ internal static class MechaAoeOverlay
             return;
         }
 
-        var lp = Svc.ClientState.LocalPlayer;
+        var lp = Svc.Objects.LocalPlayer;
         if (lp == null)
         {
             coverage = Empty;
@@ -139,8 +139,10 @@ internal static class MechaAoeOverlay
                         DrawRect(drawList, origin, rotation, c.Shape.Primary, c.Shape.HalfWidth);
                         break;
                     case MechaAoeKind.Cone:
-                        // 角度不在遊戲資料裡（Omen=0），用設定值（預設 90°，待實機校準）。
-                        var angleRad = Math.Clamp(C.MechaConeAngleDeg, 15f, 360f) * MathF.PI / 180f;
+                        // 角度不在遊戲資料裡（Omen=0），走設定值。
+                        // 🔑 一律問 ConeAngleFor(actionId)，不要自己去讀設定或常數——
+                        //    直接讀會靜默忽略 per-skill 覆蓋（表現成「滑桿沒作用」）。
+                        var angleRad = MechaActionShapes.ConeAngleFor(c.ActionId) * MathF.PI / 180f;
                         drawList.AddConeFilled(origin, c.Shape.Primary, ToPictoRotation(rotation), angleRad, ConeFill);
                         break;
                     case MechaAoeKind.SelfCircle:
@@ -184,6 +186,14 @@ internal static class MechaAoeOverlay
 
         foreach (var o in objectives)
         {
+            // 🔴 身份分流（2026-08-08）：屬於另一個身份的目的指示預設不畫。
+            //    遊戲的標記在同一場裡是**全場共用**的（第五場實機錄製直證：協助員的
+            //    畫面上出現 did=2014722 的駕駛員菌床本體，路徑就是 confirmed-marker），
+            //    所以「遊戲標給你的就是你的目標」這個推論在機甲行動裡不成立。
+            //    ⚠️ 手動釘選永遠不受它影響——那是使用者自己按的，藏掉他自己釘的東西沒有道理。
+            if (!o.IsPin && MechaObjectiveTracker.HiddenByRoleGate(o.BaseId, o.Kind))
+                continue;
+
             // 三態 ＋ 一個「來源可不可信」的維度：
             //   淺藍          ＝ 使用者自己釘的（來源就是他本人，不可能過期）
             //   金（實）粗框  ＝ ObjectTable 已確認，而且標記來自遊戲的有效清單
@@ -238,7 +248,11 @@ internal static class MechaAoeOverlay
         }
 
         var dist = Vector3.Distance(origin, o.Position);
-        var name = o.Confirmed ? o.Label : MechaPrivacy.Unknown;
+
+        // 📌 Label 現在永遠有值：ObjectTable 名 → 資料表 EObjName → 「目標 N」
+        //    （見 MechaObjectiveTracker.ResolveLabel）。舊碼在沒對上時硬畫「?」，
+        //    等於把「這裡有一個目的指示」跟「我不知道它叫什麼」混成同一件事。
+        var name = o.Label.Length > 0 ? o.Label : MechaPrivacy.Unknown;
         var suffix = uncertain ? "  " + MechaPrivacy.Unknown : "";
         drawList.AddText(o.Position, color, $"{name}  {dist:F0}m{suffix}", 1f);
     }
@@ -319,11 +333,20 @@ internal static class MechaAoeOverlay
             return;
         }
 
-        var coneRad = Math.Clamp(C.MechaConeAngleDeg, 15f, 360f) * MathF.PI / 180f;
         var useHitbox = C.MechaCoverageUseHitbox;
+
+        // 「目標 N」的 N。只有真的沒有名字的任務目標才會用到（見 DrawTargetLabel）。
+        var unnamedOrdinal = 0;
 
         foreach (var t in targets)
         {
+            // 🔴 身份分流（2026-08-08）：屬於另一個身份的目標預設不畫。
+            //    ⚠️ 這一行必須在涵蓋統計**之前**——狀態視窗那個 n/m 是這個迴圈算出來的，
+            //    放到後面的話畫面上看不到的東西會繼續被算進分母，
+            //    協助員會看到「打得到 25 個」而地上只有 4 個圈。
+            if (MechaObjectiveTracker.HiddenByRoleGate(t.DataId, t.Kind))
+                continue;
+
             var covered = false;
 
             foreach (var c in candidates)
@@ -332,6 +355,9 @@ internal static class MechaAoeOverlay
                     continue;
 
                 var entry = counts[c.ActionId];
+                // ⚠️ 扇形角度改成 per-skill 之後就**不能**在迴圈外算一次了：
+                //    每個技能可以有自己的角度，提到外面等於全部套用第一個技能的值。
+                var coneRad = MechaActionShapes.ConeAngleFor(c.ActionId) * MathF.PI / 180f;
                 if (MechaCoverage.IsInReach(c.Shape, origin, casterHitbox, t, useHitbox))
                     entry.InReach++;
                 if (MechaCoverage.IsCovered(c.Shape, coneRad, origin, rotation, casterHitbox, t, useHitbox))
@@ -356,19 +382,62 @@ internal static class MechaAoeOverlay
             if (t.IsCurrentTarget)
                 drawList.AddCircle(t.Position, radius + 0.4f, TargetCurrentColor, 0, 2f);
 
-            // 🔴 名字一律過 MechaPrivacy：機甲行動是多人內容，附近幾乎一定有其他玩家，
-            //    而世界疊加層上的角色名一截圖就帶出去了。預設縮寫成「F. L.」。
-            //    在**顯示端**做而不是取樣端，是為了讓設定一改就立刻生效。
-            if (C.ShowMechaTargetNames && !string.IsNullOrEmpty(t.Name))
-                drawList.AddText(t.Position, TargetNameColor, MechaPrivacy.Sanitize(t.Name, t.Kind), 1f);
+            DrawTargetLabel(drawList, t, ref unnamedOrdinal);
         }
 
         // 全部算完才發布，讀取端不會看到半成品。
         coverage = counts;
     }
 
-    /// <summary>個別技能開關：設定裡沒有紀錄＝開。</summary>
-    private static bool IsSkillEnabled(uint actionId)
+    /// <summary>
+    /// 目標的標籤。
+    ///
+    /// 🔑 三件事在這裡收斂：
+    ///  1. <b>「沒有名字」不等於不畫</b>——台服機甲事件「有害菌床」在遊戲資料裡就是空字串
+    ///     （離線證據見 <see cref="MechaObjectNames"/>），舊碼的
+    ///     <c>!string.IsNullOrEmpty(t.Name)</c> 讓它整個無聲消失，使用者看到的就是
+    ///     「目標沒名字」。無名的<b>任務目標</b>改畫「目標 N」。
+    ///  2. <b>兩態標示</b>（PalacePal 式）用符號而不是顏色：
+    ///     <c>◆</c>＝已確認（目的指示標記真的對上它）、<c>◇</c>＝疑似（同型物件）。
+    ///     顏色那一維已經被「有沒有被技能蓋到」（綠／紅）用掉了，再疊一層顏色會分不出誰是誰。
+    ///  3. 任務目標的標籤<b>不受「顯示目標名稱」開關影響</b>——那個開關要解決的是
+    ///     「一堆雜魚的名字很吵」，而任務目標只有幾個，把它藏起來就回到原本的 bug。
+    ///     一般物件仍然照舊尊重開關。
+    ///
+    /// 🔴 名字一律過 <see cref="MechaPrivacy"/>：機甲行動是多人內容，
+    /// 世界疊加層上的角色名一截圖就帶出去了。在**顯示端**做是為了設定一改就立刻生效。
+    /// </summary>
+    private static void DrawTargetLabel(PctDrawList drawList, in MechaTarget t, ref int unnamedOrdinal)
+    {
+        var isObjective = t.Tier != MechaTargetTier.Other;
+
+        // 已確認的那一個由 DrawObjectives 畫（同一個座標畫兩行字會疊在一起）。
+        if (t.Tier == MechaTargetTier.Objective && C.ShowMechaObjectives)
+            return;
+
+        if (!isObjective && (!C.ShowMechaTargetNames || t.Label.Length == 0))
+            return;
+
+        var name = t.Label.Length > 0
+            ? MechaPrivacy.Sanitize(t.Label, t.Kind)
+            : isObjective ? "Objective ??".Loc(++unnamedOrdinal) : MechaPrivacy.Unknown;
+
+        var mark = t.Tier switch
+        {
+            MechaTargetTier.Objective => "◆ ",
+            MechaTargetTier.Likely => "◇ ",
+            _ => "",
+        };
+
+        drawList.AddText(t.Position, TargetNameColor, mark + name, 1f);
+    }
+
+    /// <summary>
+    /// 個別技能開關：設定裡沒有紀錄＝開。
+    /// ⚠️ <c>internal</c> 而不是 <c>private</c>：<see cref="MechaEventRecorder"/> 要用同一份判準
+    /// 決定「這一輪要記哪幾個技能的預測範圍」，抄一份過去會漂移。
+    /// </summary>
+    internal static bool IsSkillEnabled(uint actionId)
         => !C.MechaAoeSkillToggles.TryGetValue(actionId, out var enabled) || enabled;
 
     /// <summary>

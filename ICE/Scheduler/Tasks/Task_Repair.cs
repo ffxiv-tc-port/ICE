@@ -31,20 +31,56 @@ namespace ICE.Scheduler.Tasks
                         new(CloseRepair, "Closing Self Repair", Utils.TaskConfig)
                     );
                 }
-                P.TaskManager.Enqueue(() =>  SchedulerMain.State = IceState.GrabMission);
             }
+
+            // 🔴 這一行原本在 if (NeedsRepair) 裡面，所以「進來時已經不需要修理」＝什麼都沒排，
+            //    而 Tick 只在佇列排空時才呼叫 Enqueue()，狀態又還停在 Repair
+            //    → 下一個 tick 再進來、再什麼都沒排 → **永遠卡在 Repair 狀態，而且完全沒有 log**。
+            //    觸發條件不只上面註解講的「自我修理逾時把佇列清掉」那一種：
+            //    Task_CheckState 判定要修理、到這裡 Enqueue 之間只要有別的外掛
+            //    （AutoRetainer／Deliveroo／使用者自己按修理）先把裝備修好，就會落進同一個死結。
+            //    這個離開狀態的動作與「要不要修理」無關，所以必須在 if 外面無條件排。
+            //    （移出來也不會多做事：狀態機本來就是「修理這一段結束 → 回去領任務」。）
+            P.TaskManager.Enqueue(() => SchedulerMain.State = IceState.GrabMission);
         }
         public static unsafe bool? HubCheck()
         {
-            Vector2 HubCenter = Vector2.Zero;
-            if (PlayerHelper.IsInPhaenna())
+            // 各月面的據點中心（世界座標）。座標取自 cycleapple api13-tw `65a5806`。
+            //
+            // 舊寫法只在 Phaenna 設過中心點，Sinus Ardorum 那一邊 HubCenter 留在 Vector2.Zero，
+            // 也就是「離世界原點 45 公尺內」。那在 1237 剛好會動——真正的據點中心是
+            // (2.84, -0.06)，離原點不到 3 公尺，整個判定圈只偏了 3 公尺 ——
+            // 但它是**碰巧成立**，不是有意的，而且對 1237/1291 以外的任何區域都是錯的。
+            //
+            // ⚠️ 舊寫法還有一行 `PlayerPos = new Vector2(Player.Position.Z, Player.Position.Z)`
+            //    （Z 打了兩次，而且從頭到尾沒有被用到）——那是壞掉的死碼，一併移除。
+            Vector3? hubCenter = Player.Territory switch
             {
-                HubCenter = new Vector2(340.0f, -420.0f);
+                1237 => new Vector3(2.84f, 1.55f, -0.06f),   // 渴望灣 / Sinus Ardorum
+                1291 => new Vector3(339.90f, 52.60f, -412.10f), // Phaenna（台服 7.20 尚未開放）
+                _ => null,
+            };
+
+            // 🔴 刻意**不**照上游用 Vector3.Distance：那會把高度算進距離。
+            //    這個判定要問的是「人在不在據點這一塊地上」，而玩家在據點上空飛行時
+            //    高度差可以輕鬆超過 45 —— 用三維距離就會在人明明在據點正上方時判成
+            //    「不在據點」，然後開始重複施放「返回月面基地」。
+            //    ECommons 的 Player.DistanceTo(Vector2) 走的是 Position.ToVector2() = (X, Z)，
+            //    也就是水平距離，正是舊寫法一直在用的語意，保持不變。
+            if (hubCenter is not { } center)
+            {
+                // 不認得的區域＝算不出據點在哪。這裡**故意 fail-open**（當成已經在據點內）：
+                // 判 false 會讓這個步驟一直重試並持續施放返回動作，而 ICE 在這個檔裡
+                // 已經有兩次「狀態機無聲卡死」的前科。下游的 PathToRepair 自己有
+                // TryGetMoonNpc 守衛，走到那裡會乾淨地 AbortToStateCheck。
+                // 📌 這一行寫 Information：使用者跑 LogLevel 2，Debug 收不到，
+                //    而「我人不在月面卻在跑據點流程」正是需要被回報的狀況。
+                if (EzThrottler.Throttle("ICE: hub check unknown territory", 5000))
+                    IceLogging.Info($"目前區域 {Player.Territory} 沒有登記據點中心座標（可能已經被傳送離開月面），據點範圍檢查直接放行。", "[Vendor Repair Check]");
+                return true;
             }
 
-            Vector2 PlayerPos = new Vector2(Player.Position.Z, Player.Position.Z);
-
-            if (Player.DistanceTo(HubCenter) < 45)
+            if (Player.DistanceTo(new Vector2(center.X, center.Z)) < 45)
             {
                 IceLogging.Info("Player is in the range of the main hub area right now", "[Vendor Repair Check]");
                 return true;
@@ -147,7 +183,8 @@ namespace ICE.Scheduler.Tasks
                 {
                     if (GenericHelpers.TryGetAddonMaster<SelectYesno>("SelectYesno", out var Yesno) && Yesno.IsAddonReady)
                     {
-                        if (FrameThrottler.Throttle("Saying yes to the gil"))
+                        // 閘門預設是「一律按下確定」，那條路徑連確認框的文字都不會讀（見 YesnoGuard）。
+                        if (FrameThrottler.Throttle("Saying yes to the gil") && YesnoGuard.ShouldConfirm(YesnoSituation.Repair))
                             Yesno.Yes();
                     }
                     else if (EzThrottler.Throttle("Firing off repair request", 300))
@@ -203,7 +240,9 @@ namespace ICE.Scheduler.Tasks
             }
             else if (GenericHelpers.TryGetAddonByName<AtkUnitBase>("SelectYesno", out var addon) && GenericHelpers.IsAddonReady(addon))
             {
-                if (FrameThrottler.Throttle("SelectYesnoThrottle", 300))
+                // 這裡刻意保留原本的 Callback.Fire（不改成 SelectYesno.Yes()）—— 閘門只負責「准不准按」，
+                // 真正按下去的方式維持原樣，免得順手換掉一條已經在出貨中驗過的路徑。
+                if (FrameThrottler.Throttle("SelectYesnoThrottle", 300) && YesnoGuard.ShouldConfirm(YesnoSituation.Repair))
                 {
                     IceLogging.Debug("SelectYesno Callback", "Self Repair Task");
                     ECommons.Automation.Callback.Fire(addon, true, 0);
@@ -227,6 +266,10 @@ namespace ICE.Scheduler.Tasks
                 {
                     ECommons.Automation.Callback.Fire(Yesno.Base, true, -1);
                 }
+
+                // 確認框還在＝還沒收乾淨。下面的收尾出口改成 return true 之後，
+                // 這個分支就必須自己明確回 false，否則按下取消的同一幀就會宣告完成。
+                return false;
             }
             else if (GenericHelpers.TryGetAddonByName<AtkUnitBase>("Repair", out var repairWindow))
             {
@@ -237,6 +280,8 @@ namespace ICE.Scheduler.Tasks
                         IceLogging.Debug("Closing the repair window", "[Repair Task]");
                         ECommons.Automation.Callback.Fire(repairWindow, true, -1);
                     }
+
+                    return false;
                 }
                 else
                 {
@@ -244,7 +289,12 @@ namespace ICE.Scheduler.Tasks
                 }
             }
 
-            return false;
+            // 🔴 兩個視窗都已經不在了＝收尾其實已經做完。這裡原本回 false，等於
+            //    「永遠不完成」，而這三步掛的是 Utils.TaskConfig
+            //    （timeLimitMS = 30 分鐘、abortOnTimeout = false）——所以症狀不是報錯，
+            //    是**整個佇列卡在這一步 30 分鐘**，逾時之後才靠 abortOnTimeout = false
+            //    放行下一步。上面兩個分支的 return false 就是為了配這個出口而補的。
+            return true;
         }
     }
 }

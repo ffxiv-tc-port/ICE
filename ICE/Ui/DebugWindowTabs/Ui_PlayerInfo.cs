@@ -10,17 +10,17 @@ namespace ICE.Ui.DebugWindowTabs
     {
         public static void Draw()
         {
-            ImGui.Text("Need to actually put the player info here. It got lost");
+            ImGui.Text("Need to actually put the player info here. It got lost".Loc());
             ImGui.Spacing();
             ImGui.AlignTextToFramePadding();
             ImGui.Text($"Player Position: X:{Player.Position.X:N2}, Y:{Player.Position.Y:N2}, Z:{Player.Position.Z:N2}");
             ImGui.SameLine();
-            if (ImGui.Button("Copy Vector2"))
+            if (ImGui.Button("Copy Vector2".Loc()))
             {
                 ImGui.SetClipboardText($"{Player.Position.X:N2}f, {Player.Position.Z:N2}f");
             }
             ImGui.SameLine();
-            if (ImGui.Button("Copy Vector3"))
+            if (ImGui.Button("Copy Vector3".Loc()))
             {
                 ImGui.SetClipboardText($"{Player.Position.X:N2}f, {Player.Position.Y:N2}f, {Player.Position.Z:N2}f");
             }
@@ -34,9 +34,9 @@ namespace ICE.Ui.DebugWindowTabs
                 {
                     ImGui.SetClipboardText(currentTarget.Name.ToString());
                 }
-                if (ImGui.Button($"Id: {currentTarget.DataId}"))
+                if (ImGui.Button($"Id: {currentTarget.BaseId}"))
                 {
-                    ImGui.SetClipboardText(currentTarget.DataId.ToString());
+                    ImGui.SetClipboardText(currentTarget.BaseId.ToString());
                 }
                 if (ImGui.Button($"Position: X: {currentTarget.Position.X:N2}, Y: {currentTarget.Position.Y:N2}, Z: {currentTarget.Position.Z:N2}"))
                 {
@@ -51,7 +51,7 @@ namespace ICE.Ui.DebugWindowTabs
                 if (PlayerHelper.GetItemCount(item.Id, out var count) && count > 0)
                     ImGui.Text($"{item.Name} | {item.Id}");
             }
-            if (ImGui.Button("Use Gathering Food"))
+            if (ImGui.Button("Use Gathering Food".Loc()))
             {
                 P.TaskManager.Enqueue(() => Task_Gather.UseFood());
             }
@@ -61,7 +61,7 @@ namespace ICE.Ui.DebugWindowTabs
 
         private static unsafe void ClassInfo()
         {
-            ImGui.Text("Manipulation Check");
+            ImGui.Text("Manipulation Check".Loc());
             Dictionary<uint, uint> ManipClassInfo = new()
             {
                 [8] = 4574,

@@ -15,6 +15,8 @@ namespace ICE.Ui.MainUi.ModeSelect
 {
     internal class modeSelect_TableInfo
     {
+        // 🔴 死碼：只有本檔的 DrawTabButton 讀寫它，而 DrawTabButton 本身零呼叫端。
+        //    保留不刪（使用者裁決：死碼只要確認真的死，不用刪）。
         public static HashSet<string> selectedTabs = new HashSet<string>();
         public static uint selectedMission = 0;
         public static List<string> JokeList = new()
@@ -44,6 +46,8 @@ namespace ICE.Ui.MainUi.ModeSelect
         };
         public static int jokeId = 0;
 
+        // 🔴 死碼：只有 DrawCollapsibleHeader / DrawCollapsibleSection 用到，那兩個都進不來。
+        //    保留不刪（使用者裁決：死碼只要確認真的死，不用刪）。
         public static Dictionary<string, bool> headerStates = new();
 
         public static Dictionary<string, List<Mission>> missionList = new()
@@ -86,6 +90,18 @@ namespace ICE.Ui.MainUi.ModeSelect
                 ? i.RelicXpInfo.Where(exp => exp.Key == type).Sum(exp => exp.Value)
                 : 0d;
 
+            // 實測「有效」每分成果：加權總分 ÷（交件耗時＋放棄耗時）。
+            // 沒有實測記錄（或查不到任務資料）一律回 0 —— 降冪排序下自然落到最後，
+            // 與這個函式既有的「查不到就排最後」慣例一致。
+            double EffectiveScoreOf(T m)
+            {
+                var id = idSelector(m);
+                if (!missionInfo.TryGetValue(id, out var i)) return 0;
+                if (!C.MissionConfig.TryGetValue(id, out var cfg)) return 0;
+                return MissionStatsCalculator.CalculateEffectiveScorePerMinute(
+                    cfg.TurninRecords, i.ClassScore, cfg.AbandonedTimeSeconds, cfg.TotalCompletions);
+            }
+
             return C.TableSortOption switch
             {
                 1 => items.OrderBy(NameOf),
@@ -98,10 +114,30 @@ namespace ICE.Ui.MainUi.ModeSelect
                 8 => items.OrderByDescending(m => ExpOf(m, 5)),
                 9 => items.OrderBy(MarkerOf),
                 10 => items.OrderByDescending(ScoreOf),
+                11 => items.OrderByDescending(EffectiveScoreOf),
                 _ => items,   // 0 = 依 ID，也就是維持原本的順序
             };
         }
 
+        /// <summary>
+        /// 把秒數格式化成 h:mm:ss（小時不進位成天）。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 不要用 <c>TimeSpan.ToString("hh\:mm\:ss")</c> —— 那個 <c>hh</c> 是「一天之內的
+        /// 小時數」(0~23)，超過 24 小時會**靜默**把天數丟掉：30 小時會顯示成 06:00:00，
+        /// 看起來像個正常數字，不像壞掉。放棄耗時是長期累積值，一定會走到那個範圍。
+        /// </remarks>
+        private static string FormatTotalTime(double seconds)
+        {
+            var ts = TimeSpan.FromSeconds(seconds > 0 ? seconds : 0);
+            return $"{(int)ts.TotalHours:D2}:{ts.Minutes:D2}:{ts.Seconds:D2}";
+        }
+
+        // 🔴 死碼（不可達，但**不是**零呼叫端 —— 差別要說清楚）：
+        //    它有一個呼叫端，就是下面的 DrawCollapsibleSection，而那個才是零呼叫端。
+        //    整叢（DrawCollapsibleHeader → DrawCollapsibleSection → DrawTabButton → selectedTabs/headerStates）
+        //    從外面都進不來。若日後要清，必須整叢一起評估，只看單一方法的呼叫端數會得到錯的答案。
+        //    保留不刪（使用者裁決：死碼只要確認真的死，不用刪）。
         public static void DrawCollapsibleHeader(string id, string label, float spacing = 4f, Vector4? borderColor = null, Vector4? backgroundColor = null)
         {
             const float padding = 6.0f;
@@ -149,6 +185,10 @@ namespace ICE.Ui.MainUi.ModeSelect
             ImGui.SetCursorScreenPos(new Vector2(cursorPos.X, cursorPos.Y + bgHeight + spacing));
         }
 
+        // 🔴 死碼：零呼叫端（靜態掃描；本 repo 無反射式 UI 探索）。
+        //    ⚠️ 它唯一的內容繪製呼叫（MissionInfoV2）本來就已經被註解掉了，
+        //       所以就算接回去也只會畫出一個空的可收合標題。
+        //    保留不刪（使用者裁決：死碼只要確認真的死，不用刪）。
         public static void DrawCollapsibleSection(string id, string label, int enabled, List<Mission> missions)
         {
             DrawCollapsibleHeader(id, $"{label} | Enabled: {enabled}");
@@ -158,6 +198,8 @@ namespace ICE.Ui.MainUi.ModeSelect
             }
         }
 
+        // 🔴 死碼：零呼叫端（靜態掃描；本 repo 無反射式 UI 探索）。selectedTabs 的唯一讀寫者。
+        //    保留不刪（使用者裁決：死碼只要確認真的死，不用刪）。
         public static bool DrawTabButton(string label, string tabIndex)
         {
             if (selectedTabs.Contains(tabIndex))
@@ -233,8 +275,8 @@ namespace ICE.Ui.MainUi.ModeSelect
                 ImGui.TableSetupColumn("Enabled".Loc()); // 0
                 ImGui.TableSetupColumn("Job".Loc());
                 ImGui.TableSetupColumn("Manual".Loc());
-                ImGui.TableSetupColumn("ID");
-                ImGui.TableSetupColumn("✓");
+                ImGui.TableSetupColumn("ID".Loc());
+                ImGui.TableSetupColumn("✓".Loc());
                 ImGui.TableSetupColumn("Mission Name".Loc());
                 ImGui.TableSetupColumn("Cosmo".Loc());
                 ImGui.TableSetupColumn("Lunar".Loc());
@@ -244,11 +286,11 @@ namespace ICE.Ui.MainUi.ModeSelect
                 // Xp Columns Here
                 float padding = 10f;
                 float xpWidth = ImGui.CalcTextSize("III").X + padding;
-                ImGui.TableSetupColumn("I"); // 10
-                ImGui.TableSetupColumn("II");
-                ImGui.TableSetupColumn("III");
-                ImGui.TableSetupColumn("IV");
-                ImGui.TableSetupColumn("V"); // 14
+                ImGui.TableSetupColumn("I".Loc()); // 10
+                ImGui.TableSetupColumn("II".Loc());
+                ImGui.TableSetupColumn("III".Loc());
+                ImGui.TableSetupColumn("IV".Loc());
+                ImGui.TableSetupColumn("V".Loc()); // 14
 
                 ImGui.TableSetupColumn("Turnin Mode".Loc()); // 15
                 ImGui.TableSetupColumn("Gathering Profile".Loc());
@@ -368,7 +410,7 @@ namespace ICE.Ui.MainUi.ModeSelect
                 #region ID
 
                 ImGui.TableSetColumnIndex(columnIndexCount);
-                ImGui.TableHeader("ID");
+                ImGui.TableHeader("ID".Loc());
                 if (ImGui.IsItemHovered())
                 {
                     ImGui.BeginTooltip();
@@ -382,7 +424,7 @@ namespace ICE.Ui.MainUi.ModeSelect
                 #region Completed
 
                 ImGui.TableSetColumnIndex(columnIndexCount);
-                ImGui.TableHeader("✓");
+                ImGui.TableHeader("✓".Loc());
                 if (ImGui.IsItemHovered())
                 {
                     ImGui.BeginTooltip();
@@ -530,6 +572,12 @@ namespace ICE.Ui.MainUi.ModeSelect
                     var Id = entry.id;
                     var missionConfig = C.MissionConfig[Id];
                     var missionInfo = CosmicHelper.SheetMissionDict[Id];
+
+                    // 篩選列的搜尋（2026-08-09）：只影響「這一列畫不畫」。
+                    // ⚠️ 刻意放在這裡，不放在建清單的地方 —— 分類按鈕上的計數（「已啟用 [12]」
+                    //    那種）算的是真正啟用的筆數，被搜尋字串改掉會直接誤導人。
+                    if (!modeSelect_Standard.PassesNameFilter(Id, missionInfo.Name))
+                        continue;
 
                     // 判定與自動選任務共用同一個函式，表上顯示的與流程實際會跳過的一定一致。
                     bool unsupported = MissionSupport.IsUnsupported(Id, out var unsupportedReason);
@@ -1219,35 +1267,9 @@ namespace ICE.Ui.MainUi.ModeSelect
                         ImGui.Text($"{xp.Value}");
                     }
 
-                    if (mission.BronzeScore != 0)
-                    {
-                        ImGui.TableNextRow();
-                        ImGui.TableSetColumnIndex(0);
-                        ImGui.Text("Bronze Requirement".Loc());
-
-                        ImGui.TableNextColumn();
-                        ImGui.Text($"{mission.BronzeScore}");
-                    }
-
-                    if (mission.SilverScore != 0)
-                    {
-                        ImGui.TableNextRow();
-                        ImGui.TableSetColumnIndex(0);
-                        ImGui.Text("Silver Requirement".Loc());
-
-                        ImGui.TableNextColumn();
-                        ImGui.Text($"{mission.SilverScore}");
-                    }
-
-                    if (mission.GoldScore != 0)
-                    {
-                        ImGui.TableNextRow();
-                        ImGui.TableSetColumnIndex(0);
-                        ImGui.Text("Gold Requirement".Loc());
-
-                        ImGui.TableNextColumn();
-                        ImGui.Text($"{mission.GoldScore}");
-                    }
+                    DrawMedalRequirementRow("Bronze Requirement".Loc(), mission.BronzeScore, mission.IsTimeGraded);
+                    DrawMedalRequirementRow("Silver Requirement".Loc(), mission.SilverScore, mission.IsTimeGraded);
+                    DrawMedalRequirementRow("Gold Requirement".Loc(), mission.GoldScore, mission.IsTimeGraded);
 
                     if (mission.MarkerId != 0)
                     {
@@ -1398,6 +1420,31 @@ namespace ICE.Ui.MainUi.ModeSelect
 
                     ImGui.Text("Amount of times completed: ??".Loc(config.TotalCompletions));
                     ImGui.Text("Amount of timed abandoned: ??".Loc(config.FailedCounters));
+
+                    // 金星穩定度。分母是「含放棄」的嘗試次數 —— 放棄掉的那幾次也花了時間，
+                    // 只除以完成次數會把不穩的任務看成穩的。
+                    // ⚠️「不知道」要在列上看得見：樣本數 0 顯示 "--"，不要畫成 0%（那會誤導成「試過都沒中」）。
+                    var goldAttempts = config.TotalCompletions + config.FailedCounters;
+                    if (goldAttempts > 0)
+                    {
+                        var goldRate = 100.0 * config.GoldCompletions / goldAttempts;
+                        ImGui.Text("Gold rate: ??% (??/?? attempts, ?? abandoned)".Loc(
+                            goldRate.ToString("F0"), config.GoldCompletions, goldAttempts, config.FailedCounters));
+                    }
+                    else
+                    {
+                        ImGui.Text("Gold rate: -- (no attempts recorded yet)".Loc());
+                    }
+                    ImGui.SameLine();
+                    ImGui.TextDisabled("?");
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.SetTooltip(("Share of attempts that ended in a gold turn-in, counting abandoned runs as attempts.\n" +
+                                         "Time lost to abandons so far: ??\n" +
+                                         "Used by the optional 'Minimum gold rate' rule in Mission Picking Rules, and by the " +
+                                         "'Effective Score/Min' sort order. Display is never filtered by that rule.").Loc(
+                            FormatTotalTime(config.AbandonedTimeSeconds)));
+                    }
 
                     if (CosmicHelper.SheetMissionDict.TryGetValue(selectedMission, out var missionInfo))
                     {
@@ -1560,7 +1607,35 @@ namespace ICE.Ui.MainUi.ModeSelect
                                 var planet = MissionStatsCalculator.CalculateActualScorePerMinute(config.TurninRecords, planetCredit);
                                 ImGui.Text($"{planet:N2}");
 
+                                // 「有效」＝把放棄掉的時間也算進分母。上面那列「平均」只除交件耗時，
+                                // 兩列並排就能一眼看出放棄成本吃掉多少效率。
+                                // ⚠️ 與「平均」那列一樣固定是每分鐘（不隨 ShowSPM 切換），兩列才可直接比較。
+                                ImGui.TableNextRow();
+                                ImGui.TableSetColumnIndex(0);
+                                ImGui.Text("Effective".Loc());
+                                ImGui.SameLine();
+                                ImGui.TextDisabled("?");
+                                if (ImGui.IsItemHovered())
+                                {
+                                    ImGui.SetTooltip(("Same as Average, but the time spent on abandoned runs is added to the denominator.\n" +
+                                                     "If you abandon when gold becomes unreachable, that time is a real cost of your farming loop, " +
+                                                     "and leaving it out systematically overrates missions you gold inconsistently.\n" +
+                                                     "Time lost to abandons so far: ??\n" +
+                                                     "This is what the 'Effective Score/Min' sort order ranks by.").Loc(
+                                        FormatTotalTime(config.AbandonedTimeSeconds)));
+                                }
 
+                                ImGui.TableNextColumn();
+                                var effScore = MissionStatsCalculator.CalculateEffectiveScorePerMinute(config.TurninRecords, baseScore, config.AbandonedTimeSeconds, config.TotalCompletions);
+                                ImGui.Text($"{effScore:N2}");
+
+                                ImGui.TableNextColumn();
+                                var effCredits = MissionStatsCalculator.CalculateEffectiveScorePerMinute(config.TurninRecords, comsoCredit, config.AbandonedTimeSeconds, config.TotalCompletions);
+                                ImGui.Text($"{effCredits:N2}");
+
+                                ImGui.TableNextColumn();
+                                var effPlanet = MissionStatsCalculator.CalculateEffectiveScorePerMinute(config.TurninRecords, planetCredit, config.AbandonedTimeSeconds, config.TotalCompletions);
+                                ImGui.Text($"{effPlanet:N2}");
 
                                 ImGui.EndTable();
                             }
@@ -1858,6 +1933,47 @@ namespace ICE.Ui.MainUi.ModeSelect
                 ImGui.Text(FontAwesomeIcon.Star.ToIconString());
                 ImGui.PopFont();
                 ImGui.PopStyleColor();
+            }
+        }
+
+        /// <summary>
+        /// 任務資訊表裡的一列「銅／銀／金星門檻」。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 <b>時間型任務的門檻不是分數</b>：這一型（<c>MissionAttributes.ScoreTimeRemaining</c>，
+        /// 台服 34 個）的銀／金看的是「交件時剩餘時間要多少以上」，而
+        /// <c>WKSMissionUnit</c> 存的單位是<b>剩餘秒數 × 10</b>。舊碼直接把那個整數印出來，
+        /// 使用者看到的是「15100」而不是「25:10」——那個數字既不是分數也不是秒數，
+        /// 而且沒有任何徵兆顯示它需要換算。<br/><br/>
+        /// 判斷沿用 <see cref="CosmicHelper.CosmicInfo.IsTimeGraded"/>（＝排程器交件邏輯與
+        /// 疊加層在用的同一個旗標），不另立判斷，才不會出現「表格說是分數、交件卻按時間走」
+        /// 的分岔。<br/><br/>
+        /// 📌 離線核對（<c>exd-tc/7.20</c>）：34 個時間型任務的 <c>BronzeScore</c> 全是 0，
+        /// 所以銅星那一列在現行資料下不會出現；仍然走同一條路是為了日後真的有值時
+        /// 不會又印出一個沒換算的數字。
+        /// </remarks>
+        private static void DrawMedalRequirementRow(string label, uint rawValue, bool timeGraded)
+        {
+            if (rawValue == 0)
+                return;
+
+            ImGui.TableNextRow();
+            ImGui.TableSetColumnIndex(0);
+            ImGui.Text(label);
+
+            ImGui.TableNextColumn();
+
+            if (!timeGraded)
+            {
+                ImGui.Text($"{rawValue}");
+                return;
+            }
+
+            ImGui.Text("?? or more remaining".Loc(GameTextUtil.FormatDuration((int)(rawValue / 10))));
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip(("Silver and gold on this mission are judged on how much time is left when you " +
+                                  "turn in, not on a score.\nRaw sheet value: ?? (remaining seconds x 10).").Loc(rawValue));
             }
         }
 

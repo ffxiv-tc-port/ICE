@@ -27,16 +27,42 @@ public class Shop_Cosmocredits
     public const uint CosmocreditItemId = 45690;
 
     private static Dictionary<uint, ItemInfo>? cachedShop;
+    private static HashSet<string>? cachedShopNames;
 
     /// <summary>目前客戶端實際販售的宇宙點數商品（首次存取時建立，之後快取）。</summary>
     public static Dictionary<uint, ItemInfo> CosmocreditShop => cachedShop ??= BuildFromGameData();
 
+    /// <summary>
+    /// 「用宇宙點數付款」的 SpecialShop 的名稱集合（台服只有一筆：「宇宙信用點數交易」）。
+    /// </summary>
+    /// <remarks>
+    /// 用途是 <c>Task_BuyCosmoItems.SelectShop</c> 要在 NPC 的商店選單裡挑對的那一項。
+    /// 🔴 兌換 NPC（ENpcBase 1052588／1052600／1052607／1052608）掛了**兩個** SpecialShop：
+    /// <c>1770945</c>「宇宙信用點數交易」（60 筆商品）與 <c>1770977</c>（台服整列空白、零筆商品）。
+    /// 上游寫死選 <c>Entries[1]</c>＝第二項，在台服會挑到那個空的。改成用名字對，對不到才退回舊行為。
+    /// </remarks>
+    public static HashSet<string> CosmocreditShopNames
+    {
+        get
+        {
+            if (cachedShop == null)
+                cachedShop = BuildFromGameData();
+            return cachedShopNames ?? [];
+        }
+    }
+
     /// <summary>Excel 表在執行期不會變，這個只留給需要重建時用。</summary>
-    public static void Invalidate() => cachedShop = null;
+    public static void Invalidate()
+    {
+        cachedShop = null;
+        cachedShopNames = null;
+    }
 
     private static Dictionary<uint, ItemInfo> BuildFromGameData()
     {
         var result = new Dictionary<uint, ItemInfo>();
+        var names = new HashSet<string>();
+        cachedShopNames = names;
 
         var sheet = Svc.Data?.GetExcelSheet<SpecialShop>();
         if (sheet == null)
@@ -62,6 +88,10 @@ public class Shop_Cosmocredits
                 if (cost == 0)
                     continue;
 
+                var shopName = shop.Name.ExtractText();
+                if (!string.IsNullOrWhiteSpace(shopName))
+                    names.Add(shopName);
+
                 foreach (var receive in entry.ReceiveItems)
                 {
                     var itemRef = receive.Item;
@@ -75,7 +105,8 @@ public class Shop_Cosmocredits
             }
         }
 
-        IceLogging.Info($"宇宙點數商店：從遊戲資料讀到 {result.Count} 件商品", "[Shop]");
+        IceLogging.Info($"宇宙點數商店：從遊戲資料讀到 {result.Count} 件商品，" +
+                        $"商店名稱 {names.Count} 筆：{string.Join(" / ", names)}", "[Shop]");
         return result;
     }
 
