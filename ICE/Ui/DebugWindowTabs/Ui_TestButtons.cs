@@ -286,8 +286,12 @@ namespace ICE.Ui.DebugWindowTabs
                     var position = gatheringPoint.Position;
                     var landZone = gatheringPoint.Position;
                     var gatheringType = Player.Job == Job.MIN ? 2 : 3;
-                    var currentMission = CosmicHelper.CurrentMissionInfo;
-                    var nodeSet = currentMission?.MapPosition ?? new Vector2(0, 0);
+                    // 原本是 CosmicHelper.CurrentMissionInfo（零守衛的字典索引）。
+                    // ⚠️ 順帶：那個 `?.` 從來沒有作用 —— 屬性回的是不可為 null 的 CosmicInfo，
+                    //    真正會發生的是 KeyNotFoundException，不是 null。
+                    var nodeSet = CosmicHelper.TryGetCurrentMissionInfo(out var currentMission)
+                        ? currentMission.MapPosition
+                        : new Vector2(0, 0);
 
                     string info = $"new GathNodeInfo\n{{\n    ZoneId = 1237,\n    NodeId = {nodeId},\n    Position = new Vector3({position.X}f, {position.Y}f, {position.Z}f),\n    LandZone = new Vector3({landZone.X}f, {landZone.Y}f, {landZone.Z}f),\n    GatheringType = {gatheringType},\n    NodeSet = {nodeSet}\n}}";
 
@@ -503,7 +507,14 @@ namespace ICE.Ui.DebugWindowTabs
 
         private static unsafe void MoveItem()
         {
-            InventoryManager.Instance()->MoveItemSlot(InventoryType.Inventory4, 0, InventoryType.Inventory4, 1, false);
+            // The 5th argument (a6) is the "send this move to the server" master switch, not a
+            // don't-care unknown. With a6: false the game only updates the local container and
+            // refreshes the UI -- no packet is sent, for any container, bag-to-bag included. The
+            // item appears to move and then snaps back on the next inventory sync, which makes the
+            // button actively misleading as a test: you would be looking at client-side state that
+            // the server never agreed to. The game's own drag-and-drop handler passes true, so this
+            // debug button does too and now performs a real move.
+            InventoryManager.Instance()->MoveItemSlot(InventoryType.Inventory4, 0, InventoryType.Inventory4, 1, a6: true);
         }
     }
 }

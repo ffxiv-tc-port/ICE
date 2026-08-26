@@ -28,7 +28,18 @@ namespace ICE.Scheduler.Tasks
         public static bool? PathToRelicNPC()
         {
             var zoneId = Player.Territory;
-            var npcEntry = NpcData.MoonNpcs[zoneId].Where(x => x.type == NpcData.NpcType.Relic).FirstOrDefault();
+            // 🔴 零守衛的字典索引。MoonNpcs 只有月面兩個 key（1237／1291），而這裡的 key 是
+            // Player.Territory —— 佇列排好之後玩家還是可能被傳送走（機甲行動抽中駕駛員就會），
+            // 下一個 tick 讀到的區域就不是月面了。原本的 .First()/.FirstOrDefault() 兩種寫法
+            // 都沒處理「找不到」，一個丟 InvalidOperationException、一個回 null 再 NRE。
+            if (!NpcData.TryGetMoonNpc(zoneId, NpcData.NpcType.Relic, out var npcEntry))
+            {
+                if (EzThrottler.Throttle("ICE: moon npc missing Relic", 5000))
+                    IceLogging.Info($"目前區域 {zoneId} 沒有登記研究員 NPC 的資料（可能已經被傳送離開月面），中止這一步。", "[ICE]");
+                P.TaskManager.Tasks.Clear();
+                SchedulerMain.State = IceState.Start;
+                return true;
+            }
 
             if (Player.DistanceTo(npcEntry.NpcLocation) <= 6.75f)
             {
@@ -96,7 +107,18 @@ namespace ICE.Scheduler.Tasks
             // 台服的研究員 NPC DataId 與國際服不同，純靠 TryGetObjectByDataId 永遠找不到
             // （實機徵狀：人就站在 NPC 旁邊，狀態卻一直卡在 HubReturn）。
             // TryGetNpcObject 在 DataId 查不到時會退回「靠近設定座標」的判定。
-            var npcEntry = NpcData.MoonNpcs[Player.Territory].First(x => x.type == NpcData.NpcType.Relic);
+            // 🔴 零守衛的字典索引。MoonNpcs 只有月面兩個 key（1237／1291），而這裡的 key 是
+            // Player.Territory —— 佇列排好之後玩家還是可能被傳送走（機甲行動抽中駕駛員就會），
+            // 下一個 tick 讀到的區域就不是月面了。原本的 .First()/.FirstOrDefault() 兩種寫法
+            // 都沒處理「找不到」，一個丟 InvalidOperationException、一個回 null 再 NRE。
+            if (!NpcData.TryGetMoonNpc(Player.Territory, NpcData.NpcType.Relic, out var npcEntry))
+            {
+                if (EzThrottler.Throttle("ICE: moon npc missing Relic", 5000))
+                    IceLogging.Info($"目前區域 {Player.Territory} 沒有登記研究員 NPC 的資料（可能已經被傳送離開月面），中止這一步。", "[ICE]");
+                P.TaskManager.Tasks.Clear();
+                SchedulerMain.State = IceState.Start;
+                return true;
+            }
             if (!Utils.TryGetNpcObject(npcEntry, out var researchNpc) || researchNpc == null)
             {
                 if (EzThrottler.Throttle("Researchingway object not found", 5000))

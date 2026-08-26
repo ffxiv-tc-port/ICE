@@ -1,266 +1,87 @@
-﻿using System;
+﻿using ECommons.DalamudServices;
+using ICE.Utilities.Cosmic_Helper;
+using Lumina.Excel.Sheets;
+using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace ICE.Utilities;
 
+/// <summary>
+/// 宇宙點數商店的商品清單。
+///
+/// 🔴 原本這裡是 49 筆寫死的字典（照國際服的商品寫的）。2026-07-31 拿台服的遊戲資料比對，
+/// 台服實際只賣 39 件：其中 21 件是「ICE 有列、台服根本買不到」（例如各種魔晶石），
+/// 另有 11 件是「台服有賣、ICE 完全漏掉」；兩邊都有的價格則完全一致 ——
+/// 也就是純粹的內容進度差異。使用者回報的「清單和實際商店對不上」就是這個。
+///
+/// 改為執行期從遊戲的 SpecialShop 表讀取，判準是「這筆交易的付款道具是宇宙點數」。
+/// 這樣任何客戶端（台服／國際服／日後開新商品）都會自動正確，不需要再手動維護清單。
+/// </summary>
 public class Shop_Cosmocredits
 {
-    public static Dictionary<uint, ItemInfo> CosmocreditShop = new()
-    {
-        [12669] = new ItemInfo
-        {
-            Name = "Hi-Cordial",
-            Cost = 40,
-        },
-        [45993] = new ItemInfo
-        {
-            Name = "Queso Fresco",
-            Cost = 30,
-        },
-        [45994] = new ItemInfo
-        {
-            Name = "Woolback Loin",
-            Cost = 30,
-        },
-        [45990] = new ItemInfo
-        {
-            Name = "Cassava",
-            Cost = 30,
-        },
-        [45991] = new ItemInfo
-        {
-            Name = "Splendid Mate Leaves",
-            Cost = 30,
-        },
-        [45992] = new ItemInfo
-        {
-            Name = "Aji Amarillo",
-            Cost = 30,
-        },
-        [46252] = new ItemInfo
-        {
-            Name = "Mason's Abrasive",
-            Cost = 1000,
-        },
-        [44035] = new ItemInfo
-        {
-            Name = "Sungilt Aethersand",
-            Cost = 200,
-        },
-        [44036] = new ItemInfo
-        {
-            Name = "Mythloam Aethersand",
-            Cost = 400,
-        },
-        [44037] = new ItemInfo
-        {
-            Name = "Mythroot Aethersand",
-            Cost = 400,
-        },
-        [44038] = new ItemInfo
-        {
-            Name = "Mythbrine Aethersand",
-            Cost = 400,
-        },
-        [46246] = new ItemInfo
-        {
-            Name = "Levinchrome Aethersand",
-            Cost = 600,
-        },
-        [44848] = new ItemInfo
-        {
-            Name = "Condensed Solution",
-            Cost = 250,
-        },
-        [28724] = new ItemInfo
-        {
-            Name = "Crafter's Delineation",
-            Cost = 30,
-        },
-        [49121] = new ItemInfo
-        {
-            Name = "Cosmic Exploration Aetheryte Ticket",
-            Cost = 60,
-        },
-        [43856] = new ItemInfo
-        {
-            Name = "Shucked Clam",
-            Cost = 10,
-        },
-        [43859] = new ItemInfo
-        {
-            Name = "Ghost Nipper",
-            Cost = 10,
-        },
-        [43858] = new ItemInfo
-        {
-            Name = "Red Maggots",
-            Cost = 10,
-        },
-        [43857] = new ItemInfo
-        {
-            Name = "Dragonfly",
-            Cost = 10,
-        },
-        [43854] = new ItemInfo
-        {
-            Name = "White Worm",
-            Cost = 10,
-        },
-        [43855] = new ItemInfo
-        {
-            Name = "Popper Lure",
-            Cost = 100,
-        },
-        [30116] = new ItemInfo
-        {
-            Name = "Ruby Red Dye",
-            Cost = 600,
-        },
-        [30117] = new ItemInfo
-        {
-            Name = "Cherry Pink Dye",
-            Cost = 600,
-        },
-        [48227] = new ItemInfo
-        {
-            Name = "Carmine Red Dye",
-            Cost = 600,
-        },
-        [48163] = new ItemInfo
-        {
-            Name = "Neon Pink Dye",
-            Cost = 600,
-        },
-        [48164] = new ItemInfo
-        {
-            Name = "Bright Orange Dye",
-            Cost = 600,
-        },
-        [30118] = new ItemInfo
-        {
-            Name = "Canary Yellow Dye",
-            Cost = 600,
-        },
-        [30119] = new ItemInfo
-        {
-            Name = "Vanilla Yellow Dye",
-            Cost = 600,
-        },
-        [48166] = new ItemInfo
-        {
-            Name = "Neon Yellow Dye",
-            Cost = 600,
-        },
-        [48165] = new ItemInfo
-        {
-            Name = "Neon Green Dye",
-            Cost = 600,
-        },
-        [30120] = new ItemInfo
-        {
-            Name = "Dragoon Blue Dye",
-            Cost = 600,
-        },
-        [30121] = new ItemInfo
-        {
-            Name = "Turquoise Blue Dye",
-            Cost = 600,
-        },
-        [48168] = new ItemInfo
-        {
-            Name = "Azure Blue Dye",
-            Cost = 600,
-        },
-        [48167] = new ItemInfo
-        {
-            Name = "Violet Purple Dye",
-            Cost = 600,
-        },
-        [30122] = new ItemInfo
-        {
-            Name = "Gunmetal Black Dye",
-            Cost = 1500,
-        },
-        [30123] = new ItemInfo
-        {
-            Name = "Pearl White Dye",
-            Cost = 1500,
-        },
-        [30124] = new ItemInfo
-        {
-            Name = "Metallic Brass Dye",
-            Cost = 1500,
-        },
-        [41762] = new ItemInfo
-        {
-            Name = "Gatherer's Guerdon Materia XI",
-            Cost = 450,
-        },
-        [41775] = new ItemInfo
-        {
-            Name = "Gatherer's Guerdon Materia XII",
-            Cost = 900,
-        },
-        [41763] = new ItemInfo
-        {
-            Name = "Gatherer's Guile Materia XI",
-            Cost = 450,
-        },
-        [41776] = new ItemInfo
-        {
-            Name = "Gatherer's Guile Materia XII",
-            Cost = 900,
-        },
-        [41764] = new ItemInfo
-        {
-            Name = "Gatherer's Grasp Materia XI",
-            Cost = 450,
-        },
-        [41777] = new ItemInfo
-        {
-            Name = "Gatherer's Grasp Materia XII",
-            Cost = 900,
-        },
-        [41765] = new ItemInfo
-        {
-            Name = "Craftsman's Competence Materia XI",
-            Cost = 450,
-        },
-        [41778] = new ItemInfo
-        {
-            Name = "Craftsman's Competence Materia XII",
-            Cost = 900,
-        },
-        [41766] = new ItemInfo
-        {
-            Name = "Craftsman's Cunning Materia XI",
-            Cost = 450,
-        },
-        [41779] = new ItemInfo
-        {
-            Name = "Craftsman's Cunning Materia XII",
-            Cost = 900,
-        },
-        [41767] = new ItemInfo
-        {
-            Name = "Craftsman's Command Materia XI",
-            Cost = 450,
-        },
-        [41780] = new ItemInfo
-        {
-            Name = "Craftsman's Command Materia XII",
-            Cost = 900,
-        },
+    /// <summary>
+    /// 宇宙點數（Cosmocredits）的貨幣道具 ID。
+    /// 整份清單現在只剩這一個常數，其餘全部由遊戲資料決定。
+    /// </summary>
+    public const uint CosmocreditItemId = 45690;
 
-    };
+    private static Dictionary<uint, ItemInfo>? cachedShop;
+
+    /// <summary>目前客戶端實際販售的宇宙點數商品（首次存取時建立，之後快取）。</summary>
+    public static Dictionary<uint, ItemInfo> CosmocreditShop => cachedShop ??= BuildFromGameData();
+
+    /// <summary>Excel 表在執行期不會變，這個只留給需要重建時用。</summary>
+    public static void Invalidate() => cachedShop = null;
+
+    private static Dictionary<uint, ItemInfo> BuildFromGameData()
+    {
+        var result = new Dictionary<uint, ItemInfo>();
+
+        var sheet = Svc.Data?.GetExcelSheet<SpecialShop>();
+        if (sheet == null)
+        {
+            IceLogging.Error("讀不到 SpecialShop 表，宇宙點數商店清單會是空的", "[Shop]");
+            return result;
+        }
+
+        foreach (var shop in sheet)
+        {
+            foreach (var entry in shop.Item)
+            {
+                // 這一筆是不是用宇宙點數付款？順便取得單價。
+                uint cost = 0;
+                foreach (var c in entry.ItemCosts)
+                {
+                    if (c.ItemCost.RowId != CosmocreditItemId)
+                        continue;
+                    cost = c.CurrencyCost;
+                    break;
+                }
+
+                if (cost == 0)
+                    continue;
+
+                foreach (var receive in entry.ReceiveItems)
+                {
+                    var itemRef = receive.Item;
+                    if (itemRef.RowId == 0)
+                        continue;
+
+                    // 名稱走 Lumina（台服自帶繁中）。取不到就留空，UI 端本來就會自己再查一次。
+                    var name = itemRef.ValueNullable?.Name.ExtractText() ?? string.Empty;
+                    result[itemRef.RowId] = new ItemInfo { Name = name, Cost = cost };
+                }
+            }
+        }
+
+        IceLogging.Info($"宇宙點數商店：從遊戲資料讀到 {result.Count} 件商品", "[Shop]");
+        return result;
+    }
 
     public class ItemInfo
     {
-        public string Name { get; set; }
+        public string Name { get; set; } = string.Empty;
         public uint Cost { get; set; }
     }
 }

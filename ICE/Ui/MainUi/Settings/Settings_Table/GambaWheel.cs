@@ -61,6 +61,12 @@ namespace ICE.Ui.SettingTabs
                     foreach (var gamba in itemsType)
                     {
                         var itemName = ExcelItemHelper.GetName(gamba.ItemId);
+                        // 台服的 Item 表對「尚未開放的道具」會保留列但把 Name 留成空字串
+                        // （實測 46782 / 46795 / 46840 / 47095 / 47973 都是這樣）。
+                        // ExcelItemHelper.GetName 只處理「找不到列」的情況會回 #id，
+                        // 名稱為空時會原樣回傳空字串，UI 上就變成「[47973] 」後面一片空白。
+                        if (string.IsNullOrWhiteSpace(itemName))
+                            itemName = "(not released on this client)".Loc();
                         int weight = gamba.Weight;
                         ImGui.SetNextItemWidth(120f);
                         if (ImGui.InputInt($"[{gamba.ItemId}] {itemName}##gamba_weight", ref weight))

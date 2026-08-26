@@ -99,10 +99,73 @@ namespace ICE.Scheduler.Tasks
             return false;
         }
 
+        /// <summary>
+        /// 確認「再做 craftAmount 個」時每一種材料都夠。
+        /// </summary>
+        /// <remarks>
+        /// 原本的寫法是 <c>RecipeSheet.GetRow(key).Ingredient[0]</c> 再拿庫存直接跟
+        /// 「還缺幾個成品」相比,兩件事都不對:
+        /// <list type="bullet">
+        /// <item>宇宙配方(Recipe.Number == 0)共 520 個,其中 <b>16 個是雙材料</b>
+        /// (例如 recipe 36669 要 48648 x9 + 48233 x1),只看 Ingredient[0] 會漏掉另一種。</item>
+        /// <item>504 個單材料配方裡有 <b>40 個每做一個要吃 2～3 個材料</b>
+        /// (32 個 x2、8 個 x3),拿 1:1 去比會高估自己做得起。</item>
+        /// </list>
+        /// 上面的數字是對台服 7.20 的 Recipe.csv 全表統計出來的,不是估的。
+        /// RequiredItems 在 ICEDictornaryCreation 建表時就已經存了 AmountIngredient[k]
+        /// (= 每做一個要幾個),所以這裡不必再查一次 Excel。
+        /// </remarks>
+        private static bool HasMaterialsFor(CosmicHelper.CraftingInfo info, int craftAmount, out string shortage)
+        {
+            shortage = string.Empty;
+            if (info == null)
+                return false;
+
+            foreach (var material in info.RequiredItems)
+            {
+                if (material.Key == 0 || material.Value <= 0)
+                    continue;
+
+                var needed = material.Value * craftAmount;
+                PlayerHelper.GetItemCount(material.Key, out var held);
+                // ⚠️ 這裡讀出來的 held 只有在 PlayerHelper.InventoryReadable() 為真時才有意義；
+                //    傳送／換區途中 InventoryManager 一律回 0。呼叫端 CheckMaterials() 已經在
+                //    最上面擋掉那個狀態，所以這裡不重複檢查（重複檢查會讓「材料真的不夠」
+                //    跟「現在讀不到」兩種情況混在同一個回傳值裡，更難查）。
+                if (held < needed)
+                {
+                    shortage = $"item {material.Key} held {held}, need {needed} ({material.Value} per craft x{craftAmount})";
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
         private static bool? CheckMaterials()
         {
+            const string handle = "[Task Craft: Check Materials]";
+
+            // 🔴 這一整個方法有三條「材料不夠 → AbandonMission + Tasks.Clear()」的破壞性出口
+            //    （moonCrate 那條 else、foreach 裡的 HasMaterialsFor 失敗、以及最後的 moreCraft）。
+            //    傳送／換區途中 InventoryManager.GetInventoryItemCount 一律回 0，
+            //    也就是說「身上有材料」跟「現在讀不到材料」在這裡會得到一模一樣的結論：放棄任務。
+            //    2026-08-03 實機事故就是這個形狀（Task_Fishing 的「沒餌了」誤判，使用者身上有 999 個餌），
+            //    而這個檔案完全沒有被那次修復動到 —— 同一條 API、同一個破壞性結論。
+            if (!PlayerHelper.InventoryReadable())
+            {
+                if (EzThrottler.Throttle("ICE: craft inventory unreadable log", 5000))
+                    IceLogging.Info("玩家目前處於傳送／讀取中，暫停材料檢查（此時道具數量讀出來會全是 0，" +
+                                    "會被誤判成「材料不夠」而放棄任務）。", handle);
+                return false;
+            }
+
+            // 🔴 零守衛的字典索引。SheetMissionDict 沒有 key 0，而遊戲端取消任務時
+            //    CurrentLunarMission 就是 0 —— 例外在任務裡只會表現成「卡住不動」。
+            if (SchedulerMain.CurrentMissionUnavailable(handle, out var mission))
+                return true;
+
             var id = CosmicHelper.CurrentLunarMission;
-               var mission = CosmicHelper.SheetMissionDict[id];
 
             if (!P.Artisan.IsBusy())
             {
@@ -137,7 +200,11 @@ namespace ICE.Scheduler.Tasks
                         else
                         {
                             // you have enough of the main hand item. But you still are crafting. So time to just craft 1 more
-                            P.Artisan.CraftItem(mainCraft.Key, 1);
+                            // ⚠️ 這裡原本還有一行 P.Artisan.CraftItem(mainCraft.Key, 1);
+                            // 那是多餘的:InsertArtisanWait 排的 ThrottleArtisanTask 本身就會送
+                            // CraftItem IPC(見 ThrottleArtisanTask)。等於同一個配方送了兩次製作指令。
+                            // 沒有 pre-craft 的兩條路徑(下面 foreach 與 moreCraft)都只呼叫
+                            // InsertArtisanWait —— 這個不對稱本身就是它是筆誤的證據。
                             InsertArtisanWait(mainCraft.Key, 1);
                             IceLogging.Info($"Current item count of: {mainCraft.Value.ItemId} | {mainItemCount}");
                             IceLogging.Info($"Telling artisan to craft: {mainCraft.Value.ItemId} -> 1", "[Task Craft: Check Materials]");
@@ -157,7 +224,7 @@ namespace ICE.Scheduler.Tasks
                         if (craftAmount < 1)
                             craftAmount = 1;
 
-                        P.Artisan.CraftItem(preCraft.Key, craftAmount);
+                        // 同上:InsertArtisanWait 已經會送 CraftItem IPC,不要在這裡再送一次。
                         InsertArtisanWait(preCraft.Key, craftAmount);
                         IceLogging.Info($"Found a material that still needed to be crafted", "[Task Craft: Check Materials]");
                         return true;
@@ -173,6 +240,19 @@ namespace ICE.Scheduler.Tasks
                 else
                 {
                     // This is the case when you need multiple items, or even just a single item.
+
+                    // 每次做決定時把「所有目標」的狀態印出來,而且是 Information ——
+                    // 使用者的記錄等級會濾掉 Debug/Verbose。原本只印被選中的那一個,
+                    // 所以「為什麼跳過前面那些」在 log 裡完全看不出來。
+                    // 這裡連 recipe id 一起印:原本只印 ItemId,查 log 時對不上 Artisan
+                    // 那邊印的 recipe 編號,得多繞一圈才能比對兩邊。
+                    IceLogging.Info(
+                        $"Mission {id} craft objectives -> " + string.Join(" | ", mission.Crafts_Main.Select(c =>
+                        {
+                            PlayerHelper.GetItemCount(c.Value.ItemId, out var held);
+                            return $"recipe {c.Key} item {c.Value.ItemId} held {held}/{c.Value.RequiredAmount}";
+                        })), "[Craft: No Pre-Mats]");
+
                     foreach (var craft in mission.Crafts_Main)
                     {
                         PlayerHelper.GetItemCount(craft.Value.ItemId, out var reqAmount);
@@ -182,17 +262,16 @@ namespace ICE.Scheduler.Tasks
                             reqAmount = craft.Value.RequiredAmount - reqAmount;
 
                             // Found an item that needs to be crafted. Time to check if you have enough of the material
-                            var craftMaterial = ExcelHelper.RecipeSheet.GetRow(craft.Key).Ingredient[0].RowId;
-                            if (PlayerHelper.GetItemCount(craftMaterial, out var itemAmount) && itemAmount >= reqAmount)
+                            if (HasMaterialsFor(craft.Value, reqAmount, out var shortage))
                             {
                                 InsertArtisanWait(craft.Key, reqAmount);
-                                IceLogging.Info($"Telling artisan to craft: {craft.Value.ItemId} -> {reqAmount}", "[Craft: No Pre-Mats]");
+                                IceLogging.Info($"Telling artisan to craft: recipe {craft.Key} (item {craft.Value.ItemId}) -> {reqAmount}", "[Craft: No Pre-Mats]");
                                 return true;
                             }
                             else
                             {
                                 // You don't have enough to craft this for the mission. Exiting out and checking for score/force abandon
-                                IceLogging.Info("You have no remaining items to craft the main crafting items. Going to abandon the mission now", "[Crafts: No Pre-Mats]");
+                                IceLogging.Info($"Out of materials for recipe {craft.Key} (item {craft.Value.ItemId}): {shortage}. Going to abandon the mission now", "[Crafts: No Pre-Mats]");
                                 SchedulerMain.State = IceState.AbandonMission;
                                 P.TaskManager.Tasks.Clear();
                                 return true;
@@ -206,18 +285,17 @@ namespace ICE.Scheduler.Tasks
                     var AdditionalItem = 1;
 
                     // Found an item that needs to be crafted. Time to check if you have enough of the material
-                    var moreCraftMaterial = ExcelHelper.RecipeSheet.GetRow(moreCraft.Key).Ingredient[0].RowId;
-                    if (PlayerHelper.GetItemCount(moreCraftMaterial, out var moreItemAmount) && moreItemAmount >= AdditionalItem)
+                    if (HasMaterialsFor(moreCraft.Value, AdditionalItem, out var moreShortage))
                     {
                         InsertArtisanWait(moreCraft.Key, AdditionalItem);
-                        IceLogging.Info($"Telling artisan to craft: {moreCraft.Value.ItemId} -> {AdditionalItem}", "[Craft: No Pre-Mats]");
+                        IceLogging.Info($"Telling artisan to craft: recipe {moreCraft.Key} (item {moreCraft.Value.ItemId}) -> {AdditionalItem}", "[Craft: No Pre-Mats]");
                         return true;
                     }
                     else
                     {
                         // You don't have enough to craft this for the mission. Exiting out and checking for score/force abandon
                         SchedulerMain.State = IceState.AbandonMission;
-                        IceLogging.Info("You have no remaining items to craft the pre-crafts. Going to abandon the mission now", "[Crafts: No Pre-Mats]");
+                        IceLogging.Info($"Out of materials for recipe {moreCraft.Key} (item {moreCraft.Value.ItemId}): {moreShortage}. Going to abandon the mission now", "[Crafts: No Pre-Mats]");
                         P.TaskManager.Tasks.Clear();
                         return true;
                     }

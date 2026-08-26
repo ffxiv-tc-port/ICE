@@ -122,7 +122,14 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 {
                     var id = mission.Key;
 
-                    var missionDict = CosmicHelper.SheetMissionDict[id];
+                    // 🔴🔴 這是目前**實機就會炸**的那一顆：迭代 C.MissionConfig 卻直接索引 SheetMissionDict。
+                    //     兩個字典的鍵集合不一樣 —— 實測使用者的 Mission Config.yaml，
+                    //     missionConfig 的鍵是 **0..544**，而 SheetMissionDict 是 **1..544**。
+                    //     key 0 是 MissionTimer.AbandonMission() 在「currentMission 已經歸零」時寫進去
+                    //     並存檔的（該使用者的 key 0 已經累積 failedCounters: 118），所以按下這個按鈕
+                    //     就是 KeyNotFoundException —— 在 ImGui 繪製迴圈裡丟例外會讓整個視窗畫不出來。
+                    if (!CosmicHelper.SheetMissionDict.TryGetValue(id, out var missionDict))
+                        continue;
 
                     bool craftMission = missionDict.Attributes.HasFlag(MissionAttributes.Craft);
                     bool gatherMission = missionDict.Attributes.HasFlag(MissionAttributes.Gather);
@@ -402,7 +409,9 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     {
                         var id = mission.Key;
 
-                        var missionDict = CosmicHelper.SheetMissionDict[id];
+                        // 同上：迭代 MissionConfig（含 key 0）卻直接索引 SheetMissionDict（沒有 key 0）。
+                        if (!CosmicHelper.SheetMissionDict.TryGetValue(id, out var missionDict))
+                            continue;
 
                         bool craftMission = missionDict.Attributes.HasFlag(MissionAttributes.Craft);
                         bool gatherMission = missionDict.Attributes.HasFlag(MissionAttributes.Gather);

@@ -1,4 +1,4 @@
-using ECommons.GameHelpers;
+﻿using ECommons.GameHelpers;
 using FFXIVClientStructs.FFXIV.Client.Game.WKS;
 using ICE.Utilities.Cosmic_Helper;
 using System.Collections.Generic;
@@ -122,7 +122,18 @@ namespace ICE.Scheduler.Tasks
         private static bool? PathToGambaNpc()
         {
             var zoneId = Player.Territory;
-            var npcEntry = NpcData.MoonNpcs[zoneId].Where(x => x.type == NpcData.NpcType.Gamba).FirstOrDefault();
+            // 🔴 零守衛的字典索引。MoonNpcs 只有月面兩個 key（1237／1291），而這裡的 key 是
+            // Player.Territory —— 佇列排好之後玩家還是可能被傳送走（機甲行動抽中駕駛員就會），
+            // 下一個 tick 讀到的區域就不是月面了。原本的 .First()/.FirstOrDefault() 兩種寫法
+            // 都沒處理「找不到」，一個丟 InvalidOperationException、一個回 null 再 NRE。
+            if (!NpcData.TryGetMoonNpc(zoneId, NpcData.NpcType.Gamba, out var npcEntry))
+            {
+                if (EzThrottler.Throttle("ICE: moon npc missing Gamba", 5000))
+                    IceLogging.Info($"目前區域 {zoneId} 沒有登記轉盤 NPC 的資料（可能已經被傳送離開月面），中止這一步。", "[ICE]");
+                P.TaskManager.Tasks.Clear();
+                SchedulerMain.State = IceState.Start;
+                return true;
+            }
 
             if (Player.DistanceTo(npcEntry.NpcLocation) <= 6.75f)
             {
@@ -180,8 +191,18 @@ namespace ICE.Scheduler.Tasks
             }
             else
             {
-                var npcEntry = NpcData.MoonNpcs[Player.Territory]
-                    .First(x => x.type == NpcData.NpcType.Gamba);
+                // 🔴 零守衛的字典索引。MoonNpcs 只有月面兩個 key（1237／1291），而這裡的 key 是
+                // Player.Territory —— 佇列排好之後玩家還是可能被傳送走（機甲行動抽中駕駛員就會），
+                // 下一個 tick 讀到的區域就不是月面了。原本的 .First()/.FirstOrDefault() 兩種寫法
+                // 都沒處理「找不到」，一個丟 InvalidOperationException、一個回 null 再 NRE。
+                if (!NpcData.TryGetMoonNpc(Player.Territory, NpcData.NpcType.Gamba, out var npcEntry))
+                {
+                    if (EzThrottler.Throttle("ICE: moon npc missing Gamba", 5000))
+                        IceLogging.Info($"目前區域 {Player.Territory} 沒有登記轉盤 NPC 的資料（可能已經被傳送離開月面），中止這一步。", "[ICE]");
+                    P.TaskManager.Tasks.Clear();
+                    SchedulerMain.State = IceState.Start;
+                    return true;
+                }
                 Utils.TryGetNpcObject(npcEntry, out var researchNpc);
                 if (EzThrottler.Throttle("Interacting with gambaNpc!"))
                 {

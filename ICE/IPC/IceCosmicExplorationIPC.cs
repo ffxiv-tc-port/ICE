@@ -22,9 +22,15 @@ public class IceCosmicExplorationIPC
     /// <param name="missionId"></param>
     [EzIPC] public void AddMissions(HashSet<uint> missionId)
     {
+        // 🔴 這是公開的 IPC 介面，missionId 完全由別的外掛決定 —— 零守衛的字典索引
+        //    等於「任何外掛傳一個不存在的任務 ID 進來就能把呼叫端炸掉」。
+        //    無效的 ID 直接略過並記一筆，比丟例外回去有用。
         foreach (var id in missionId)
         {
-            C.MissionConfig[id].Enabled = true;
+            if (C.MissionConfig.TryGetValue(id, out var config))
+                config.Enabled = true;
+            else
+                IceLogging.Info($"IPC AddMissions 收到不存在的任務 ID {id}，已略過。", "[ICE IPC]");
         }
         C.Save();
     }
@@ -37,7 +43,10 @@ public class IceCosmicExplorationIPC
     {
         foreach (var id in missionIds)
         {
-            C.MissionConfig[id].Enabled = false;
+            if (C.MissionConfig.TryGetValue(id, out var config))
+                config.Enabled = false;
+            else
+                IceLogging.Info($"IPC RemoveMissions 收到不存在的任務 ID {id}，已略過。", "[ICE IPC]");
         }
         C.Save();
     }
@@ -50,7 +59,10 @@ public class IceCosmicExplorationIPC
     {
         foreach (var id in missionIds)
         {
-            C.MissionConfig[id].Enabled = !C.MissionConfig[id].Enabled;
+            if (C.MissionConfig.TryGetValue(id, out var config))
+                config.Enabled = !config.Enabled;
+            else
+                IceLogging.Info($"IPC ToggleMissions 收到不存在的任務 ID {id}，已略過。", "[ICE IPC]");
         }
         C.Save();
     }

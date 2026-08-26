@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using ECommons.GameHelpers;
 using FFXIVClientStructs.FFXIV.Client.Game.WKS;
 using ICE.Utilities.Cosmic_Helper;
@@ -8,7 +9,36 @@ namespace ICE.Utilities;
 
 public static partial class CosmicHelper
 {
-    public static CosmicInfo CurrentMissionInfo => SheetMissionDict[CurrentLunarMission];
+    // 🔴 這裡原本是：
+    //        public static CosmicInfo CurrentMissionInfo => SheetMissionDict[CurrentLunarMission];
+    //    —— 一個零守衛的字典索引，而且被 11 個地方直接解參考。
+    //
+    //    為什麼直接索引一定會炸：SheetMissionDict 的鍵集合 **不是** 1..N，而是
+    //    「WKSMissionUnit 裡 Name 不為空的那些 row」。對台服 7.20 實測（逐筆比對
+    //    exd-tc/7.20/WKSMissionUnit.csv）＝ **只有 1..544**，被跳過的是 row 0 與
+    //    row 545..1072（共 529 列，後者是第二顆星 Phaenna 的預留列，台服全部是空的）。
+    //    而 CurrentLunarMission 在「沒有進行中的任務」時回 0 —— 遊戲端自己取消任務
+    //    （例：被機甲行動抽中當駕駛員直接傳送走）就會走到這裡。
+    //
+    //    為什麼不改成回 null：CosmicInfo 是 class，回 null 只是把 KeyNotFoundException
+    //    換成 NullReferenceException，呼叫端一樣沒有處理，症狀一模一樣（任務裡丟例外
+    //    → 任務永遠不回傳 true → 逾時 → 佇列被中止 → 外掛自己停用）。
+    //    為什麼不回一個「空任務」哨兵：那會把明確的失敗換成 **靜默的錯誤行為** ——
+    //    Attributes 全 0 會讓釣魚/採集/製作流程「合法地」做出錯誤決定，比丟例外更難查。
+    //
+    //    所以改成只提供 Try 版本，強迫每個呼叫端表態；
+    //    排程器裡的呼叫端統一用 SchedulerMain.CurrentMissionUnavailable() 收斂成
+    //    「記一筆 → 清佇列 → 回到 IceState.Start 重新判斷狀態」。
+
+    /// <summary>
+    /// 取得目前進行中的任務資料。<b>任務隨時可能不存在</b>（還沒接、遊戲端自己取消了、
+    /// 或是這個 row 不在 SheetMissionDict 裡），所以只有 Try 版本，沒有直接索引的屬性。
+    /// </summary>
+    public static bool TryGetCurrentMissionInfo([MaybeNullWhen(false)] out CosmicInfo info)
+        => SheetMissionDict.TryGetValue(CurrentLunarMission, out info);
+
+    /// <summary>目前有沒有一個「查得到資料」的進行中任務。</summary>
+    public static bool HasCurrentMission => SheetMissionDict.ContainsKey(CurrentLunarMission);
 
     /// <summary>
     /// Gives the current mission that is active
@@ -72,7 +102,11 @@ public static partial class CosmicHelper
     public static void UpdateStateFlags()
     {
         // just a shorthand for me to be able to grab all of it, while also just snapshotting the mission we're currently running
-        var missionInfo = CurrentMissionInfo; 
+        // ⚠️ 這個方法目前全 repo 零呼叫者（上游留下來的），但它的字典索引跟其他 11 處是同一顆雷，
+        //    留著不修等於等下一個人接上它就中獎，所以照樣守。
+        if (!TryGetCurrentMissionInfo(out var missionInfo))
+            return;
+
         if (missionInfo.Attributes.HasFlag(MissionAttributes.Critical))
         {
             // TODO:

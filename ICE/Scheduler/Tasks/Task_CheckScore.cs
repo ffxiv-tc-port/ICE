@@ -15,8 +15,11 @@ namespace ICE.Scheduler.Tasks
     {
         public static void Enqueue()
         {
-            var Id = CosmicHelper.CurrentLunarMission;
-            var mission = CosmicHelper.SheetMissionDict[Id];
+            // 🔴 零守衛的字典索引，而且是在 Enqueue 裡 —— 這個方法跑在 SchedulerMain.Tick 上，
+            //    也被 Task_Craft.Enqueue()/Task_DualClass.Enqueue()/Task_Gather.Enqueue() 轉呼叫。
+            //    例外會冒到 Framework.Update 而且每個 tick 重來一次。
+            if (SchedulerMain.CurrentMissionUnavailable("[Task: Score Check]", out var mission))
+                return;
 
             var jobs = mission.Jobs;
 
@@ -61,7 +64,7 @@ namespace ICE.Scheduler.Tasks
                     if (fishingInfo.AmountRequired == 0 && !missionEntry.Attributes.HasFlag(MissionAttributes.Critical))
                     {
                         IceLogging.Debug("We're in a mission where score is the only importants. Checking to see if we meet the minimum score thresh", tag);
-                        var currentScore = missionInfo.CurrentScore;
+                        var currentScore = (missionInfo.CurrentScore ?? 0);
                         if (currentScore >= missionEntry.BronzeScore)
                         {
                             IceLogging.Info($"We've met the bronze scoring threshold. Current Score: {currentScore} | Bronze Score Requirement: {missionEntry.BronzeScore}", tag);
@@ -140,7 +143,15 @@ namespace ICE.Scheduler.Tasks
             }
             static void CheckMedalStatus(uint id, WKSMissionInfomation missionInfo)
             {
-                CosmicHelper.SheetMissionDict.TryGetValue(id, out var mission);
+                // ⚠️ 同一個 bug class 的第三種變形：呼叫了 TryGetValue **但丟掉回傳值**。
+                //    CosmicInfo 是 class，查不到時 mission 是 null，下一行就是 NullReferenceException ——
+                //    看起來有守，其實完全沒守。
+                if (!CosmicHelper.SheetMissionDict.TryGetValue(id, out var mission))
+                {
+                    IceLogging.Info($"任務 {id} 不在任務表裡，無法判斷獎章狀態。", "[Score Check: Fish]");
+                    return;
+                }
+
                 if (mission.Attributes.HasFlag(MissionAttributes.Critical))
                 {
                     IceLogging.Debug("WE'RE IN A CRITICAL MISSION");
@@ -150,7 +161,7 @@ namespace ICE.Scheduler.Tasks
                 {
                     IceLogging.Debug("WE'RE NOT IN A CRITICAL MISSION");
 
-                    var currentScore = missionInfo.CurrentScore;
+                    var currentScore = (missionInfo.CurrentScore ?? 0);
                     var silverScore = mission.SilverScore;
                     var goldScore = mission.GoldScore;
 
@@ -219,12 +230,16 @@ namespace ICE.Scheduler.Tasks
                                     else
                                     {
                                         IceLogging.Debug("We've met the minimum bronze threshold, so checking the rest now", handle);
-                                        var currentScore = missionInfo.CurrentScore;
+                                        var currentScore = (missionInfo.CurrentScore ?? 0);
                                         var bronzeScore = mission.BronzeScore;
                                         var silverScore = mission.SilverScore;
                                         var goldScore = mission.GoldScore;
 
-                                        var config = C.MissionConfig[id];
+                                        // 守了 SheetMissionDict（上面的 TryGetValue）卻直接索引 MissionConfig ——
+                                        // 兩個字典的鍵集合不一樣，那個守衛管不到這一行。
+                                        if (SchedulerMain.CurrentMissionConfigUnavailable(id, handle, out var config))
+                                            return true;
+
                                         bool AnyTurnin = config.AutoTurnin;
                                         bool GoldGoal = goldScore <= currentScore;
                                         bool SilverGoal = silverScore <= currentScore;
@@ -331,7 +346,10 @@ namespace ICE.Scheduler.Tasks
 
                     var Id = CosmicHelper.CurrentLunarMission;
                     // var mission = CosmicHelper.Dict_CosmicMissions[Id];
-                    var mission = CosmicHelper.SheetMissionDict[Id];
+                    // 零守衛的字典索引。
+                    if (SchedulerMain.CurrentMissionUnavailable(tag, out var mission))
+                        return true;
+
                     bool shouldTurnin = false;
 
                     if (mission.Attributes.HasFlag(MissionAttributes.Critical))
@@ -345,6 +363,16 @@ namespace ICE.Scheduler.Tasks
                     else
                     {
                         // First things first, have to check to see if you have enough of the initial crafts/meet the score threshold
+                        // 🔴 傳送／換區途中 GetItemCount 一律回 0，這裡會把「成品其實做好了」誤判成
+                        //    「還沒做」而把狀態切回 Craft，白做一輪。等讀得到再判斷。
+                        if (!PlayerHelper.InventoryReadable())
+                        {
+                            if (EzThrottler.Throttle("ICE: craftscore inventory unreadable log", 5000))
+                                IceLogging.Info("玩家目前處於傳送／讀取中，暫停製作成果檢查" +
+                                                "（此時道具數量讀出來會全是 0）。", tag);
+                            return false;
+                        }
+
                         foreach (var item in mission.Crafts_Main)
                         {
                             var itemId = item.Value.ItemId;
@@ -361,22 +389,25 @@ namespace ICE.Scheduler.Tasks
 
                         // Next, need to check to see if there is a bronze threshold that is required, and make sure we're hitting it (if there is any)
 
-                        if (mission.BronzeScore != 0 && (missionInfo.CurrentScore <= mission.BronzeScore))
+                        if (mission.BronzeScore != 0 && ((missionInfo.CurrentScore ?? 0) <= mission.BronzeScore))
                         {
                             IceLogging.Info("Bronze score is recorded at not 0. Which means that it needs a minimum score. \n" +
-                                            $"Current Score: {missionInfo.CurrentScore}\n" +
+                                            $"Current Score: {(missionInfo.CurrentScore ?? 0)}\n" +
                                             $"Minimum Score: {mission.BronzeScore}\n" +
                                             $"Continuing on with the crafting process");
                             return true;
                         }
                         else
                         {
-                            var currentScore = missionInfo.CurrentScore;
+                            var currentScore = (missionInfo.CurrentScore ?? 0);
                             var bronzeScore = mission.BronzeScore;
                             var silverScore = mission.SilverScore;
                             var goldScore = mission.GoldScore;
 
-                            var config = C.MissionConfig[Id];
+                            // 守了 SheetMissionDict 卻直接索引 MissionConfig —— 兩個字典的鍵集合不一樣。
+                            if (SchedulerMain.CurrentMissionConfigUnavailable(Id, tag, out var config))
+                                return true;
+
                             bool AnyTurnin = config.AutoTurnin;
                             bool GoldGoal = goldScore <= currentScore;
                             bool SilverGoal = silverScore <= currentScore;
@@ -429,7 +460,7 @@ namespace ICE.Scheduler.Tasks
                             Mission_Settings.TurninState = TurninState.Critical;
                         else
                         {
-                            var currentScore = missionInfo.CurrentScore;
+                            var currentScore = (missionInfo.CurrentScore ?? 0);
                             var silverScore = mission.SilverScore;
                             var goldScore = mission.GoldScore;
 
@@ -445,7 +476,7 @@ namespace ICE.Scheduler.Tasks
                             IceLogging.Debug("Critical score is still 0", tag);
                         else
                         {
-                            var currentScore = missionInfo.CurrentScore;
+                            var currentScore = (missionInfo.CurrentScore ?? 0);
                             var silverScore = mission.SilverScore;
                             var goldScore = mission.GoldScore;
 
@@ -501,7 +532,9 @@ namespace ICE.Scheduler.Tasks
                     IceLogging.Debug("Checking score for gathering. . .", "[Check Score: Gather]");
                     // Hud info should be available. Now time to check the mission status.
                     var id = CosmicHelper.CurrentLunarMission;
-                    var mission = CosmicHelper.SheetMissionDict[id];
+                    // 零守衛的字典索引。
+                    if (SchedulerMain.CurrentMissionUnavailable("[Check Score: Gather]", out var mission))
+                        return true;
 
                     if (mission.Attributes.HasFlag(MissionAttributes.Critical))
                     {
@@ -576,7 +609,7 @@ namespace ICE.Scheduler.Tasks
                         else
                         {
                             // a minimum threshold of bronze scoring is required. Time to check that.
-                            var currentScore = missionInfo.CurrentScore;
+                            var currentScore = (missionInfo.CurrentScore ?? 0);
                             if (currentScore >= mission.BronzeScore)
                                 canTurnin = true;
                         }
@@ -584,12 +617,15 @@ namespace ICE.Scheduler.Tasks
                         if (canTurnin)
                         {
                             // Turnin threshold has been met. Time to check to see if we're at the point where we want to turn in minimumly
-                            var currentScore = missionInfo.CurrentScore;
+                            var currentScore = (missionInfo.CurrentScore ?? 0);
                             var bronzeScore = mission.BronzeScore;
                             var silverScore = mission.SilverScore;
                             var goldScore = mission.GoldScore;
 
-                            var config = C.MissionConfig[id];
+                            // 守了 SheetMissionDict 卻直接索引 MissionConfig —— 兩個字典的鍵集合不一樣。
+                            if (SchedulerMain.CurrentMissionConfigUnavailable(id, "[Check Score: Gather]", out var config))
+                                return true;
+
                             bool AnyTurnin = config.AutoTurnin;
                             bool GoldGoal = goldScore <= currentScore;
                             bool SilverGoal = silverScore <= currentScore;
@@ -676,6 +712,7 @@ namespace ICE.Scheduler.Tasks
 
         public static unsafe bool? DualClass()
         {
+            string tag = "[Check Score: Dual Class]";
             if (GenericHelpers.TryGetAddonMaster<WKSMissionInfomation>("WKSMissionInfomation", out var missionInfo) && missionInfo.IsAddonReady)
             {
                 if (missionInfo.Addon->AtkValuesCount > 4) // Really just here to make sure that the addon atkValues are fully loaded...
@@ -689,25 +726,31 @@ namespace ICE.Scheduler.Tasks
 
                     var Id = CosmicHelper.CurrentLunarMission;
                     // var mission = CosmicHelper.Dict_CosmicMissions[Id];
-                    var mission = CosmicHelper.SheetMissionDict[Id];
+                    // 零守衛的字典索引。
+                    if (SchedulerMain.CurrentMissionUnavailable(tag, out var mission))
+                        return true;
+
                     bool shouldTurnin = false;
 
-                    if (mission.BronzeScore != 0 && (missionInfo.CurrentScore <= mission.BronzeScore))
+                    if (mission.BronzeScore != 0 && ((missionInfo.CurrentScore ?? 0) <= mission.BronzeScore))
                     {
                         IceLogging.Info("Bronze score is recorded at not 0. Which means that it needs a minimum score. \n" +
-                                        $"Current Score: {missionInfo.CurrentScore}\n" +
+                                        $"Current Score: {(missionInfo.CurrentScore ?? 0)}\n" +
                                         $"Minimum Score: {mission.BronzeScore}\n" +
                                         $"Continuing on with the crafting process");
                         return true;
                     }
                     else
                     {
-                        var currentScore = missionInfo.CurrentScore;
+                        var currentScore = (missionInfo.CurrentScore ?? 0);
                         var bronzeScore = mission.BronzeScore;
                         var silverScore = mission.SilverScore;
                         var goldScore = mission.GoldScore;
 
-                        var config = C.MissionConfig[Id];
+                        // 守了 SheetMissionDict 卻直接索引 MissionConfig —— 兩個字典的鍵集合不一樣。
+                        if (SchedulerMain.CurrentMissionConfigUnavailable(Id, tag, out var config))
+                            return true;
+
                         bool AnyTurnin = config.AutoTurnin;
                         bool GoldGoal = goldScore <= currentScore;
                         bool SilverGoal = silverScore <= currentScore;
@@ -756,7 +799,7 @@ namespace ICE.Scheduler.Tasks
                             Mission_Settings.TurninState = TurninState.Gold;
                         else
                         {
-                            var currentScore = missionInfo.CurrentScore;
+                            var currentScore = (missionInfo.CurrentScore ?? 0);
                             var silverScore = mission.SilverScore;
                             var goldScore = mission.GoldScore;
                             MedalChecker(currentScore, silverScore, goldScore);
@@ -769,8 +812,11 @@ namespace ICE.Scheduler.Tasks
                     }
                     else
                     {
-                        var config = C.MissionConfig[Id];
-                        var currentScore = missionInfo.CurrentScore;
+                        // 守了 SheetMissionDict 卻直接索引 MissionConfig —— 兩個字典的鍵集合不一樣。
+                        if (SchedulerMain.CurrentMissionConfigUnavailable(Id, tag, out var config))
+                            return true;
+
+                        var currentScore = (missionInfo.CurrentScore ?? 0);
                         var bronzeScore = mission.BronzeScore;
                         var silverScore = mission.SilverScore;
                         var goldScore = mission.GoldScore;
@@ -781,7 +827,7 @@ namespace ICE.Scheduler.Tasks
                                         $"Silver Enable: {config.TurninSilver} | Score: {silverScore}" +
                                         $"Gold Enabled: {config.TurninGold} | Score: {goldScore}" +
                                         $"Any Turnin Enabled: {config.AutoTurnin}" +
-                                        $"Current Score: {missionInfo.CurrentScore}");
+                                        $"Current Score: {(missionInfo.CurrentScore ?? 0)}");
 
                         return true;
                     }

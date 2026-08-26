@@ -1,46 +1,23 @@
-# Gate baseline note: the gate compares <VersionPrefix> against 7.15.0 and only
 # runs the build job when they differ. This repo is on 7.20.0, so the build job
-# really does compile. Do not "fix" the 7.15.0 baseline - that would turn this
 # workflow back into a no-op, which is what it is on the older fleet repos.
 name: Build Check
 
 on:
   push:
+    branches:
+      - 'tc-7.20'
     tags-ignore:
       - 'v*'
   workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
 jobs:
-  gate:
-    runs-on: ubuntu-latest
-    outputs:
-      proceed: ${{ steps.check.outputs.proceed }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Check if VersionPrefix changed from baseline
-        id: check
-        shell: bash
-        run: |
-          PREFIX=$(grep -oP '(?<=<VersionPrefix>)[^<]+' ICE/ICE.csproj)
-          echo "Current VersionPrefix: $PREFIX (baseline: 7.15.0)"
-          if [ "$PREFIX" = "7.15.0" ]; then
-            echo "proceed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "proceed=true" >> "$GITHUB_OUTPUT"
-          fi
-
   build:
-    needs: gate
-    if: needs.gate.outputs.proceed == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-          # ECommons 子模組已改指私有的 ffxiv-tc-port fork，內建 github.token
-          # 無法跨 repo clone 私有子模組，必須用 repo secret PRIVATE_SUBMODULE_TOKEN。
-          token: ${{ secrets.PRIVATE_SUBMODULE_TOKEN || github.token }}
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
         with:

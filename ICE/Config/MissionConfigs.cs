@@ -21,6 +21,20 @@ namespace ICE.Config
         public bool AnimationLockAbandon { get; set; } = true;
         public bool JumpIfStuck { get; set; } = false;
 
+        // 任務優先度：同一階級之內優先挑「還沒拿到金星」的任務（補完成度用）。
+        // 判定來源是 WKSManager.IsMissionGolded；全部拿完之後這個選項自然失去作用，
+        // 排序會回到原本的順序。
+        public bool PrioritizeUngoldedMissions { get; set; } = false;
+
+        // 同一階級之內改用「表格設定 → 排序方式」的順序來挑任務（預設關閉＝維持遊戲清單順序）。
+        // 與 PrioritizeUngoldedMissions 可以並用：先套表格排序，再把未金星的穩定排到前面。
+        public bool UseTableSortForMissionOrder { get; set; } = false;
+
+        // 連續重骰幾次都找不到可接任務就停下來（0 = 不限制，維持舊行為）。
+        // 沒有這個上限時，只要候選池空了（例如開了「取得金星後自動停用」而目前
+        // 可接的全都拿過金星），CheckReroll 就會無限重骰、卡在原地不會有任何提示。
+        public int MaxConsecutiveRerolls { get; set; } = 10;
+
         #endregion
 
         #region Main Window
@@ -31,6 +45,18 @@ namespace ICE.Config
         public bool XPRelicGrind { get; set; } = false;
         public bool XPRelicIgnoreManual { get; set; } = false;
         public bool XPRelicOnlyEnabled { get; set; } = false;
+
+        /// <summary>
+        /// 宇宙工具經驗模式是否也把「臨時任務」分頁（連續／時間限定／天氣限定）納入挑選。
+        /// 預設關閉＝維持上游行為。資料面沒有障礙 —— 台服 7.20 的 544 個具名任務
+        /// <b>全部</b>都有宇宙工具經驗獎勵（WKSMissionReward 逐筆核對過），限制純粹是
+        /// 上游的挑選流程只開一般任務分頁。
+        /// </summary>
+        public bool XPRelicIncludeProvisional { get; set; } = false;
+
+        /// <summary>宇宙工具經驗模式是否也把「緊急任務」分頁納入挑選。預設關閉＝維持上游行為。</summary>
+        public bool XPRelicIncludeCritical { get; set; } = false;
+
         public bool ShowCritical { get; set; } = true;
         public bool ShowSequential { get; set; } = true;
         public bool ShowWeather { get; set; } = true;
@@ -48,6 +74,27 @@ namespace ICE.Config
         public bool ShowSeconds { get; set; } = false;
         public bool ShowTotalScore { get; set; } = true;
         public bool ShowExpBars { get; set; } = true;
+
+        // 機甲行動技能範圍標示（Utilities/MechaOps）。預設關閉。
+        public bool ShowMechaAoeOverlay { get; set; } = false;
+
+        // 宇宙火焰噴射器（42258）的扇形角度（度）。遊戲資料裡沒有（Omen=0），
+        // 預設 90°，待實機校準。
+        public float MechaConeAngleDeg { get; set; } = 90f;
+
+        // 個別技能顯示開關；沒有紀錄的 ActionId ＝ 開。
+        public Dictionary<uint, bool> MechaAoeSkillToggles { get; set; } = new();
+
+        // 機甲行動狀態視窗（Ui/MechaOpsWindow）的三個子區塊。
+        // 全部掛在 ShowMechaAoeOverlay 底下，總開關關著時整個視窗都不出現；
+        // 子開關預設開啟，比照 MechaAoeSkillToggles「沒紀錄＝開」的風格。
+        public bool ShowMechaCooldowns { get; set; } = true;
+        public bool ShowMechaProcAlert { get; set; } = true;
+        public bool ShowMechaEventStatus { get; set; } = true;
+
+        // 事件進度（進度條／個人進度／貢獻／時間）。資料來自 WKSMechaEvent 的純量欄位，
+        // 取樣端會先做指標範圍驗證，驗證不過就什麼都不顯示。
+        public bool ShowMechaEventProgress { get; set; } = true;
 
         #endregion
 
@@ -73,6 +120,12 @@ namespace ICE.Config
             ProvisionalTypes.ProvisionalTimed
         };
         public bool GrindProvisionals { get; set; } = false;
+
+        // 標準任務的階級挑選順序。原本 CheckStandard 裡是寫死的 { ExA, A, B, C, D }，
+        // 拉出來讓使用者可以拖曳調整（例如想先刷低階把任務數衝上去）。
+        // ⚠️ 讀取端一定要補上這裡缺少的階級，否則舊設定檔或手動編輯少了某一階，
+        //    那一階的任務會永遠不被挑到 —— 靜默失效。見 Task_FindMission.RankOrder。
+        public List<string> RankPrio { get; set; } = new() { "ExA", "A", "B", "C", "D" };
         public List<uint> JobPrio { get; set; } = new()
         {
             8, 9, 10, 11, 12, 13, 14, 15,  // Crafters: CRP, BSM, ARM, GSM, LTW, WVR, ALC, CUL

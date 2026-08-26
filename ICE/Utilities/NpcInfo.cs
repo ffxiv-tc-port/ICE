@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using System.Numerics; // Add this for Vector2 and Vector3
+using System.Diagnostics.CodeAnalysis;
 
 namespace ICE.Utilities;
 
@@ -31,6 +32,29 @@ internal static class NpcData // Renamed the class to avoid conflict
         public Vector3 Corner2 { get; set; }
         public Vector3 Corner3 { get; set; }
         public Vector3 Corner4 { get; set; }
+    }
+
+    /// <summary>
+    /// 取得某個月面區域裡指定用途的 NPC。查不到就回 false —— <b>不要直接索引 MoonNpcs</b>。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 <c>MoonNpcs</c> 只有兩個 key（1237 Sinus Ardorum／1291 Phaenna），而所有呼叫端
+    /// 傳進來的都是 <c>Player.Territory</c> —— 也就是<b>會在任務排隊到一半突然改變</b>的值。
+    /// 2026-08-03 的事故就是這樣觸發的：機甲行動抽中駕駛員把玩家直接傳送走。
+    /// 佇列裡已經排好的 <c>PathToRepair</c>／<c>RepairAtNpc</c>／<c>PathToRelicNPC</c> 等等，
+    /// 在下一個 tick 讀到的 <c>Player.Territory</c> 就不是月面了，直接索引＝KeyNotFoundException。<br/>
+    /// 另外原本幾處用 <c>.First(...)</c>（找不到就丟例外）、幾處用
+    /// <c>.FirstOrDefault()</c>（找不到回 <c>null</c>，下一行解參考就是 NullReferenceException），
+    /// 兩種寫法都沒有處理「找不到」，這裡一併收斂成同一個閘門。
+    /// </remarks>
+    public static bool TryGetMoonNpc(uint zoneId, NpcType type, [MaybeNullWhen(false)] out NPCInfo npc)
+    {
+        npc = null;
+        if (!MoonNpcs.TryGetValue(zoneId, out var list))
+            return false;
+
+        npc = list.FirstOrDefault(x => x.type == type);
+        return npc != null;
     }
 
     public static Dictionary<uint, List<NPCInfo>> MoonNpcs = new() // Use NPCInfo instead of NpcInfo

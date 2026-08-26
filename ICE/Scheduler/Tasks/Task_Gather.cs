@@ -30,7 +30,14 @@ namespace ICE.Scheduler.Tasks
             {
                 IceLogging.Debug("Not currently gathering, starting fresh instead");
                 P.TaskManager.EnqueueDelay(100);
-                if (CosmicHelper.SheetMissionDict[CosmicHelper.CurrentLunarMission].Attributes.HasFlag(MissionAttributes.ReducedItems))
+
+                // 🔴 零守衛的字典索引，而且是在 Enqueue 裡（跑在 SchedulerMain.Tick 上、不在任務內），
+                //    例外會直接冒到 Framework.Update 而且每個 tick 重來一次 —— 正是上次事故
+                //    「同一行連噴 37 次」的形狀。
+                if (SchedulerMain.CurrentMissionUnavailable("[Task_Gather: Enqueue]", out var enqueueMission))
+                    return;
+
+                if (enqueueMission.Attributes.HasFlag(MissionAttributes.ReducedItems))
                 {
                     Task_CheckScore.Enqueue();
                     P.TaskManager.Enqueue(() => CheckReduceMission(), "Checking to see if we need to reduce items");
@@ -43,8 +50,10 @@ namespace ICE.Scheduler.Tasks
                 }
                 P.TaskManager.Enqueue(() => Mission_Settings.ResetCollectableState());
                 P.TaskManager.Enqueue(() => UseFood());
-                P.TaskManager.Enqueue(() => CheckCurrentLocation(), "Checking to see if gathering flags needs updated");
-                P.TaskManager.Enqueue(() => PathandCheckNode());
+                // PathandCheckNode 是 vnav 走去採集點（分鐘級），CheckCurrentLocation 也可能
+                // 等 navmesh 建圖。用預設 30 秒 + AbortOnTimeout 等於每 30 秒把整個佇列砍一次。
+                P.TaskManager.Enqueue(() => CheckCurrentLocation(), "Checking to see if gathering flags needs updated", Utils.TaskConfig);
+                P.TaskManager.Enqueue(() => PathandCheckNode(), "Pathing to the gathering node", Utils.TaskConfig);
             }
         }
 
@@ -53,7 +62,9 @@ namespace ICE.Scheduler.Tasks
             ThrottleMessage("- - - Check Gather Locations Task - - -", "[Check Gather Locations]");
 
             var zoneId = Player.Territory;
-            var missionEntry = CosmicHelper.CurrentMissionInfo;
+            if (SchedulerMain.CurrentMissionUnavailable("[Check Gather Locations]", out var missionEntry))
+                return true;
+
             var missionFlag = missionEntry.MapPosition;
             var gatherInfo = GatheringRouteLoader.GetRoute(zoneId, missionFlag);
 
@@ -127,10 +138,34 @@ namespace ICE.Scheduler.Tasks
 
         public static bool? PathandCheckNode()
         {
+            const string pathHandle = "[Task_Gather: PathandCheckNode]";
+
             var zoneId = Player.Territory;
-            var missionEntry = CosmicHelper.CurrentMissionInfo;
+            if (SchedulerMain.CurrentMissionUnavailable(pathHandle, out var missionEntry))
+                return true;
+
             var missionFlag = missionEntry.MapPosition;
             var gatherInfo = GatheringRouteLoader.GetRoute(zoneId, missionFlag);
+
+            // ⚠️ 這兩個解參考跟字典守衛是同一個 bug class 的變形：GetRoute 查不到路線時回 null，
+            //    而 nodeCounter 是跨任務保留的索引，換了任務／路線變短就會越界。
+            //    兩者都只會在任務裡丟例外 → 表現成「卡住不動」而且沒有訊息。
+            if (gatherInfo == null || gatherInfo.Count == 0)
+            {
+                if (EzThrottler.Throttle("ICE: gather route missing log", 5000))
+                    IceLogging.ChatError($"任務 {CosmicHelper.CurrentLunarMission} 在區域 {zoneId} 座標 {missionFlag} " +
+                                         "找不到採集路線，無法自動前往採集點。", "[ICE]");
+                P.TaskManager.Tasks.Clear();
+                SchedulerMain.State = IceState.Start;
+                return true;
+            }
+
+            if (Mission_Settings.nodeCounter < 0 || Mission_Settings.nodeCounter >= gatherInfo.Count)
+            {
+                IceLogging.Info($"採集點索引 {Mission_Settings.nodeCounter} 超出這條路線的範圍" +
+                                $"（共 {gatherInfo.Count} 個點），歸零重來。", pathHandle);
+                Mission_Settings.nodeCounter = 0;
+            }
 
             var location = gatherInfo[Mission_Settings.nodeCounter];
             if (!Task_NavmeshMove.NavToDestination(location.LandZone, distance: 1))
@@ -183,17 +218,25 @@ namespace ICE.Scheduler.Tasks
         }
         public static unsafe bool? GatheringInteraction()
         {
-            var missionInfo = CosmicHelper.CurrentMissionInfo;
+            // 零守衛的字典索引 ×2（CurrentMissionInfo 與 C.MissionConfig）。
+            if (SchedulerMain.CurrentMissionUnavailable("[Task_Gather: Gathering Interaction]", out var missionInfo))
+                return true;
+
             bool collectableItem = missionInfo.Attributes.HasFlag(MissionAttributes.Collectables);
             bool reduceItems = missionInfo.Attributes.HasFlag(MissionAttributes.ReducedItems);
-            var configId = C.MissionConfig[CosmicHelper.CurrentLunarMission].GProfileId;
-            if (C.GatherProfiles.TryGetValue(configId, out var gatherConfig))
+            // MissionConfig 的鍵集合跟 SheetMissionDict 不同（前者被 MissionTimer 按需補上、含 0），
+            // 所以要分開守；查不到就退回預設採集設定檔。
+            var configId = C.MissionConfig.TryGetValue(CosmicHelper.CurrentLunarMission, out var gatherMissionConfig)
+                ? gatherMissionConfig.GProfileId
+                : 0;
+            if (!C.GatherProfiles.TryGetValue(configId, out var gatherConfig) &&
+                !C.GatherProfiles.TryGetValue(0, out gatherConfig))
             {
-
-            }
-            else
-            {
-                gatherConfig = C.GatherProfiles[0];
+                // 原本是 C.GatherProfiles[0] 直接索引 —— 設定檔裡沒有 0 號設定檔就是 KeyNotFoundException。
+                IceLogging.ChatError("找不到任何可用的採集設定檔（連預設的 0 號都沒有），無法自動採集。", "[ICE]");
+                P.TaskManager.Tasks.Clear();
+                SchedulerMain.State = IceState.Start;
+                return true;
             }
             var gathActions = GatheringUtil.GathActionDict;
 
@@ -270,7 +313,9 @@ namespace ICE.Scheduler.Tasks
                                     return false;
                                 }
 
-                                foreach (var item in CosmicHelper.CurrentMissionInfo.Gathering_Min.OrderByDescending(x => x.Value))
+                                // 用方法開頭守衛拿到的 missionInfo，不要再讀一次（原本這裡是
+                                // CosmicHelper.CurrentMissionInfo 的零守衛索引）。
+                                foreach (var item in missionInfo.Gathering_Min.OrderByDescending(x => x.Value))
                                 {
                                     if (PlayerHelper.GetItemCount(item.Key, out var count) && count < item.Value)
                                     {
@@ -745,8 +790,14 @@ namespace ICE.Scheduler.Tasks
         public static bool? CheckReduceMission()
         {
             IceLogging.Info($"Current itemId: {Mission_Settings.item_collectableId}", "[Gather: Check Reduce Mission]");
+
+            // 零守衛的字典索引。
+            // ⚠️ 這裡的 hasCollectable 讀到 0 只是「不做精選」，不是破壞性判斷，所以不必擋換區。
+            if (SchedulerMain.CurrentMissionUnavailable("[Gather: Check Reduce Mission]", out var reduceMission))
+                return true;
+
             bool hasCollectable = PlayerHelper.GetItemCount(Mission_Settings.item_collectableId, out var count) && count > 0;
-            bool isReducableMission = CosmicHelper.CurrentMissionInfo.Attributes.HasFlag(MissionAttributes.ReducedItems);
+            bool isReducableMission = reduceMission.Attributes.HasFlag(MissionAttributes.ReducedItems);
             if (hasCollectable && isReducableMission)
             {
                 P.TaskManager.InsertMulti(

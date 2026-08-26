@@ -9,10 +9,36 @@ namespace ICE.Ui.SettingTabs
 {
     internal class Priority_Settings
     {
+        // 與 Task_FindMission.DefaultRankOrder 保持一致；兩邊都會把設定裡缺少的階級補回來，
+        // 避免舊設定檔漏掉某一階導致那些任務永遠不被挑到。
+        private static readonly string[] DefaultRanks = ["ExA", "A", "B", "C", "D"];
+
         public static void Draw()
         {
             ImGui.Text("Mission Priority Organizer".Loc());
 
+            var prioritizeUngolded = C.PrioritizeUngoldedMissions;
+            if (ImGui.Checkbox("Prioritize missions without a gold star".Loc() + "###ICEPrioritizeUngolded", ref prioritizeUngolded))
+            {
+                C.PrioritizeUngoldedMissions = prioritizeUngolded;
+                C.Save();
+            }
+            ImGuiEx.HelpMarker(
+                "Within the same rank, missions you have not yet earned a gold star on are picked first. Once every mission is golded this option has no effect and ordering returns to normal.".Loc());
+
+            var useTableSort = C.UseTableSortForMissionOrder;
+            if (ImGui.Checkbox("Pick missions using the table sort order".Loc() + "###ICEUseTableSort", ref useTableSort))
+            {
+                C.UseTableSortForMissionOrder = useTableSort;
+                C.Save();
+            }
+            ImGuiEx.HelpMarker(
+                ("Within the same rank, missions are picked in the order set by 'Sort By' in the table settings " +
+                "(Exp I-V, Cosmo/Lunar credits, map location, class score...). Off means the game's own list order.\n" +
+                "Can be combined with the gold star option above: the table order applies first, then missions " +
+                "without a gold star are moved to the front.").Loc());
+
+            ImGui.Separator();
             ImGui.Text("Drag items to reorder mission priority (higher = processed first):".Loc());
             ImGui.Separator();
 
@@ -102,6 +128,80 @@ namespace ICE.Ui.SettingTabs
             }
 
             // Add spacing between sections
+            ImGui.Spacing();
+            ImGui.Spacing();
+
+            // RANK PRIORITY SECTION（標準任務的階級順序，原本是寫死的 ExA→A→B→C→D）
+            ImGui.Text("Rank Priority Organizer".Loc());
+            ImGui.Text("Drag items to reorder which mission rank is picked first (standard missions only):".Loc());
+            ImGui.Separator();
+
+            var rankOrder = (C.RankPrio ?? []).ToList();
+            // 設定檔若缺了某個階級就補回來，否則那一階的任務會永遠不被挑到。
+            foreach (var r in DefaultRanks)
+            {
+                if (!rankOrder.Contains(r))
+                    rankOrder.Add(r);
+            }
+            bool rankChanged = false;
+
+            for (int i = 0; i < rankOrder.Count; i++)
+            {
+                ImGui.PushID($"rank_{i}");
+
+                ImGui.Selectable(rankOrder[i], false, ImGuiSelectableFlags.None);
+
+                if (ImGui.BeginDragDropSource())
+                {
+                    unsafe
+                    {
+                        int draggedIndex = i;
+                        byte* data = (byte*)&draggedIndex;
+                        ImGui.SetDragDropPayload("RANK_TYPE", new ReadOnlySpan<byte>(data, sizeof(int)));
+                    }
+                    ImGui.Text("Moving: ??".Loc(rankOrder[i]));
+                    ImGui.EndDragDropSource();
+                }
+
+                if (ImGui.BeginDragDropTarget())
+                {
+                    unsafe
+                    {
+                        var payload = ImGui.AcceptDragDropPayload("RANK_TYPE");
+                        if (!payload.IsNull)
+                        {
+                            int draggedIndex = *(int*)payload.Data;
+                            if (draggedIndex != i && draggedIndex >= 0 && draggedIndex < rankOrder.Count)
+                            {
+                                var draggedItem = rankOrder[draggedIndex];
+                                rankOrder.RemoveAt(draggedIndex);
+                                rankOrder.Insert(i, draggedItem);
+                                rankChanged = true;
+                            }
+                        }
+                    }
+                    ImGui.EndDragDropTarget();
+                }
+
+                ImGui.SameLine();
+                ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1.0f), "(Priority: ??)".Loc(i + 1));
+
+                ImGui.PopID();
+            }
+
+            if (rankChanged)
+            {
+                C.RankPrio = rankOrder;
+                C.Save();
+            }
+
+            ImGui.Separator();
+            if (ImGui.Button("Reset to Default".Loc() + "##Rank"))
+            {
+                C.RankPrio = DefaultRanks.ToList();
+                C.Save();
+            }
+
             ImGui.Spacing();
             ImGui.Spacing();
 

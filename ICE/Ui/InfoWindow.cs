@@ -28,6 +28,10 @@ namespace ICE.Ui
             P.windowSystem.AddWindow(this);
             AllowPinning = true;
             AllowClickthrough = true;
+
+            // Do not swallow the game's ESC key while this window is focused.
+            // Trade-off: ESC no longer closes this window; use the title bar X or /ice i.
+            RespectCloseHotkey = false;
         }
 
         public void Dispose()

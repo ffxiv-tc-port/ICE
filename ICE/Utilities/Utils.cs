@@ -252,7 +252,26 @@ public static unsafe class Utils
 
     public static void VnavBuildInfo()
     {
+        // 🔴 原本寫成 {P.Navmesh.BuildProgress} —— BuildProgress 是 Func<float> 欄位，
+        // 少了括號，字串插值印出的是「System.Func`1[System.Single]」這個型別名而不是數值。
+        // 從來沒有人看過真正的進度，而那個值本來就會直接說出問題：vnavmesh 的約定是
+        // 「載入任務沒在跑時回負數」，也就是根本沒在建置。
+        // 2026-07-31 宇宙探索卡在 HubReturn 時，就是因為這行壞掉而完全看不出是網格沒建起來。
+        var progress = P.Navmesh.BuildProgress();
+
+        if (progress < 0)
+        {
+            // 沒有任何載入任務在跑 → 這張圖的網格既沒載入也沒在建，光等不會有結果。
+            // 觸發一次 Reload（允許讀快取，便宜）。不自動 Rebuild —— 那是強制全重建、很貴。
+            if (EzThrottler.Throttle("Vnavmesh auto reload", 10000))
+            {
+                IceLogging.Info("導航網格未載入、且沒有任何建置任務在跑，觸發一次 Reload", "[Vnavmesh]");
+                P.Navmesh.Reload();
+            }
+            return;
+        }
+
         if (EzThrottler.Throttle("Vnavmesh throttle message", 1000))
-            IceLogging.Debug($"Navmesh isn't ready. % built is at: {P.Navmesh.BuildProgress}");
+            IceLogging.Info($"導航網格建置中：{progress:P0}", "[Vnavmesh]");
     }
 }

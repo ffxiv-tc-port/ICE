@@ -189,7 +189,9 @@ namespace ICE.Ui.DebugWindowTabs
                         MissionName = "None";
                     else
                     {
-                        MissionName = CosmicHelper.SheetMissionDict[(uint)BestMission].Name;
+                        // 零守衛的字典索引（RelicMissionFinder 只保證 >= 1，不保證在表裡）。
+                        MissionName = CosmicHelper.SheetMissionDict.TryGetValue((uint)BestMission, out var bestEntry)
+                            ? bestEntry.Name : "???";
                     }
                 }
 
@@ -258,7 +260,10 @@ namespace ICE.Ui.DebugWindowTabs
                     var id = availMission.MissionId;
                     if (CosmicHelper.SheetMissionDict.TryGetValue(id, out var mission))
                     {
-                        var missionConfig = C.MissionConfig[id];
+                        // 守了 SheetMissionDict 卻直接索引 MissionConfig（同 Task_FindMission 的形狀）。
+                        // 這是每幀跑的 UI，丟例外會直接讓整個視窗畫不出來。
+                        if (!C.MissionConfig.TryGetValue(id, out var missionConfig))
+                            continue;
 
                         int minLevel = 10;
                         var rank = mission.Rank;

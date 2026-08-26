@@ -15,6 +15,10 @@ internal class DebugWindow : Window
             MaximumSize = new Vector2(3000, 3000)
         };
         P.windowSystem.AddWindow(this);
+
+        // Do not swallow the game's ESC key while this window is focused.
+        // Trade-off: ESC no longer closes this window; use the title bar X or /ice d.
+        RespectCloseHotkey = false;
     }
 
     public void Dispose()

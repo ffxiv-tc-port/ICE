@@ -65,47 +65,40 @@ namespace ICE.Ui.MainUi.ModeSelect
         }
 
         public static List<Mission> SortMissionList(List<Mission> missions)
+            => SortByTableOption(missions, m => m.id).ToList();
+
+        /// <summary>
+        /// 依「表格設定 → 排序方式」排序任意帶有任務 ID 的集合。
+        /// 表格顯示與（啟用時）任務挑選共用同一份邏輯，避免兩邊各寫一次而漂移。
+        /// ⚠️ 查不到任務資料的項目一律排到最後，不要用字典 indexer —— 那會丟例外。
+        /// </summary>
+        public static IEnumerable<T> SortByTableOption<T>(IEnumerable<T> items, Func<T, uint> idSelector)
         {
-            int sortOption = C.TableSortOption;
             var missionInfo = CosmicHelper.SheetMissionDict;
 
-            switch (sortOption)
+            string NameOf(T m) => missionInfo.TryGetValue(idSelector(m), out var i) ? i.Name : string.Empty;
+            uint CosmoOf(T m) => missionInfo.TryGetValue(idSelector(m), out var i) ? i.CosmoCredit : 0;
+            uint LunarOf(T m) => missionInfo.TryGetValue(idSelector(m), out var i) ? i.LunarCredit : 0;
+            uint MarkerOf(T m) => missionInfo.TryGetValue(idSelector(m), out var i) ? i.MarkerId : uint.MaxValue;
+            uint ScoreOf(T m) => missionInfo.TryGetValue(idSelector(m), out var i) ? i.ClassScore : 0;
+            double ExpOf(T m, uint type) => missionInfo.TryGetValue(idSelector(m), out var i)
+                ? i.RelicXpInfo.Where(exp => exp.Key == type).Sum(exp => exp.Value)
+                : 0d;
+
+            return C.TableSortOption switch
             {
-                case 0: // Sorting by Id
-                    return missions.ToList();
-                case 1: // Name 
-                    return missions.OrderBy(m => missionInfo[m.id].Name).ToList();
-                case 2: // Cosmo Credits
-                    return missions.OrderByDescending(m => missionInfo[m.id].CosmoCredit).ToList();
-                case 3: // Lunar Credits
-                    return missions.OrderByDescending(m => missionInfo[m.id].LunarCredit).ToList();
-                case 4: // Exp Type 1:
-                    return missions.OrderByDescending(m => missionInfo[m.id].RelicXpInfo
-                                                     .Where(exp => exp.Key == 1)
-                                                     .Sum(exp => exp.Value)).ToList();
-                case 5: // Exp Type 2:
-                    return missions.OrderByDescending(m => missionInfo[m.id].RelicXpInfo
-                                                     .Where(exp => exp.Key == 2)
-                                                     .Sum(exp => exp.Value)).ToList();
-                case 6: // Exp Type 3:
-                    return missions.OrderByDescending(m => missionInfo[m.id].RelicXpInfo
-                                                     .Where(exp => exp.Key == 3)
-                                                     .Sum(exp => exp.Value)).ToList();
-                case 7: // Exp Type 4:
-                    return missions.OrderByDescending(m => missionInfo[m.id].RelicXpInfo
-                                                     .Where(exp => exp.Key == 4)
-                                                     .Sum(exp => exp.Value)).ToList();
-                case 8: // Exp Type 5:
-                    return missions.OrderByDescending(m => missionInfo[m.id].RelicXpInfo
-                                                     .Where(exp => exp.Key == 5)
-                                                     .Sum(exp => exp.Value)).ToList();
-                case 9: // Map Location
-                    return missions.OrderBy(m => missionInfo[m.id].MarkerId).ToList();
-                case 10: // Mission Score
-                    return missions.OrderByDescending(m => missionInfo[m.id].ClassScore).ToList();
-                default:
-                    return missions.ToList();
-            }
+                1 => items.OrderBy(NameOf),
+                2 => items.OrderByDescending(CosmoOf),
+                3 => items.OrderByDescending(LunarOf),
+                4 => items.OrderByDescending(m => ExpOf(m, 1)),
+                5 => items.OrderByDescending(m => ExpOf(m, 2)),
+                6 => items.OrderByDescending(m => ExpOf(m, 3)),
+                7 => items.OrderByDescending(m => ExpOf(m, 4)),
+                8 => items.OrderByDescending(m => ExpOf(m, 5)),
+                9 => items.OrderBy(MarkerOf),
+                10 => items.OrderByDescending(ScoreOf),
+                _ => items,   // 0 = 依 ID，也就是維持原本的順序
+            };
         }
 
         public static void DrawCollapsibleHeader(string id, string label, float spacing = 4f, Vector4? borderColor = null, Vector4? backgroundColor = null)
@@ -550,8 +543,7 @@ namespace ICE.Ui.MainUi.ModeSelect
                             var managerPtr = WKSManager.Instance();
                             if (managerPtr == null) continue;
 
-                            var manager = (WKSManagerCustom*)managerPtr;
-                            var isGold = manager->IsMissionGolded(Id);
+                            var isGold = managerPtr->IsMissionGolded(Id);
 
                             if (isGold)
                                 continue;
@@ -959,7 +951,13 @@ namespace ICE.Ui.MainUi.ModeSelect
                             for (int i = 0; i < prevMissions.Count; i++)
                             {
                                 var prevMission = prevMissions[i];
-                                ImGui.Text($"{i + 1}: [{prevMission}] - {CosmicHelper.SheetMissionDict[prevMission].Name}");
+                                // 零守衛的字典索引。GetOnlyPreviousMissionsRecursive 會把 LockedBehind 的
+                                // rowId 原封不動加進來，而它不保證在 SheetMissionDict 裡（台服 7.20 逐筆
+                                // 比對 WKSMissionUnit.csv 目前是乾淨的，但那是資料湊巧，不是程式有守）。
+                                // 這是每幀跑的 ImGui 迴圈，丟例外會讓整個視窗畫不出來。
+                                var prevName = CosmicHelper.SheetMissionDict.TryGetValue(prevMission, out var prevEntry)
+                                    ? prevEntry.Name : "???";
+                                ImGui.Text($"{i + 1}: [{prevMission}] - {prevName}");
                             }
                             ImGui.EndTooltip();
                         }
@@ -970,9 +968,14 @@ namespace ICE.Ui.MainUi.ModeSelect
                         if (notesCount > 0)
                             ImGui.SameLine(0, 2);
 
-                        if (CosmicHelper.WeatherIds.ContainsKey(missionInfo.Weather))
+                        // 🔴 原本守的是 WeatherIds、索引的卻是 WeatherIconDict —— 又一個「守 A 索引 B」。
+                        //    根因在 ICEDictornaryCreation：WeatherIconDict 只在 TryGetFromGameIcon
+                        //    **成功時**才寫入，所以它的鍵集合是 WeatherIds 的**子集**。
+                        //    任何一張天氣圖示載不到（例如建表當下貼圖子系統還沒就緒），
+                        //    這裡就會每幀丟 KeyNotFoundException 讓整個任務表畫不出來。
+                        //    直接守真正要索引的那個字典，載不到就落到下面的 Cloud 圖示 fallback。
+                        if (CosmicHelper.WeatherIconDict.TryGetValue(missionInfo.Weather, out var weatherIcon))
                         {
-                            ISharedImmediateTexture? weatherIcon = CosmicHelper.WeatherIconDict[missionInfo.Weather];
                             Vector2 ImageSize = new Vector2(23, 23);
                             ImGui.Image(weatherIcon.GetWrapOrEmpty().Handle, ImageSize);
                         }
@@ -1009,7 +1012,8 @@ namespace ICE.Ui.MainUi.ModeSelect
                             {
                                 CompletionStatus_Normal(mission);
                                 ImGui.SameLine();
-                                ImGui.Text($"[{mission}] - {CosmicHelper.SheetMissionDict[mission].Name}");
+                                // 零守衛的字典索引（MissionUnlock 是寫死的表，跟 SheetMissionDict 沒有共同保證）。
+                                ImGui.Text($"[{mission}] - {(CosmicHelper.SheetMissionDict.TryGetValue(mission, out var unlockEntry) ? unlockEntry.Name : "???")}");
                             }
                             ImGui.EndTooltip();
                         }
@@ -1312,7 +1316,8 @@ namespace ICE.Ui.MainUi.ModeSelect
                     {
                         CompletionStatus_Normal(lockedMission);
                         ImGui.SameLine();
-                        ImGui.Text($"[{lockedMission}] - {CosmicHelper.SheetMissionDict[lockedMission].Name}");
+                        // 零守衛的字典索引（同上，來源是寫死的 MissionUnlock 表）。
+                        ImGui.Text($"[{lockedMission}] - {(CosmicHelper.SheetMissionDict.TryGetValue(lockedMission, out var lockedEntry) ? lockedEntry.Name : "???")}");
                     }
 
                 }
@@ -1695,14 +1700,9 @@ namespace ICE.Ui.MainUi.ModeSelect
             chain.AddRange(GetOnlyNextMissionsRecursive(nextMissionId.Value));
             return chain;
         }
-        private static unsafe void CompletionStatus_Formatted(uint id)
+        private static void CompletionStatus_Formatted(uint id)
         {
-            var managerPtr = WKSManager.Instance();
-            if (managerPtr == null) return;
-
-            var manager = (WKSManagerCustom*)managerPtr;
-            var isCompleted = manager->IsMissionCompleted(id);
-            var isGold = manager->IsMissionGolded(id);
+            var (isCompleted, isGold) = MissionStatusHelper.GetStatus(id);
 
             float availableWidth = ImGui.GetContentRegionAvail().X;
 
@@ -1746,14 +1746,9 @@ namespace ICE.Ui.MainUi.ModeSelect
                 Table_FullCenterText(FontAwesome.Cross, EColor.Red);
             }
         }
-        private static unsafe void CompletionStatus_Normal(uint id)
+        private static void CompletionStatus_Normal(uint id)
         {
-            var managerPtr = WKSManager.Instance();
-            if (managerPtr == null) return;
-
-            var manager = (WKSManagerCustom*)managerPtr;
-            var isCompleted = manager->IsMissionCompleted(id);
-            var isGold = manager->IsMissionGolded(id);
+            var (isCompleted, isGold) = MissionStatusHelper.GetStatus(id);
 
             var containerSize = new Vector2(23, 23);
 

@@ -40,6 +40,12 @@ namespace ICE.Ui
 
             AllowPinning = true;
             AllowClickthrough = true;
+
+            // Do not swallow the game's ESC key while this window is focused.
+            // Dalamud inhibits native addon close events AND the ESC system menu
+            // for any focused window with RespectCloseHotkey == true.
+            // Trade-off: ESC no longer closes this window; use the title bar X or /ice.
+            RespectCloseHotkey = false;
         }
 
         public void Dispose()

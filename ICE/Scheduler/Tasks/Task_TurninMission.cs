@@ -20,10 +20,12 @@ namespace ICE.Scheduler.Tasks
 
         public static void Enqueue()
         {
+            // 這三個跟 Task_AbandonMission 是同一組收尾任務，同樣可能卡在區域切換／視窗等待上，
+            // 用 NeoTaskManager 的 30 秒預設逾時 + AbortOnTimeout 會把整個佇列清掉。
             P.TaskManager.Enqueue(() => TurninMission(), "Turning in the mission to the moon gods", Utils.TaskConfig);
-            P.TaskManager.Enqueue(() => JobSwapCheck(), "Checking to see if you need to swap jobs");
-            P.TaskManager.Enqueue(() => GoldCheck(), "Checking if Gold Check Task needs to be completed");
-            P.TaskManager.Enqueue(() => CommandCheck(), "Checking for post mission commands");
+            P.TaskManager.Enqueue(() => JobSwapCheck(), "Checking to see if you need to swap jobs", Utils.TaskConfig);
+            P.TaskManager.Enqueue(() => GoldCheck(), "Checking if Gold Check Task needs to be completed", Utils.TaskConfig);
+            P.TaskManager.Enqueue(() => CommandCheck(), "Checking for post mission commands", Utils.TaskConfig);
         }
 
         public static unsafe bool? TurninMission()
@@ -40,10 +42,15 @@ namespace ICE.Scheduler.Tasks
                 var duration = P.MissionTimer.CompleteMission();
 
                 // Log the results
-                if (C.MissionConfig.TryGetValue(PreviousMissionId, out var config))
+                // 跟 Task_AbandonMission 完全同形狀的雷：守了 MissionConfig，沒守 SheetMissionDict。
+                // 兩個字典的鍵集合不同（MissionConfig 含 0，SheetMissionDict 沒有），
+                // PreviousMissionId 為 0 時 TryGetValue 會過而 SheetMissionDict[0] 直接丟
+                // KeyNotFoundException，例外在任務裡只會表現成「卡住不動」。
+                if (C.MissionConfig.TryGetValue(PreviousMissionId, out var config) &&
+                    CosmicHelper.SheetMissionDict.TryGetValue(PreviousMissionId, out var prevMission))
                 {
                     if (config.BestTime != double.MaxValue)
-                        IceLogging.Info($"Mission [{PreviousMissionId}] [{CosmicHelper.SheetMissionDict[PreviousMissionId].Name}] completed in {duration:mm\\:ss\\.ff} | Best: {TimeSpan.FromSeconds(config.BestTime):mm\\:ss\\.ff} | Avg: {TimeSpan.FromSeconds(config.AverageTime):mm\\:ss\\.ff}", $"{tag} [Mission Timer]");
+                        IceLogging.Info($"Mission [{PreviousMissionId}] [{prevMission.Name}] completed in {duration:mm\\:ss\\.ff} | Best: {TimeSpan.FromSeconds(config.BestTime):mm\\:ss\\.ff} | Avg: {TimeSpan.FromSeconds(config.AverageTime):mm\\:ss\\.ff}", $"{tag} [Mission Timer]");
                 }
 
                 if (P.AutoHook.Installed)
@@ -69,7 +76,11 @@ namespace ICE.Scheduler.Tasks
             }
             else
             {
-                var critical = CosmicHelper.SheetMissionDict[id].Attributes.HasFlag(MissionAttributes.Critical);
+                // 零守衛的字典索引（跟同檔案下方那顆已經修過的雷是同一個字典）。
+                // 查不到就當成「不是限時任務」繼續走一般回報流程 —— 這比丟例外讓佇列卡死安全，
+                // critical 只影響「要不要先走去收集點」這一步。
+                var critical = CosmicHelper.SheetMissionDict.TryGetValue(id, out var turninMission)
+                               && turninMission.Attributes.HasFlag(MissionAttributes.Critical);
                 PreviousMissionId = id;
 
                 if (EzThrottler.Throttle("Checking for previous score"))
@@ -254,22 +265,30 @@ namespace ICE.Scheduler.Tasks
             var managerPtr = WKSManager.Instance();
             if (managerPtr == null) return false;
 
-            var manager = (WKSManagerCustom*)managerPtr;
-            var isGold = manager->IsMissionGolded(PreviousMissionId);
+            var isGold = managerPtr->IsMissionGolded(PreviousMissionId);
 
+            // 零守衛的字典索引 ×2。PreviousMissionId 的初始值就是 0，而 MissionConfig 雖然
+            // 通常含 0（MissionTimer 會補），GetOnlyPreviousMissionsRecursive 回來的前置任務
+            // 卻不保證在 MissionConfig 裡。這一段跑在 GoldCheck 任務內，丟例外＝佇列卡住。
             if (C.RemoveAfterGold && isGold)
             {
-                C.MissionConfig[PreviousMissionId].Enabled = false;
+                if (C.MissionConfig.TryGetValue(PreviousMissionId, out var goldConfig))
+                    goldConfig.Enabled = false;
+                else
+                    IceLogging.Info($"任務 {PreviousMissionId} 在設定檔裡沒有對應的設定，跳過「達金後停用」。", "[Gold Check Task]");
             }
             if (C.RemoveAfterGold && !isGold)
             {
-                if (MainWindow.GetOnlyPreviousMissionsRecursive(PreviousMissionId).Count > 0)
+                foreach (var prevMission in MainWindow.GetOnlyPreviousMissionsRecursive(PreviousMissionId))
                 {
-                    foreach (var prevMission in MainWindow.GetOnlyPreviousMissionsRecursive(PreviousMissionId))
+                    if (!C.MissionConfig.TryGetValue(prevMission, out var prevConfig))
                     {
-                        C.MissionConfig[prevMission].Enabled = true;
-                        C.Save();
+                        IceLogging.Info($"前置任務 {prevMission} 在設定檔裡沒有對應的設定，跳過重新啟用。", "[Gold Check Task]");
+                        continue;
                     }
+
+                    prevConfig.Enabled = true;
+                    C.Save();
                 }
             }
 

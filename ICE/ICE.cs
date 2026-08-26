@@ -7,6 +7,7 @@ using ICE.Ui;
 using ICE.Ui.MainUi;
 using ICE.Utilities.Cosmic_Helper;
 using ICE.Utilities.GatheringHelper;
+using ICE.Utilities.MechaOps;
 using Pictomancy;
 using System.Collections.Generic;
 using static ICE.Utilities.CosmicHelper;
@@ -48,6 +49,7 @@ public sealed partial class ICE : IDalamudPlugin
     internal OverlayWindow overlayWindow;
     internal DebugWindow debugWindow;
     internal InfoWindow infoWindow;
+    internal MechaOpsWindow mechaOpsWindow;
 
     // Taskmanager from Ecommons
     internal TaskManager TaskManager;
@@ -86,6 +88,7 @@ public sealed partial class ICE : IDalamudPlugin
         overlayWindow = new();
         debugWindow = new();
         infoWindow = new();
+        mechaOpsWindow = new();
 
         // timer stuff
         MissionTimer = new MissionTimer();
@@ -106,6 +109,8 @@ public sealed partial class ICE : IDalamudPlugin
 
         TaskManager = new(new(showDebug: false));
         Svc.PluginInterface.UiBuilder.Draw += windowSystem.Draw;
+        // 機甲行動技能範圍（P1）：PctDrawList 只能在 ImGui frame 內用，必須掛 UiBuilder.Draw。
+        Svc.PluginInterface.UiBuilder.Draw += MechaAoeOverlay.Draw;
         Svc.PluginInterface.UiBuilder.OpenMainUi += () =>
         {
             mainWindow.IsOpen = true;
@@ -138,6 +143,8 @@ public sealed partial class ICE : IDalamudPlugin
             if (SchedulerMain.State != IceState.Idle)
                 SchedulerMain.Tick();
             WeatherForecastHandler.Tick();
+            // 機甲行動偵察（P0）＋繪製快照：遊戲結構只在 Framework 執行緒讀。
+            MechaOpsMonitor.Tick();
         }
         else
         {
@@ -153,6 +160,7 @@ public sealed partial class ICE : IDalamudPlugin
     {
         GenericHelpers.Safe(() => Svc.Framework.Update -= Tick);
         GenericHelpers.Safe(() => Svc.PluginInterface.UiBuilder.Draw -= windowSystem.Draw);
+        GenericHelpers.Safe(() => Svc.PluginInterface.UiBuilder.Draw -= MechaAoeOverlay.Draw);
         GenericHelpers.Safe(TextAdvancedManager.UnlockTA);
         GenericHelpers.Safe(YesAlreadyManager.Unlock);
         ECommonsMain.Dispose();

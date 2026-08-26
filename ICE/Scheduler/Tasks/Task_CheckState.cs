@@ -159,7 +159,18 @@ namespace ICE.Scheduler.Tasks
                         {
                             IceLogging.Debug($"Mission isn't timed out... checking other states");
                             UpdateMissionState(currentMissionId);
-                            C.MissionConfig.TryGetValue(currentMissionId, out var config);
+
+                            // ⚠️ 同一個 bug class 的變形：原本呼叫了 TryGetValue **但丟掉回傳值**，
+                            //    然後在下面直接寫 config.ManualMode。MissionSettings 是 class，
+                            //    查不到時 config 是 null → NullReferenceException。看起來有守其實沒守。
+                            if (!C.MissionConfig.TryGetValue(currentMissionId, out var config))
+                            {
+                                IceLogging.ChatError($"任務 {currentMissionId} 在設定檔裡沒有對應的設定，" +
+                                                     "無法判斷要走哪一種流程，回到領任務狀態。", "[ICE]");
+                                SchedulerMain.State = IceState.GrabMission;
+                                P.TaskManager.Tasks.Clear();
+                                return true;
+                            }
 
                             var s = SchedulerMain.MissionState;
                             bool dualMission = (s.HasFlag(MissionAttributes.Craft) && (s.HasFlag(MissionAttributes.Gather) || s.HasFlag(MissionAttributes.Fish)));
@@ -168,13 +179,21 @@ namespace ICE.Scheduler.Tasks
                             if (C.OnlyGrabMission || config.ManualMode || UnsupportedMissions.Ids.Contains(currentMissionId))
                             {
                                 // TODO: Remove this once properly coded
+                                // 這條分支就是「接了任務之後外掛完全不動」的最常見原因。原本只寫進 log，
+                                // 遊戲裡沒有任何提示，使用者只會看到外掛啟用了卻不做事 —— 所以改成也印到聊天視窗。
+                                var reason = UnsupportedMissions.Ids.Contains(currentMissionId)
+                                    ? "這個任務在目前版本的 ICE 尚未支援（在 UnsupportedMissions 黑名單裡）"
+                                    : C.OnlyGrabMission
+                                        ? "你開了「只接任務」(Only Grab Mission)"
+                                        : "這個任務的設定是手動模式 (Manual Mode)";
+
                                 if (s.HasFlag(MissionAttributes.Fish))
                                 {
-                                    IceLogging.Info("Currently not built in/supported yet. Swapping to manual mode");
+                                    IceLogging.ChatInfo($"任務 {currentMissionId}：{reason}，所以切到手動模式，釣魚不會自動進行。", "[ICE]");
                                 }
                                 else
                                 {
-                                    IceLogging.Info($"You have either manual mode enabled, or you have OnlyGrabMission enabled. Swapping to manual mode state");
+                                    IceLogging.ChatInfo($"任務 {currentMissionId}：{reason}，所以切到手動模式。", "[ICE]");
                                 }
                                 SchedulerMain.State = IceState.ManualMode;
                             }
@@ -291,7 +310,14 @@ namespace ICE.Scheduler.Tasks
             SchedulerMain.MissionState = MissionAttributes.None;
 
             // Grabbing the mission info from the dictionary entry
-            var missionDictInfo = CosmicHelper.SheetMissionDict[missionId];
+            // 零守衛的字典索引。SheetMissionDict 的鍵集合是「Name 不為空的 row」
+            //（台服 7.20 逐筆比對 WKSMissionUnit.csv 實測＝只有 1..544），沒有 0 也沒有 545 以上。
+            // 查不到就維持在上面剛清乾淨的 None —— 呼叫端本來就是依 MissionState 分支的。
+            if (!CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var missionDictInfo))
+            {
+                IceLogging.Info($"任務 {missionId} 不在任務表裡，MissionState 維持 None。", "[Task: Check State]");
+                return;
+            }
 
             // Updating the Mission state to be the same as the current mission that's fired.
             SchedulerMain.MissionState = missionDictInfo.Attributes;
