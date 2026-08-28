@@ -504,6 +504,18 @@ namespace ICE.Config
         public bool RemoveStellarStatus { get; set; } = false;
         public bool ShowSPM { get; set; } = false;
 
+        /// <summary>
+        /// 宇宙探索任務交件拿到金評時，請 TataruPraise 念一句誇獎。
+        /// </summary>
+        /// <remarks>
+        /// 📌 純通知，<b>不影響交件、不影響排程</b>。TataruPraise 沒安裝／沒載入時整個功能靜默不作用
+        /// （呼叫端 <c>ICE.IPC.TataruPraiseIPC</c> 會接掉 <c>IpcNotReadyError</c> 並只寫一次記錄）。
+        /// ⚠️ 預設開著，但實際會不會出聲還要看 TataruPraise 自己的總開關、冷卻，
+        /// 以及它的誇獎池裡有沒有「宇宙」這個情境的句子——那四個內建情境裡沒有這一個，
+        /// 要自己在 TataruPraise 的池裡加。
+        /// </remarks>
+        public bool PraiseOnGoldTurnin { get; set; } = true;
+
         #endregion
 
         #region Relic Settings

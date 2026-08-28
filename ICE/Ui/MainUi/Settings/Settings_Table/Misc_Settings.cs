@@ -48,8 +48,14 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             if (ImGui_Tools.PageSection("Mount Settings".Loc(), "ICESecMount"))
                 MountSelection();
 
+            // 「交件之後會發生什麼事」都收在這一節（與上面 Automation 節同形狀：
+            // 子區塊各自帶小標題，中間用 Separator 分開，節標題與 id 一個字都沒動）。
             if (ImGui_Tools.PageSection("Post Mission Commands".Loc(), "ICESecPostMission"))
+            {
+                TurninPraiseSettings();
+                Separator();
                 PostMissionCommands();
+            }
 
             if (ImGui_Tools.PageSection("Mission Playlists".Loc(), "ICESecMissionPlaylists"))
                 MissionPlaylists();
@@ -1180,6 +1186,27 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
         //    UI 重構第三批整段搬到 InterfaceSettings.Draw()，因為那些開關要跟
         //    「哪些分頁被藏起來了」的提示放在同一頁，而且「介面」是永遠藏不掉的分頁。
         //    是搬家不是複製 —— 這裡不再畫它們。
+
+        /// <summary>交件拿到金評時請 TataruPraise 誇一句。純通知，不影響交件流程。</summary>
+        private static void TurninPraiseSettings()
+        {
+            ImGuiEx.IconWithText(FontAwesomeIcon.Comment, "Mission Complete Announcements".Loc());
+            ImGui.Dummy(new Vector2(0, 5));
+
+            bool praiseOnGold = C.PraiseOnGoldTurnin;
+            if (ImGui.Checkbox("Have Tataru praise you on a gold turn-in (requires TataruPraise)".Loc() + "###ICEPraiseOnGoldTurnin", ref praiseOnGold))
+            {
+                C.PraiseOnGoldTurnin = praiseOnGold;
+                C.Save();
+            }
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip(("Calls TataruPraise once per mission that is turned in with a gold rating.\n" +
+                                  "Does nothing at all when TataruPraise is not installed, and never affects turn-in or scheduling.\n" +
+                                  "TataruPraise also has to have its own master switch on, be off cooldown, and have voiced lines in the \"宇宙\" category.").Loc());
+            }
+        }
+
         private static void PostMissionCommands()
         {
             ImGuiEx.IconWithText(FontAwesomeIcon.Play, "Post Mission Commands".Loc());

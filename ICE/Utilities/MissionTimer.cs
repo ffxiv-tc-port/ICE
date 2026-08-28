@@ -78,7 +78,17 @@ public class MissionTimer
         else if (Mission_Settings.TurninState == TurninState.Silver)
             stats.SilverCompletions++;
         else if (Mission_Settings.TurninState == TurninState.Gold)
+        {
             stats.GoldCompletions++;
+
+            // 📌 「交件結果已判定為金評」的**唯一**匯流點：交件（Task_TurninMission）與
+            //    「任務不見了但不是我們放棄的」（Task_AbandonMission）兩條路徑都經由
+            //    CompleteMission() 走到這裡，而且每次交件只會跑到一次。
+            //    判定值本身是 Task_CheckScore.MedalChecker 寫進 Mission_Settings.TurninState 的，
+            //    也就是 ICE 自己用來算分數倍率（金 ×5）與金星率統計的同一個值。
+            // 🔴 純通知，對方沒安裝就完全靜默；不要在這裡加任何會影響流程的東西。
+            ICE.IPC.TataruPraiseIPC.PraiseGoldTurnin(missionId);
+        }
         else if (Mission_Settings.TurninState == TurninState.Critical)
             stats.CriticalCompletions++;
 
