@@ -184,7 +184,12 @@ namespace ICE.Scheduler.Tasks
                     if (GenericHelpers.TryGetAddonMaster<SelectYesno>("SelectYesno", out var Yesno) && Yesno.IsAddonReady)
                     {
                         // 閘門預設是「一律按下確定」，那條路徑連確認框的文字都不會讀（見 YesnoGuard）。
-                        if (FrameThrottler.Throttle("Saying yes to the gil") && YesnoGuard.ShouldConfirm(YesnoSituation.Repair))
+                        // 🔴 YesnoPressGuard 一定要放在最後（它有副作用：記下這一次按壓）。
+                        //    節流的 key 是「Saying yes to the gil」，與另外兩個按窗點各自獨立，
+                        //    擋不住「同一扇窗被不同呼叫點接力重按」——見 YesnoPressGuard 的說明。
+                        if (FrameThrottler.Throttle("Saying yes to the gil")
+                            && YesnoGuard.ShouldConfirm(YesnoSituation.Repair)
+                            && YesnoPressGuard.MayPress("委託修理：花費確認", (nint)Yesno.Base))
                             Yesno.Yes();
                     }
                     else if (EzThrottler.Throttle("Firing off repair request", 300))
@@ -242,7 +247,13 @@ namespace ICE.Scheduler.Tasks
             {
                 // 這裡刻意保留原本的 Callback.Fire（不改成 SelectYesno.Yes()）—— 閘門只負責「准不准按」，
                 // 真正按下去的方式維持原樣，免得順手換掉一條已經在出貨中驗過的路徑。
-                if (FrameThrottler.Throttle("SelectYesnoThrottle", 300) && YesnoGuard.ShouldConfirm(YesnoSituation.Repair))
+                // 🔴 300 幀的節流看起來很寬，但它擋的只有「本呼叫點自己」重按：
+                //    按下確定之後這一步就完成了，下一步 CloseRepair 用另一把
+                //    從沒用過的 key，對同一扇還在關閉中的窗會立刻再送一次 callback ——
+                //    那就是原生 AccessViolation。跨呼叫點的重按只有 YesnoPressGuard 擋得住。
+                if (FrameThrottler.Throttle("SelectYesnoThrottle", 300)
+                    && YesnoGuard.ShouldConfirm(YesnoSituation.Repair)
+                    && YesnoPressGuard.MayPress("自行修理：花費確認", (nint)addon))
                 {
                     IceLogging.Debug("SelectYesno Callback", "Self Repair Task");
                     ECommons.Automation.Callback.Fire(addon, true, 0);
@@ -262,7 +273,12 @@ namespace ICE.Scheduler.Tasks
         {
             if (GenericHelpers.TryGetAddonMaster<SelectYesno>("SelectYesno", out var Yesno) && Yesno.IsAddonReady)
             {
-                if (FrameThrottler.Throttle("Closing surprise repair window"))
+                // 🔴 這裡是那條崩潰路徑的下游端：上一步 SelfRepair 才剛按下確定，
+                //    這把 key 是全新的（FrameThrottler 對沒見過的 key 第一次一律放行），
+                //    所以會在同一扇窗「正在關閉中」的那幾幀立刻再送一次 callback。
+                //    YesnoPressGuard 認的是視窗位址而不是 key，才擋得住這種接力重按。
+                if (FrameThrottler.Throttle("Closing surprise repair window")
+                    && YesnoPressGuard.MayPress("修理收尾：關閉殘留的確認框", (nint)Yesno.Base))
                 {
                     ECommons.Automation.Callback.Fire(Yesno.Base, true, -1);
                 }

@@ -208,7 +208,11 @@ namespace ICE.Scheduler.Tasks
             {
                 // ⚠️ 這個情境沒有登記比對基準（台服 Addon 表裡找不到對得上的列），
                 //    所以閘門在任何檔位都只會記錄、不會擋 —— 行為在三個檔位下都不變。
-                if (EzThrottler.Throttle("Selecting yes for turnin") && YesnoGuard.ShouldConfirm(YesnoSituation.RelicTurnin))
+                // 🔴 YesnoPressGuard 放在最後（它有副作用）：節流記的是 key 上次放行的時刻，
+                //    不是「這扇窗已經按過」，擋不住同一扇窗在關閉中被重按（＝原生 AVE）。
+                if (EzThrottler.Throttle("Selecting yes for turnin")
+                    && YesnoGuard.ShouldConfirm(YesnoSituation.RelicTurnin)
+                    && YesnoPressGuard.MayPress("研究材料繳交：繳交確認", selectYesno))
                 {
                     IceLogging.Verbose("Selecting yes for the turnin");
                     selectYesno.Yes();

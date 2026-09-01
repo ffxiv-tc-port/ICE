@@ -334,7 +334,11 @@ namespace ICE.Scheduler.Tasks
                     if (collectableCounter >= 2)
                     {
                         // 閘門預設是「一律按下確定」＝與原本完全相同（見 YesnoGuard）。
-                        if (EzThrottler.Throttle("Selecting yes to collectables") && YesnoGuard.ShouldConfirm(YesnoSituation.FishingCollect))
+                        // 🔴 YesnoPressGuard 放在最後（它有副作用）：節流記的是 key 上次放行的時刻，
+                        //    不是「這扇窗已經按過」，擋不住同一扇窗在關閉中被重按（＝原生 AVE）。
+                        if (EzThrottler.Throttle("Selecting yes to collectables")
+                            && YesnoGuard.ShouldConfirm(YesnoSituation.FishingCollect)
+                            && YesnoPressGuard.MayPress("釣魚：收為收藏品確認", (nint)yesNo.Base))
                         {
                             yesNo.Yes();
                         }

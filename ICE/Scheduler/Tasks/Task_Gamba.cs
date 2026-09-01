@@ -388,12 +388,17 @@ namespace ICE.Scheduler.Tasks
                 {
                     // 這裡原本只看點數夠不夠、完全不看確認框寫什麼。閘門預設仍然是
                     // 「一律按下確定」＝行為不變（見 YesnoGuard）。
+                    // 🔴 這一段原本連節流都沒有：GamblingTime 是每個 tick 都會跑的輪詢步驟，
+                    //    所以按下之後的下一幀會對同一扇「正在關閉中」的窗再按一次 ——
+                    //    那就是原生 AccessViolation。YesnoPressGuard 認的是視窗位址，
+                    //    第一次按一樣立刻放行，只擋掉「同一扇窗還開著時的重按」。
                     if (credits >= 1000 + C.GambaCreditsMinimum)
                     {
-                        if (YesnoGuard.ShouldConfirm(YesnoSituation.Lottery))
+                        if (YesnoGuard.ShouldConfirm(YesnoSituation.Lottery)
+                            && YesnoPressGuard.MayPress("宇宙好運道：消耗點數確認", (nint)select.Base))
                             select.Yes();
                     }
-                    else
+                    else if (YesnoPressGuard.MayPress("宇宙好運道：點數不足取消", (nint)select.Base))
                         select.No();
                 }
                 else if (confirmEnabled)
