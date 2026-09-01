@@ -671,6 +671,34 @@ namespace ICE.Scheduler.Tasks
                 Handle);
         }
 
+        /// <summary>
+        /// 依照傳進來的「這一輪要買幾個」規則掃一遍採購清單，找到就送出購買。
+        /// </summary>
+        /// <returns>
+        /// <c>true</c>＝<b>這一輪找到了該買的東西，呼叫端不要再試下一種策略</b>；<br/>
+        /// <c>false</c>＝這種策略在清單裡找不到任何該買、買得起、而且商店有賣的東西。
+        /// </returns>
+        /// <remarks>
+        /// ⚠️ <b>回傳值的語意不是「有沒有真的送出購買」，而是「要不要停止往下試」。</b>
+        /// 底下那個 <c>return true</c> 刻意寫在
+        /// <c>EzThrottler.Throttle("Selecting Item to Buy")</c> 的 <c>if</c> <b>外面</b> ——
+        /// 節流擋下來（這一輪沒真的送出購買）時<b>照樣回 <c>true</c></b>。
+        /// 看起來像 bug，實際上是這個函式唯一正確的行為，理由如下。<br/>
+        /// <br/>
+        /// 🔴 <b>改成「節流擋下就回 false」會把整趟採購提早收掉</b>：三個呼叫端
+        /// （BuyAmount／KeepAmount／KeepBuying）共用<b>同一把</b>節流 key
+        /// <c>"Selecting Item to Buy"</c>，所以節流一旦擋下第一個呼叫，同一個 tick 裡
+        /// 另外兩個必然也被擋下 ⇒ 三個都回 <c>false</c> ⇒ 流程直接落到
+        /// 「採購清單裡沒有還需要買（且買得起、且商店有賣）的項目」那一行並 <c>return true</c>，
+        /// <c>BuyItems</c> 這一步就此完成、接著 <c>CloseShop</c> 把兌換視窗關掉。
+        /// 也就是說「這一輪剛好被節流擋住」會被誤判成「沒東西要買了」，
+        /// 把一趟還沒買完的採購提早結束（而且可能還有一扇購買確認框沒處理）。<br/>
+        /// <br/>
+        /// 📌 <b>現行寫法沒有實害</b>：三個呼叫端拿到 <c>true</c> 一律是
+        /// <c>return false</c>（＝「還在忙，下個 tick 再來」），
+        /// 而「找到了、但這一輪被節流擋住」本來就該下個 tick 再來。
+        /// 所以這裡<b>維持現狀</b>，只補這段說明，免得下一個人把它「修」成上面那個回歸。
+        /// </remarks>
         private static bool TryPurchaseItem(
             ShopExchangeCurrency shopExchange,
             uint currencyAmount,
@@ -716,6 +744,11 @@ namespace ICE.Scheduler.Tasks
                     setAmount(buyAmount);
                     ItemId = itemId;
                 }
+
+                // ⚠️ 這個 return true 在節流的 if 外面是**刻意的**，不是漏縮排。
+                //    完整理由見本方法的 <remarks>：改成節流擋下時回 false，
+                //    會讓三個共用同一把節流 key 的呼叫端在同一個 tick 全部回 false，
+                //    被誤判成「沒東西要買了」而提早關掉兌換視窗。
                 return true;
             }
             return false;
