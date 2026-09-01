@@ -28,7 +28,22 @@ namespace ICE.Scheduler.Handlers
                         if (GenericHelpers.TryGetAddonMaster<SelectYesno>("SelectYesno", out var select) && select.IsAddonReady)
                         {
                             // 閘門預設是「一律按下確定」＝與原本完全相同（見 YesnoGuard）。
-                            if (YesnoGuard.ShouldConfirm(YesnoSituation.GearsetMainHand))
+                            // 🔴 YesnoPressGuard 放在最後（它有副作用：記下這一次按壓）。
+                            //    這個按窗點是全 ICE 唯一「完全不看視窗內容、只要 SelectYesno 開著
+                            //    就按下確定」而且**會被別的按窗點直接接在後面**的地方：
+                            //    Task_AbandonMission.Enqueue() 排的順序就是
+                            //      AbandonMission（按下放棄確認）→ Task_TurninMission.JobSwapCheck → 本方法，
+                            //    而 NeoTaskManager 一個 framework tick 只跑一個任務，
+                            //    所以兩次按壓最短可以只差一幀 —— 正好落在「視窗已按下、還在關閉中」
+                            //    那幾幀（GetAddonByName 拿得到、IsAddonReady 三關全過），
+                            //    此時再送一次 callback 就是原生 AccessViolation，try/catch 攔不到。
+                            //    上面那把 "Gearset" 250ms 節流擋不住它：節流記的是「這把 key 上次放行的
+                            //    時刻」，跨呼叫點的第一次呼叫一律放行。守衛認的是**視窗位址**，才擋得住。
+                            // ⚠️ 擋下來時的行為變化只有「這一個 250ms 視窗不按確定」：下面那行
+                            //    EquipGearset 照舊執行、本方法照舊回傳，呼叫端（都是回 false 重試的任務）
+                            //    下一輪就會再來一次。控制流完全沒有改變。
+                            if (YesnoGuard.ShouldConfirm(YesnoSituation.GearsetMainHand)
+                                && YesnoPressGuard.MayPress("更換套裝：主手替換確認", select))
                                 select.Yes();
                         }
                         else

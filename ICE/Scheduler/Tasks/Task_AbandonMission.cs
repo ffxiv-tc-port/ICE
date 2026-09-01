@@ -83,7 +83,25 @@ namespace ICE.Scheduler.Tasks
                 {
                     if (CosmicHandler.abandonStrings.Any(s => string.Equals(NormalizeWhitespace(select.Text), NormalizeWhitespace(s), StringComparison.OrdinalIgnoreCase)) || !C.RejectUnknownYesno)
                     {
-                        if (EzThrottler.Throttle("Selecting Yes, mission is properly abandoning"))
+                        // 🔴 YesnoPressGuard 一定要放在條件式的最後（它有副作用：記下這一次按壓），
+                        //    而且「按下去 + 狀態轉移」整組都掛在同一個條件式底下 ——
+                        //    守衛擋下來時什麼都不做，不可能讓 Tasks.Clear()／State 在沒真的按下的
+                        //    情況下被執行。擋下來只是這一幀不按，方法照舊 return false 下一幀再來。
+                        // 🔑 這裡要防的**不是**本呼叫點自己重按（500ms 節流遠大於視窗關閉中的那幾幀），
+                        //    而是下游那一步：Task_AbandonMission.Enqueue() 把
+                        //    Task_TurninMission.JobSwapCheck 直接排在本任務後面，而
+                        //    JobSwapCheck → GearsetHandler.TaskClassChange 是「只要 SelectYesno 開著
+                        //    就按下確定」、完全不看視窗內容的按窗點，用的是另一把 key
+                        //    （"Gearset"，250ms，而節流對沒見過的 key 首次一律放行）。
+                        //    NeoTaskManager 一個 framework tick 只跑一個任務（TaskManager.Tick 執行
+                        //    一次 CurrentTask.Function() 就 return），所以本任務一回 true，
+                        //    下一幀就輪到 JobSwapCheck —— 兩次按壓最短可以只差一幀。
+                        //    本任務回 true 的條件是 CurrentLunarMission（＝WKSManager->CurrentMissionUnitRowId）
+                        //    變成 0，那需要幾幀**離線證明不了**，完全可能落在確認框關閉中的那幾幀裡。
+                        //    守衛認的是視窗位址而不是 key，所以這裡「把這一次按壓記下來」正是
+                        //    下游那道守衛唯一的判斷依據 —— 少了這一行，下游的守衛對這扇窗會直接放行。
+                        if (EzThrottler.Throttle("Selecting Yes, mission is properly abandoning")
+                            && YesnoPressGuard.MayPress("放棄任務：放棄確認", select))
                         {
                             IceLogging.Debug($"Expected abandon mission text... abandoning mission", "[Abandon Mission]");
                             select.Yes();
