@@ -93,14 +93,19 @@ namespace ICE.Ui.DebugWindowTabs
 
                     ImGui.TableNextRow();
                     ImGui.TableSetColumnIndex(0);
-                    if (ImGui.Button("Report".Loc()))
+                    // 🔴 偵錯視窗的手動按鈕，按法 key 與 Task_TurninMission／Task_AbandonMission **同一把**：
+                    //    手動按下回報之後那扇窗開始關閉，排程下一個 tick 接手按放棄就是攔不到的存取違規。
+                    //    守衛擋下時這次點擊不動作（會寫一行 Information 說明原因）。
+                    if (ImGui.Button("Report".Loc())
+                        && AddonPressGuard.TryBeginPress("任務資訊：手動回報結果", "WKSMissionInfomation", x, AddonPressGuard.WksMissionExitPressKey))
                     {
                         x.Report();
                     }
 
                     ImGui.TableNextRow();
                     ImGui.TableSetColumnIndex(0);
-                    if (ImGui.Button("Abandon".Loc()))
+                    if (ImGui.Button("Abandon".Loc())
+                        && AddonPressGuard.TryBeginPress("任務資訊：手動放棄任務", "WKSMissionInfomation", x, AddonPressGuard.WksMissionExitPressKey))
                     {
                         x.Abandon();
                     }

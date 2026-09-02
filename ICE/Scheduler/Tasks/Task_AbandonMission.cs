@@ -27,17 +27,6 @@ namespace ICE.Scheduler.Tasks
 
         public static bool WasAbandoned = false;
 
-        /// <summary>
-        /// 「回報結果」與「放棄任務」在 <see cref="AddonPressGuard"/> 裡共用的同一把按法 key。
-        /// </summary>
-        /// <remarks>
-        /// 🔴 這兩顆都是「按下之後這扇窗就會收掉」的<b>終結性</b>動作，各用一把 key 擋不住跨鈕接力按：
-        /// 按完回報、窗還沒收完的那幾幀再按放棄，就是對正在關閉的視窗送輸入事件（原生存取違規，try/catch 攔不到）。<br/>
-        /// ⚠️ 不可以改成把 <c>WKSMissionInfomation</c> 放進 <c>AddonPressGuard.SingleAnswerAddons</c>：
-        /// 那會把同一扇窗的「星體分解」（<c>Task_Gather</c>）也一起併進來，而那顆按下之後窗並不會關。
-        /// </remarks>
-        private const string MissionEndPressKey = "ReportOrAbandon";
-
         public static bool? AbandonMission()
         {
             string tag = "Abandon Mission";
@@ -214,7 +203,7 @@ namespace ICE.Scheduler.Tasks
                     }
 
                     // 🔴 守衛粒度＝（窗，位址，按法）。這扇窗的「回報」與「放棄」刻意共用**同一把 key**
-                    //    （MissionEndPressKey）：兩者都是「按下之後這扇窗就會收掉」的終結性動作，
+                    //    （AddonPressGuard.WksMissionExitPressKey，與 Task_TurninMission 同一把）：兩者都是「按下之後這扇窗就會收掉」的終結性動作，
                     //    各用一把 key 擋不住跨鈕接力按 ——
                     //      tick N   ：Throttle("Attempt to turnin") 首次必放行 → 守衛首次放行 → Report()；
                     //                 任務已達可回報狀態時遊戲接受回報，這扇窗開始關閉。
@@ -238,7 +227,7 @@ namespace ICE.Scheduler.Tasks
                     // 🔴 順序：IsHeld → 讀鈕 → TryBeginPress → 按。被擋的那幾幀連 GetComponentButtonById
                     //    都不呼叫（那是去走正在關閉的視窗的節點樹），與上面 SelectYesno 那一段同一個形狀。
                     bool reportPressable = false, abandonPressable = false;
-                    if (!AddonPressGuard.IsHeld("WKSMissionInfomation", addon, MissionEndPressKey))
+                    if (!AddonPressGuard.IsHeld("WKSMissionInfomation", addon, AddonPressGuard.WksMissionExitPressKey))
                     {
                         unsafe
                         {
@@ -254,13 +243,13 @@ namespace ICE.Scheduler.Tasks
 
                     if (reportPressable
                         && EzThrottler.Throttle("Attempt to turnin", 500)
-                        && AddonPressGuard.TryBeginPress("放棄任務：回報結果", "WKSMissionInfomation", addon, MissionEndPressKey))
+                        && AddonPressGuard.TryBeginPress("放棄任務：回報結果", "WKSMissionInfomation", addon, AddonPressGuard.WksMissionExitPressKey))
                     {
                         addon.Report();
                     }
                     else if (abandonPressable
                         && EzThrottler.Throttle("Telling it to abandon the mission", 500)
-                        && AddonPressGuard.TryBeginPress("放棄任務：放棄任務", "WKSMissionInfomation", addon, MissionEndPressKey))
+                        && AddonPressGuard.TryBeginPress("放棄任務：放棄任務", "WKSMissionInfomation", addon, AddonPressGuard.WksMissionExitPressKey))
                     {
                         IceLogging.Debug("Attempting to abandon.", "[Abandoning Mission]");
                         addon.Abandon();

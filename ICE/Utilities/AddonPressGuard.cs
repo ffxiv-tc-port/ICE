@@ -102,6 +102,22 @@ namespace ICE.Utilities
             "MaterializeDialog",
         };
 
+        /// <summary>
+        /// <c>WKSMissionInfomation</c> 的「回報結果」與「放棄任務」<b>共用</b>的按法 key。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 這兩顆都是「按下之後這扇窗就會收掉」的<b>終結性</b>動作。各用一把 key 擋不住跨鈕、
+        /// 跨呼叫點的接力按：<c>Task_TurninMission</c>／<c>Task_AbandonMission</c> 任一邊按完回報、
+        /// 那扇窗還沒收完的那幾幀，另一邊（或同一支的 else-if）再按放棄，就是對正在關閉的視窗
+        /// 送輸入事件 ＝ 攔不到的存取違規。<b>凡是按這兩顆的呼叫點一律用這個常數，不要再寫字面值。</b><br/>
+        /// ⚠️ <b>不可以</b>改成把 <c>WKSMissionInfomation</c> 放進 <see cref="SingleAnswerAddons"/>：
+        /// 那會把同一扇窗的<b>所有</b>按法（「星體分解」<c>Task_Gather</c>、「宇宙背包」、「製作筆記」）
+        /// 一起併成同一把 key，而那幾顆按下之後這扇窗<b>並不會關</b>（只是疊出子視窗），
+        /// 併進來只會把正常流程擋到逃生口。要併的只有這兩顆終結鈕 ——
+        /// 所以是在呼叫點共用這個字串，而不是在白名單裡整扇窗一起併。
+        /// </remarks>
+        internal const string WksMissionExitPressKey = "ReportOrAbandon";
+
         /// <param name="AddonName">視窗名稱（解除封鎖的監聽器與輪詢都以它為準）。</param>
         /// <param name="Address">被按的那個實例的位址，<b>只做等值比較</b>。</param>
         /// <param name="Press">按法；單答終結窗一律為空字串。</param>

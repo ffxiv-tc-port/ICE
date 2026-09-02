@@ -254,8 +254,26 @@ namespace ICE.Scheduler.Tasks
 
                     // 回報成功後 WKSMissionInfomation 關閉、要等 CurrentLunarMission 變 0 才收工，關閉中的幀仍會進來，
                     // 500ms 節流不是防護。守衛擋下＝這一幀不按，照舊 return false。
-                    if (EzThrottler.Throttle("Turning in mission")
-                        && AddonPressGuard.TryBeginPress("回報任務：回報結果", "WKSMissionInfomation", missionInfo, "Report"))
+                    // 🔴 按法 key 用 AddonPressGuard.WksMissionExitPressKey，與 Task_AbandonMission 的
+                    //    「回報結果」／「放棄任務」是**同一把**：這一支按下回報、那扇窗開始關閉之後，
+                    //    狀態機下一個 tick 可能就換 Task_AbandonMission 接手（NeoTaskManager 一個 framework
+                    //    tick 只跑一次 CurrentTask.Function()，兩次按壓最短可以只差一幀），
+                    //    而它的節流與守衛對沒見過的 key 都是首次必放行 —— 兩把 key 誰都擋不住這條接力。
+                    // 🔑 先判鈕能不能按（就是 ClickButtonIfEnabled 內部同一組條件）：回報鈕停用時
+                    //    Report() 本來就什麼都不做，不先擋掉的話會在守衛裡記下一筆「按過了」，
+                    //    把 Task_AbandonMission 的放棄白白封鎖到逃生口。順序照既有形狀：
+                    //    IsHeld → 讀鈕 → TryBeginPress → 按，被擋的那幾幀連 GetComponentButtonById 都不呼叫。
+                    var reportPressable = false;
+                    if (!AddonPressGuard.IsHeld("WKSMissionInfomation", missionInfo, AddonPressGuard.WksMissionExitPressKey))
+                    {
+                        var reportButton = missionInfo.ReportResultsButton;
+                        reportPressable = GenericHelpers.IsComponentEnabled(reportButton)
+                                          && GenericHelpers.IsComponentVisible(&reportButton->AtkComponentBase);
+                    }
+
+                    if (reportPressable
+                        && EzThrottler.Throttle("Turning in mission")
+                        && AddonPressGuard.TryBeginPress("回報任務：回報結果", "WKSMissionInfomation", missionInfo, AddonPressGuard.WksMissionExitPressKey))
                         missionInfo.Report();
                 }
                 else if (GenericHelpers.TryGetAddonMaster<WKSHud>("WKSHud", out var moonHud))
