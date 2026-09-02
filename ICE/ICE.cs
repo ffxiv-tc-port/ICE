@@ -114,6 +114,10 @@ public sealed partial class ICE : IDalamudPlugin
         IceLogging.MinimumLevel = C.LogMinimumLevel;
 
         Init();
+        // 🔴 守衛的時鐘要排在 ICE 自己的 Tick **前面**：同一個外掛內部的 Framework.Update
+        //    多播委派是整條包在單一 try/catch 裡的，排在前面的 handler 擲例外時，後面的
+        //    那一個 tick 完全不會被呼叫 —— 時鐘停住等於守衛的逃生口停住。
+        AddonPressGuard.StartFrameClock();
         Svc.Framework.Update += Tick;
 
         // 同步上游：離開宇宙探索區時自動關閉浮動視窗（見 OnTerritoryChange）。

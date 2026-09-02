@@ -5,6 +5,7 @@ using ICE.Utilities.Cosmic_Helper;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using System.Threading;
 
 namespace ICE.Utilities
 {
@@ -133,7 +134,62 @@ namespace ICE.Utilities
         private static readonly Dictionary<string, IAddonLifecycle.AddonEventDelegate> Watchers =
             new(StringComparer.Ordinal);
 
-        private static long CurrentFrame => (long)Svc.PluginInterface.UiBuilder.FrameCount;
+        /// <summary>守衛自己的時鐘：<c>Framework.Update</c> 跑過的 tick 數。</summary>
+        /// <remarks>
+        /// 🔴 <b>刻意不用 <c>UiBuilder.FrameCount</c></b>（本 pin 的實作證據）：那個計數器在
+        /// <c>UiBuilder.OnDraw()</c> 的<b>最後</b>才遞增（<c>UiBuilder.cs:814</c>），而
+        /// 「使用者隱藏 UI」「<b>過場動畫</b>」「GPose」三種情形會在 <c>:757-771</c> 直接 <c>return</c>
+        /// —— 三個開關 <c>ToggleUiHide</c>／<c>ToggleUiHideDuringCutscenes</c>／
+        /// <c>ToggleUiHideDuringGpose</c> 的預設值<b>全是 true</b>；連 <c>:753</c> 的
+        /// <c>gameGui == null</c> 也在遞增之前。也就是<b>過場動畫期間繪製幀整段停住</b>。<br/>
+        /// 拿它當時鐘的話，這裡的逃生口（<see cref="DefaultEscapeFrames"/>／
+        /// <see cref="RoutineRePressEscapeFrames"/>）在過場中<b>永遠不會到期</b> —— 方向是安全的
+        /// （不會去按關閉中的窗），但整個按窗流程會停擺，Talk 這種翻頁站會停在第一頁。<br/>
+        /// <c>Framework.Update</c> 不受 UI 隱藏影響，所以改成自己數。正常情況下兩者 1:1，
+        /// 逃生口的幀數意義不變，<b>不要因為換了時鐘去調 15／60 那兩個值</b>。
+        /// </remarks>
+        private static long guardTick;
+
+        /// <summary>時鐘是否已經掛上 <c>Framework.Update</c>。</summary>
+        private static int frameClockSubscribed;
+
+        /// <summary>讀時鐘；順便確保它已經在走（第一次讀的時候才掛，不必依賴任何啟動順序）。</summary>
+        private static long GuardTick
+        {
+            get
+            {
+                EnsureFrameClock();
+                return guardTick;
+            }
+        }
+
+        /// <summary>掛上守衛自己的時鐘（冪等；外掛建構子與每次讀時鐘都會呼叫）。</summary>
+        /// <remarks>
+        /// 🔴 用 <c>Interlocked.CompareExchange</c> 而不是 bool 旗標：<b>重複訂閱不是沒效果，
+        /// 是計數器一個 tick 前進 2</b> ＝ 所有逃生口對半砍。<br/>
+        /// 🔴 <b>刻意不掛在 <see cref="Tick"/> 裡</b>：<c>Tick()</c> 的呼叫點（<c>ICE.cs</c>）包在
+        /// <c>if (Player.Available)</c> 內，登出／過場載入期間會再度停住 —— 那正是要修掉的形狀。<br/>
+        /// 🔑 掛在<b>讀取端</b>而不是 <see cref="EnsureWatching"/>：<see cref="IsHeld"/> 會在還沒有
+        /// 任何按壓紀錄時就先讀時鐘，掛在後者會留縫。<br/>
+        /// 🔑 另外從外掛建構子先叫一次（<see cref="StartFrameClock"/>），讓這個 handler 排在 ICE 自己的
+        /// <c>Tick</c> <b>前面</b>：同一個外掛內部的 <c>Framework.Update</c> 多播委派是<b>整條</b>包在
+        /// 單一 try/catch 裡的（本 pin <c>Framework.cs:599-609</c> 的
+        /// <c>PluginErrorHandler.InvokeAndCatch</c>），排在前面的 handler 擲例外時，後面的 handler
+        /// 那一個 tick 完全不會被呼叫（不會取消訂閱，下一幀恢復）。時鐘要盡量排在最前面。
+        /// </remarks>
+        internal static void StartFrameClock() => EnsureFrameClock();
+
+        private static void EnsureFrameClock()
+        {
+            if (Interlocked.CompareExchange(ref frameClockSubscribed, 1, 0) != 0)
+                return;
+
+            Svc.Framework.Update += AdvanceFrameClock;
+        }
+
+        /// <summary>只做一件事：把時鐘推前一格。</summary>
+        /// <remarks>🔴 <b>不可以在遞增前面加任何條件或 early return</b> —— 那會把這次修掉的停擺原封不動搬回來。</remarks>
+        private static void AdvanceFrameClock(IFramework _) => guardTick++;
 
         /// <summary>
         /// 登記「即將對這扇視窗送出這一個按法」。<b>回 <see langword="false"/> ＝這一幀絕對不能按。</b>
@@ -168,7 +224,7 @@ namespace ICE.Utilities
             EnsureWatching(addonName);
 
             var key = new PressKey(addonName, addon, pressKey);
-            var frame = CurrentFrame;
+            var frame = GuardTick;
 
             if (Pressed.TryGetValue(key, out var pressed))
             {
@@ -247,7 +303,7 @@ namespace ICE.Utilities
             if (!Pressed.TryGetValue(key, out var pressed))
                 return false;
 
-            var held = CurrentFrame - pressed.Frame < pressed.EscapeFrames;
+            var held = GuardTick - pressed.Frame < pressed.EscapeFrames;
             if (held)
                 LogHold("讀窗前檢查", key, pressed.EscapeFrames);
 
@@ -310,6 +366,10 @@ namespace ICE.Utilities
                 Svc.AddonLifecycle.UnregisterListener(AddonEvent.PostSetup, addonName, handler);
                 Svc.AddonLifecycle.UnregisterListener(AddonEvent.PreFinalize, addonName, handler);
             }
+
+            // 時鐘也拆掉，不留指向本組件的委派；下次有人讀時鐘會自己重新掛上。
+            if (Interlocked.Exchange(ref frameClockSubscribed, 0) == 1)
+                Svc.Framework.Update -= AdvanceFrameClock;
 
             Watchers.Clear();
             Pressed.Clear();
