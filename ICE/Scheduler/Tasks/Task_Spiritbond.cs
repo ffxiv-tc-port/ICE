@@ -186,54 +186,5 @@ namespace ICE.Scheduler.Tasks
 
             return false;
         }
-
-        public unsafe static bool TryExtractMateria()
-        {
-            if (!EzThrottler.Throttle("Extract", 250))
-                return false;
-
-            if (InventoryManager.Instance()->GetEmptySlotsInBag() < 1 || !IsSpiritbondReadyAny() || !C.SelfSpiritbondGather || !Player.Job.IsDol())
-            {
-                if (GenericHelpers.TryGetAddonByName("Materialize", out AtkUnitBase* materialize))
-                {
-                    if (EzThrottler.Throttle("Closing the materialize window"))
-                        ECommons.Automation.Callback.Fire(materialize, true, -1);
-                }
-                else
-                {
-                    SchedulerMain.State = IceState.Start;
-                    return true;
-                }
-            }
-
-            if (Player.IsBusy)
-                return false;
-
-            if (GenericHelpers.TryGetAddonByName("MaterializeDialog", out AtkUnitBase* addonMaterializeDialog) && GenericHelpers.IsAddonReady(addonMaterializeDialog))
-            {
-                new AddonMaster.MaterializeDialog(addonMaterializeDialog).Materialize();
-                return false;
-            }
-            if (!GenericHelpers.TryGetAddonByName("Materialize", out AtkUnitBase* addonMaterialize))
-            {
-                ActionManager.Instance()->UseAction(ActionType.GeneralAction, 14);
-                return false;
-            }
-            else if (GenericHelpers.IsAddonReady(addonMaterialize))
-            {
-                if (!TryGetSpiritbondTextNode(addonMaterialize, out var spiritbondTextNode))
-                    return false;
-
-                if (spiritbondTextNode->NodeText.ToString().Replace(" ", string.Empty) == "100%")
-                    ECommons.Automation.Callback.Fire(addonMaterialize, true, 2, 0);
-            }
-            else
-            {
-                addonMaterialize->Close(true);
-                SchedulerMain.State = IceState.Start;
-                return true;
-            }
-            return false;
-        }
     }
 }
