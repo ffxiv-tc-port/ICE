@@ -174,6 +174,9 @@ public sealed partial class ICE : IDalamudPlugin
     {
         if (Player.Available)
         {
+            // 每幀先把「已經從 addon 清單消失」的視窗按壓紀錄清掉，讓守衛觀察得到「消失」那幾幀
+            //（呼叫端多半被 500ms 節流擋著，光靠呼叫時才掃會漏看）。表空時第一行就回去。
+            AddonPressGuard.Tick();
             PlayerHandlers.Tick();
             if (SchedulerMain.State != IceState.Idle)
                 SchedulerMain.Tick();
@@ -213,6 +216,8 @@ public sealed partial class ICE : IDalamudPlugin
         GenericHelpers.Safe(MechaContextMenu.Disable);
         GenericHelpers.Safe(TextAdvancedManager.UnlockTA);
         GenericHelpers.Safe(YesAlreadyManager.Unlock);
+        // 守衛的 AddonLifecycle 監聽器：本 pin 卸載時會自動拆，但仍主動拆乾淨、不留指向本組件的委派。
+        GenericHelpers.Safe(AddonPressGuard.ForceTeardown);
         GenericHelpers.Safe(EzIpcFailureLog.Disable);
         ECommonsMain.Dispose();
         PictoService.Dispose();
