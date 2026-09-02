@@ -379,14 +379,25 @@ namespace ICE.Scheduler.Tasks
                 PlayerHelper.GetItemCount(itemId, out var credits);
 
                 bool confirmEnabled, leftWheelEnabled, rightWheelEnabled;
+                bool leftWheelPresent, rightWheelPresent;
                 unsafe
                 {
                     // 這三個屬性都是 Addon->GetComponentButtonById(id)，找不到節點會回 null；
                     // 且 IsEnabled 解的是 OwnerNode 而非 AtkResNode，兩層都要擋才不會 AVE。
                     // 任一層為 null 一律當成「按鈕不可按」→ 本次不動作。
                     confirmEnabled = GenericHelpers.IsComponentEnabled(gamba.SpinWheelButton);
-                    leftWheelEnabled = GenericHelpers.IsComponentEnabled(gamba.WheelLeftButton);
-                    rightWheelEnabled = GenericHelpers.IsComponentEnabled(gamba.WheelRightButton);
+
+                    // 🔴 「節點在不在」與「按鈕能不能按」是兩件事，要分開存：
+                    //    下面的輪盤分支呼叫的 SelectWheelLeft/Right 一定會同時寫**兩顆**輪盤鈕的 Flags，
+                    //    所以那個分支真正的前提是「兩顆節點都在」（判空），
+                    //    而不是「兩顆都 enabled」—— 選輪盤的常態就是一邊 enabled、另一邊不是，
+                    //    拿 enabled 當前提會把正常流程整個關掉。
+                    var leftWheel = gamba.WheelLeftButton;
+                    var rightWheel = gamba.WheelRightButton;
+                    leftWheelPresent = leftWheel != null;
+                    rightWheelPresent = rightWheel != null;
+                    leftWheelEnabled = GenericHelpers.IsComponentEnabled(leftWheel);
+                    rightWheelEnabled = GenericHelpers.IsComponentEnabled(rightWheel);
                 }
 
                 if (GenericHelpers.TryGetAddonMaster<SelectYesno>("SelectYesno", out var select) && select.IsAddonReady)
@@ -413,7 +424,7 @@ namespace ICE.Scheduler.Tasks
                     if (AddonPressGuard.TryBeginPress("宇宙好運道：轉動轉盤", "WKSLottery", gamba, "Confirm", AddonPressGuard.RoutineRePressEscapeFrames))
                         gamba.ConfirmButton();
                 }
-                else if (leftWheelEnabled || rightWheelEnabled)
+                else if (leftWheelPresent && rightWheelPresent && (leftWheelEnabled || rightWheelEnabled))
                 {
                     float leftWeight = gamba.LeftWheelItems.Sum(item => C.GambaItemWeights.FirstOrDefault(x => x.ItemId == item.itemId)?.Weight ?? 0);
                     float rightWeight = gamba.RightWheelItems.Sum(item => C.GambaItemWeights.FirstOrDefault(x => x.ItemId == item.itemId)?.Weight ?? 0);
@@ -466,6 +477,17 @@ namespace ICE.Scheduler.Tasks
                             SelectWheelRight(gamba);
                     }
                 }
+                else if (leftWheelEnabled || rightWheelEnabled)
+                {
+                    // 🔴 只找得到一邊的輪盤鈕。上面那一支呼叫的 SelectWheelLeft/Right 一定會同時寫
+                    //    **兩顆**鈕的 Flags（AtkComponentButton.Flags 在 [FieldOffset(0xE8)]），
+                    //    少一顆就是往位址 0xE8 寫入 = NullReferenceException；NeoTaskManager 預設
+                    //    AbortOnError = true ⇒ 整條佇列被清、轉盤流程無聲中止。
+                    //    這一幀什麼都不做，照舊 return false 下一幀再來（控制流不變）。
+                    // ⚠️ 「不知道」本身要看得見：寫 Information（使用者跑 LogLevel 2，Debug 收不到）。
+                    if (EzThrottler.Throttle("ICE: gamba wheel node missing", 5000))
+                        IceLogging.Info($"轉盤視窗只找得到一邊的輪盤按鈕（左 {(leftWheelPresent ? "有" : "缺")}／右 {(rightWheelPresent ? "有" : "缺")}），這一輪不選輪盤。", tag);
+                }
 
                 return false;
             }
@@ -498,26 +520,57 @@ namespace ICE.Scheduler.Tasks
                 return true;
             }
         }
-        // 🔴 這兩支的唯一呼叫端（GamblingTime 的輪盤選擇分支）以 `return false` 結尾＝
+        /// <summary>選定其中一邊的輪盤：把兩顆輪盤鈕的 <c>Flags</c> 寫成「這邊選中、那邊沒選」。</summary>
+        /// <remarks>
+        /// 🔴 <b>兩顆鈕都要寫，所以兩顆都要判空。</b><c>AtkComponentButton.Flags</c> 在
+        /// <c>[FieldOffset(0xE8)]</c>，對 null 寫入就是往位址 0xE8 寫 —— NullReferenceException。
+        /// 那是可以被攔的例外，但 <c>NeoTaskManager</c> 預設 <c>AbortOnError = true</c>，
+        /// 例外＝<b>整條佇列被清、轉盤流程無聲中止</b>；而偵錯視窗的兩顆按鈕（<c>Hud_WheelofFortune</c>）
+        /// 是在 ImGui 繪製回呼裡直接呼叫這兩支的，例外會被 Dalamud 記成「Error during Draw()」，
+        /// 10 秒內兩次就把那個視窗<b>永久</b>關掉。<br/>
+        /// 🔑 <b>值已經對了就不寫</b>：這兩支原本是<b>每一幀</b>都寫一次（呼叫端沒有節流），
+        /// 而寫入的對象是可能正在關閉中的 <c>WKSLottery</c> 元件。只在「和目標值不同」時才寫，
+        /// 穩態下的每幀寫入直接歸零，最終狀態與原本完全相同；遊戲若自己把旗標改回去，下一幀照樣會補寫。
+        /// </remarks>
+        /// <returns><see langword="false"/> ＝ 有一顆鈕找不到，這一次沒有寫入任何東西。</returns>
+        private static unsafe bool TrySelectWheel(WKSLottery gamba, uint leftFlags, uint rightFlags,
+                                                 string logThrottleKey, string logText)
+        {
+            var leftWheel = gamba.WheelLeftButton;
+            var rightWheel = gamba.WheelRightButton;
+            if (leftWheel == null || rightWheel == null)
+            {
+                // ⚠️ 「不知道」要看得見：寫 Information（使用者跑 LogLevel 2）。
+                if (EzThrottler.Throttle("ICE: gamba wheel button missing", 5000))
+                    IceLogging.Info($"找不到輪盤按鈕（左 {(leftWheel == null ? "缺" : "有")}／右 {(rightWheel == null ? "缺" : "有")}），這一次不寫入輪盤選擇。", "[Gamba]");
+
+                return false;
+            }
+
+            if (leftWheel->Flags != leftFlags)
+                leftWheel->Flags = leftFlags;
+            if (rightWheel->Flags != rightFlags)
+                rightWheel->Flags = rightFlags;
+
+            if (EzThrottler.Throttle(logThrottleKey, 3000))
+                IceLogging.Debug(logText);
+
+            return true;
+        }
+
+        // 🔴 這兩支的任務端呼叫者（GamblingTime 的輪盤選擇分支）以 `return false` 結尾＝
         //    NeoTaskManager 下一幀原地重跑。而這裡寫回去的 Flags **兩個值都帶 Enabled 位元**
         //    （65792 = 0x10100、327936 = 0x50100），所以呼叫端的
-        //    `leftWheelEnabled || rightWheelEnabled` 下一幀依然成立 ⇒ 原本這行每幀都會噴一次。
-        //    ⚠️ 只節流 log，選輪盤的 Flags 寫入完全不動 —— 那是行為，不是診斷。
-        //    左右各自一把鑰匙，免得交替選擇時把對側那行吃掉。
+        //    `leftWheelEnabled || rightWheelEnabled` 下一幀依然成立 ⇒ 原本這兩行每幀都會噴一次 log。
+        //    左右各自一把節流鑰匙，免得交替選擇時把對側那行吃掉。
         public static unsafe void SelectWheelLeft(WKSLottery gamba)
-        {
-            gamba.WheelLeftButton->Flags = 327936U; // Checked, Enabled, Selected
-            gamba.WheelRightButton->Flags = 65792U; // Not Checked, Enabled, Not Selected
-            if (EzThrottler.Throttle("ICE: gamba wheel select left log", 3000))
-                IceLogging.Debug($"[Gamba] Selecting Left Wheel");
-        }
+            => TrySelectWheel(gamba, 327936U, 65792U, // Checked/Enabled/Selected ; Not Checked/Enabled/Not Selected
+                              "ICE: gamba wheel select left log", "[Gamba] Selecting Left Wheel");
+
         public static unsafe void SelectWheelRight(WKSLottery gamba)
-        {
-            gamba.WheelLeftButton->Flags = 65792U; // Not Checked, Enabled, Not Selected
-            gamba.WheelRightButton->Flags = 327936U; // Checked, Enabled, Selected
-            if (EzThrottler.Throttle("ICE: gamba wheel select right log", 3000))
-                IceLogging.Debug($"[Gamba] Selecting Right Wheel");
-        }
+            => TrySelectWheel(gamba, 65792U, 327936U, // Not Checked/Enabled/Not Selected ; Checked/Enabled/Selected
+                              "ICE: gamba wheel select right log", "[Gamba] Selecting Right Wheel");
+
         public static bool BigBangGamba()
         {
             // Big Bang Tickets are earned from doing the fates... and this kind fucks with things? 
