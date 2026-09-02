@@ -81,7 +81,18 @@ namespace ICE.Scheduler.Tasks
 
                 if (GenericHelpers.TryGetAddonMaster<SelectYesno>("SelectYesno", out var select) && select.IsAddonReady)
                 {
-                    if (CosmicHandler.abandonStrings.Any(s => string.Equals(NormalizeWhitespace(select.Text), NormalizeWhitespace(s), StringComparison.OrdinalIgnoreCase)) || !C.RejectUnknownYesno)
+                    // 🔴 守衛順序：IsHeld → 讀文字 → MayPress → 按。按過（確定或取消）而且還沒觀察到它收掉的那幾幀
+                    //    連文字都不讀；讀到 U+FFFD 也代表視窗記憶體正在變動，同樣這一幀不碰。兩種情況都只是
+                    //    「這一幀什麼都不做」，方法照舊 return false 下一幀再來 —— 刻意留在這個分支裡，
+                    //    不讓 else-if 鏈掉進下面 WKSMissionInfomation 那一支去按回報／放棄。
+                    //    reroll 鏈的接任務確認框（文字不符 abandonStrings）正好會落進這裡：上游 GrabMission 按下確定
+                    //    那一次已經被守衛記下，所以這扇窗關閉中的那幾幀 IsHeld 會回 true。
+                    var promptText = YesnoPressGuard.IsHeld(select) ? null : select.Text;
+                    if (promptText == null || AddonPressGuard.IsTextCorrupt("SelectYesno", promptText))
+                    {
+                        // 這一幀不碰。
+                    }
+                    else if (CosmicHandler.abandonStrings.Any(s => string.Equals(NormalizeWhitespace(promptText), NormalizeWhitespace(s), StringComparison.OrdinalIgnoreCase)) || !C.RejectUnknownYesno)
                     {
                         // 🔴 YesnoPressGuard 一定要放在條件式的最後（它有副作用：記下這一次按壓），
                         //    而且「按下去 + 狀態轉移」整組都掛在同一個條件式底下 ——
@@ -150,9 +161,11 @@ namespace ICE.Scheduler.Tasks
                         // ⚠️ 但長度是**弱訊號**：等長的異體空白（NBSP ↔ 一般空格）長度一樣、印出來也一樣，
                         //    這種只有碼位看得出來 —— 而逐字元碼位 dump 正是上面被刪掉的那段鷹架。
                         //    **不要再把它加回來**：真的遇到就去擴充 NormalizeWhitespace() 的替換表。
-                        if (EzThrottler.Throttle("Unexpected Abandon Window..."))
+                        // 同一扇 SelectYesno 的第二種按法（取消）也要過同一個守衛，才擋得住跨呼叫點接力重按。
+                        if (EzThrottler.Throttle("Unexpected Abandon Window...")
+                            && YesnoPressGuard.MayPress("放棄任務：關閉未預期的確認框", select))
                         {
-                            IceLogging.Error($"Unexpected abandon window??? {select.Text} [len={select.Text.Length}]", "[Abandon Mission]");
+                            IceLogging.Error($"Unexpected abandon window??? {promptText} [len={promptText.Length}]", "[Abandon Mission]");
                             select.No();
                         }
                     }
@@ -189,11 +202,18 @@ namespace ICE.Scheduler.Tasks
                         }
                     }
 
-                    if (EzThrottler.Throttle("Attempt to turnin", 500))
+                    // 🔴 守衛粒度＝（窗，位址，按法）：「回報」與「放棄」是同一扇窗的兩個不同按鈕，各自一把 key，
+                    //    上面說的「第一個 tick Report、下一個 tick Abandon」交替流程照舊；擋的只有
+                    //    「同一個鈕在窗走完生命週期前再按一次」—— 回報成功／放棄確認之後這扇窗會關閉，
+                    //    關閉中的那幾幀 IsAddonReady 仍過而兩把 500ms 節流可能都已到期。
+                    //    守衛擋下時 else-if 鏈照原樣往下走（Report 被擋 → 試 Abandon），與節流擋下同形。
+                    if (EzThrottler.Throttle("Attempt to turnin", 500)
+                        && AddonPressGuard.TryBeginPress("放棄任務：回報結果", "WKSMissionInfomation", addon, "Report"))
                     {
                         addon.Report();
                     }
-                    else if (EzThrottler.Throttle("Telling it to abandon the mission", 500))
+                    else if (EzThrottler.Throttle("Telling it to abandon the mission", 500)
+                        && AddonPressGuard.TryBeginPress("放棄任務：放棄任務", "WKSMissionInfomation", addon, "Abandon"))
                     {
                         IceLogging.Debug("Attempting to abandon.", "[Abandoning Mission]");
                         addon.Abandon();

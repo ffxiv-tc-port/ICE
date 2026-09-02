@@ -97,7 +97,8 @@ namespace ICE.Utilities
         /// </summary>
         /// <returns>
         /// <c>true</c>＝呼叫端照原本的邏輯按下確定。<br/>
-        /// <c>false</c>＝這一次不要按確定；<b>取消已經由本方法按掉了</b>，呼叫端什麼都不用做。
+        /// <c>false</c>＝這一次不要按確定；<b>取消已經由本方法按掉了</b>（或者這一幀確認框文字讀壞／
+        /// 那扇窗剛被按過還沒收掉，什麼都沒按），呼叫端什麼都不用做，下一輪再來。
         /// </returns>
         /// <remarks>
         /// 🔴 <see cref="UnexpectedYesnoAction.AlwaysConfirm"/>（預設）會在讀任何東西之前就回
@@ -115,6 +116,12 @@ namespace ICE.Utilities
                 return true;
 
             var promptText = SafePromptText(master);
+
+            // 讀到 U+FFFD ＝ 視窗記憶體正在變動（多半是關閉中），這一幀不碰：不按確定也不按取消，
+            // 呼叫端照舊「這一輪沒按到」下一幀再來。
+            if (AddonPressGuard.IsTextCorrupt("SelectYesno", promptText))
+                return false;
+
             var markers = GetMarkers(situation);
 
             if (markers.Length == 0)
@@ -147,7 +154,10 @@ namespace ICE.Utilities
             // 按取消而不是「什麼都不做」：真的是別人的確認框時，按掉它才能讓 ICE 繼續跑；
             // 什麼都不做的話那個框會一直擋在那裡，變成無聲的卡死。
             // 這也與既有的 RejectUnknownYesno 在 GrabMission／AbandonMission 的處理一致。
-            if (EzThrottler.Throttle($"ICE: yesno guard decline {situation}", 500))
+            // 🔴 這一下取消也要過 YesnoPressGuard：呼叫端的 `ShouldConfirm(...) && MayPress(...)` 鏈裡本方法在
+            //    MayPress 之前求值，沒有這一行的話這次按壓既不受擋、也不會被記下，同一扇窗之後被別的接點再按就沒有依據。
+            if (EzThrottler.Throttle($"ICE: yesno guard decline {situation}", 500)
+                && YesnoPressGuard.MayPress("未預期的確認框：取消", master))
                 master.No();
 
             return false;

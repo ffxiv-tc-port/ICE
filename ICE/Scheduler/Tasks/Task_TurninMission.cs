@@ -252,7 +252,10 @@ namespace ICE.Scheduler.Tasks
                         return false;
                     }
 
-                    if (EzThrottler.Throttle("Turning in mission"))
+                    // 回報成功後 WKSMissionInfomation 關閉、要等 CurrentLunarMission 變 0 才收工，關閉中的幀仍會進來，
+                    // 500ms 節流不是防護。守衛擋下＝這一幀不按，照舊 return false。
+                    if (EzThrottler.Throttle("Turning in mission")
+                        && AddonPressGuard.TryBeginPress("回報任務：回報結果", "WKSMissionInfomation", missionInfo, "Report"))
                         missionInfo.Report();
                 }
                 else if (GenericHelpers.TryGetAddonMaster<WKSHud>("WKSHud", out var moonHud))

@@ -371,7 +371,9 @@ namespace ICE.Scheduler.Tasks
             // 沒有這一段的話，只要對話框擋著就等於永遠卡住。
             if (GenericHelpers.TryGetAddonMaster<Talk>("Talk", out var talk) && talk.IsAddonReady)
             {
-                if (EzThrottler.Throttle("Clicking the credit npc talk dialog", 100))
+                // Talk 類（按一次翻一頁、窗不會因為被按而消失）：守衛逃生口 15 幀，走到是常態、寫 Debug。
+                if (EzThrottler.Throttle("Clicking the credit npc talk dialog", 100)
+                    && AddonPressGuard.TryBeginPress("兌換 NPC 對話：翻頁", "Talk", talk, "Click", AddonPressGuard.RoutineRePressEscapeFrames))
                     talk.Click();
                 return false;
             }
@@ -439,11 +441,22 @@ namespace ICE.Scheduler.Tasks
                         for (int i = 0; i < entries.Length; i++)
                             texts[i] = SafeEntryText(iconString, i);
 
-                        var index = PickCosmoShopEntry(texts);
-                        IceLogging.Info(
-                            $"商店選單共 {entries.Length} 項（{string.Join(" / ", texts)}），選第 {index} 項「{texts[index]}」。",
-                            Handle);
-                        entries[index].Select();
+                        if (texts.Any(t => AddonPressGuard.IsTextCorrupt("SelectIconString", t)))
+                        {
+                            // 選單文字讀到 U+FFFD ＝ 視窗記憶體正在變動（多半是關閉中），這一幀不碰。
+                        }
+                        else
+                        {
+                            var index = PickCosmoShopEntry(texts);
+                            // 選單一選即關：守衛擋下時這一幀不選，下一輪節流再來（與原本節流擋下同一條路徑）。
+                            if (AddonPressGuard.TryBeginPress("宇宙商店：選擇商店選單", "SelectIconString", iconString, AddonPressGuard.BuildPressKey(true, index)))
+                            {
+                                IceLogging.Info(
+                                    $"商店選單共 {entries.Length} 項（{string.Join(" / ", texts)}），選第 {index} 項「{texts[index]}」。",
+                                    Handle);
+                                entries[index].Select();
+                            }
+                        }
                     }
                 }
             }
@@ -534,13 +547,21 @@ namespace ICE.Scheduler.Tasks
         {
             if (GenericHelpers.TryGetAddonMaster<SelectYesno>("SelectYesno", out var YesNo) && YesNo.IsAddonReady)
             {
-                if (EzThrottler.Throttle("Buy Item", 500))
+                // 🔴 守衛順序：IsHeld → 讀文字 → MayPress → 按。同一扇確認框按過（確定或拒買）而且還沒觀察到它
+                //    收掉的那幾幀，連文字都不讀、也不消耗節流；被擋＝跳過整個區塊 → 落到方法尾的 return false，
+                //    與節流擋下走的是同一條既有路徑（區塊內沒有 Tasks.Clear／State 轉移，只有 C.Save 與計數器）。
+                //    逐件購買連續彈出的 SelectYesno 若重用同一位址，由守衛的 PreFinalize／PostSetup 解除點處理。
+                if (!YesnoPressGuard.IsHeld(YesNo) && EzThrottler.Throttle("Buy Item", 500))
                 {
                     // 🔴 上游對**任何** SelectYesno 一律按下確定，所以遊戲的「你已經學會這個了」
                     //    提示完全擋不住重複購買。開了設定才走這一段；預設關＝行為與上游相同。
                     if (C.HeedAlreadyLearnedPrompt)
                     {
                         var learned = IsAlreadyLearnedPrompt(YesNo, out var promptText);
+
+                        // 讀到 U+FFFD ＝ 視窗記憶體正在變動（多半是關閉中），這一幀不碰。
+                        if (AddonPressGuard.IsTextCorrupt("SelectYesno", promptText))
+                            return false;
 
                         // 沒比對到的確認框文字也記一次（同一段字只記一次）。
                         // 這個選項唯一會失效的方式就是「台服實際跳出來的字跟 Addon 表對不上」，
@@ -567,27 +588,35 @@ namespace ICE.Scheduler.Tasks
                                 return true;
                             }
 
-                            YesNo.No();
-                            BuyAmount = 0;
-                            KeepAmount = 0;
-                            ItemId = 0;
+                            // 🔴 守衛放在最後（有副作用）。上面 IsHeld 已經確認這扇窗沒被擋，這裡照樣走守衛是為了
+                            //    把「拒買」這一次按壓記下來 —— 同一扇窗之後不管哪個呼叫點再按都有依據。
+                            if (YesnoPressGuard.MayPress("宇宙商店：拒買已學會的道具", YesNo))
+                            {
+                                YesNo.No();
+                                BuyAmount = 0;
+                                KeepAmount = 0;
+                                ItemId = 0;
+                            }
                             return false;
                         }
                     }
 
-                    DeclineAttempts = 0;
-                    YesNo.Yes();
-                    if (BuyAmount != 0)
+                    if (YesnoPressGuard.MayPress("宇宙商店：購買確認", YesNo))
                     {
-                        if (C.CosmoShopping.TryGetValue(ItemId, out var config))
+                        DeclineAttempts = 0;
+                        YesNo.Yes();
+                        if (BuyAmount != 0)
                         {
-                            config.BuyAmount -= BuyAmount;
-                            if (config.BuyAmount <= 0)
-                                config.BuyAmount = 0;
-                            C.Save();
+                            if (C.CosmoShopping.TryGetValue(ItemId, out var config))
+                            {
+                                config.BuyAmount -= BuyAmount;
+                                if (config.BuyAmount <= 0)
+                                    config.BuyAmount = 0;
+                                C.Save();
+                            }
+                            BuyAmount = 0;
+                            KeepAmount = 0;
                         }
-                        BuyAmount = 0;
-                        KeepAmount = 0;
                     }
                 }
             }
@@ -737,7 +766,10 @@ namespace ICE.Scheduler.Tasks
                 int buyAmount = Math.Min(maxAffordable, targetAmount);
                 if (buyAmount > 99) buyAmount = 99;
 
-                if (EzThrottler.Throttle("Selecting Item to Buy"))
+                // 兌換視窗按後不關（開出 SelectYesno），屬多次互動窗：逃生口 15 幀，只擋「同一件同數量在窗走完前再選一次」。
+                // 守衛擋下時與節流擋下同形（跳過區塊、照舊 return true）。
+                if (EzThrottler.Throttle("Selecting Item to Buy")
+                    && AddonPressGuard.TryBeginPress("宇宙商店：選購道具", "ShopExchangeCurrency", shopExchange, $"Select|{itemId}|{buyAmount}", AddonPressGuard.RoutineRePressEscapeFrames))
                 {
                     IceLogging.Info($"向商店送出購買：道具 {itemId} × {buyAmount}（單價 {shopExchangeItem.CostAmount}、持有點數 {currencyAmount}）。", Handle);
                     shopExchangeItem.Select(buyAmount);

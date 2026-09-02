@@ -1324,28 +1324,45 @@ namespace ICE.Scheduler.Tasks
             }
             else if (GenericHelpers.TryGetAddonMaster<SelectYesno>("SelectYesno", out var select) && select.IsAddonReady)
             {
-                if (EzThrottler.Throttle("Selecting Yesno window"))
+                // 🔴 守衛順序：IsHeld → 讀文字 → MayPress → 按。按過（確定或取消）而且還沒觀察到它收掉的那幾幀
+                //    連文字都不讀、也不消耗節流 —— 那正是視窗記憶體變動中的幾幀。
+                //    被擋下＝跳過整個區塊 → 落到方法尾的 return false，與節流擋下走的是同一條既有路徑：
+                //    Tasks.Clear()／State 轉移都沒執行、佇列原封不動、下一幀重跑；窗消失後由上面
+                //    CurrentLunarMission != 0 那一支收工。
+                if (!YesnoPressGuard.IsHeld(select) && EzThrottler.Throttle("Selecting Yesno window"))
                 {
-                    if (CosmicHandler.commenceStrings.Any(s => NormalizeWhitespace(select.Text).StartsWith(NormalizeWhitespace(s), StringComparison.OrdinalIgnoreCase)) || !C.RejectUnknownYesno)
+                    var promptText = select.Text;
+                    if (AddonPressGuard.IsTextCorrupt("SelectYesno", promptText))
                     {
-                        select.Yes();
-                        if (reroll)
-                            SchedulerMain.State = IceState.AbandonMission;
-                        else
-                            SchedulerMain.State = IceState.ExecutingMission;
-                        IceLogging.Debug($"Current State upon  grabbing mission: {SchedulerMain.State}");
-                        P.TaskManager.Tasks.Clear();
-                        Mission_Settings.nodeTotal = 0;
-                        P.TaskManager.Insert(() => CosmicHelper.CurrentLunarMission != 0);
-                        IceLogging.Debug($"Are we expected to reroll? {reroll}", "[Grab Mission]");
+                        // 讀到 U+FFFD ＝ 視窗記憶體正在變動（多半是關閉中），這一幀不碰。
+                    }
+                    else if (CosmicHandler.commenceStrings.Any(s => NormalizeWhitespace(promptText).StartsWith(NormalizeWhitespace(s), StringComparison.OrdinalIgnoreCase)) || !C.RejectUnknownYesno)
+                    {
+                        // 🔴 守衛必須在文字比對之內另開一層 if，不能併進上面的條件式 —— 併進去被擋時會掉進 else 的取消分支。
+                        //    這一次按壓被記下來，正是 reroll 鏈下游 Task_AbandonMission 對同一扇窗判「按過了」的唯一依據。
+                        if (YesnoPressGuard.MayPress("接取任務：開始任務確認", select))
+                        {
+                            select.Yes();
+                            if (reroll)
+                                SchedulerMain.State = IceState.AbandonMission;
+                            else
+                                SchedulerMain.State = IceState.ExecutingMission;
+                            IceLogging.Debug($"Current State upon  grabbing mission: {SchedulerMain.State}");
+                            P.TaskManager.Tasks.Clear();
+                            Mission_Settings.nodeTotal = 0;
+                            P.TaskManager.Insert(() => CosmicHelper.CurrentLunarMission != 0);
+                            IceLogging.Debug($"Are we expected to reroll? {reroll}", "[Grab Mission]");
 
-                        return true;
+                            return true;
+                        }
                     }
                     else
                     {
-                        IceLogging.Debug($"Unexpected text: '{select.Text}'", "[ICE_GrabMission]");
+                        IceLogging.Debug($"Unexpected text: '{promptText}'", "[ICE_GrabMission]");
 
-                        if (EzThrottler.Throttle("Unexpected Abandon Window..."))
+                        // 同一扇 SelectYesno 的第二種按法（取消）也要過同一個守衛。
+                        if (EzThrottler.Throttle("Unexpected Abandon Window...")
+                            && YesnoPressGuard.MayPress("接取任務：關閉未預期的確認框", select))
                         {
                             select.No();
                             return false;
@@ -1375,7 +1392,10 @@ namespace ICE.Scheduler.Tasks
                 var selectedMission = mission.StellerMissions.Where(x => x.MissionId == missionId).FirstOrDefault();
                 if (selectedMission != null)
                 {
-                    if (EzThrottler.Throttle("Initating the quest"))
+                    // WKSMission 按「開始」後本身不關（開出 SelectYesno），屬多次互動窗：逃生口 15 幀，
+                    // 500ms 的刻意重送節奏不變；擋的只有「同一任務在窗走完生命週期前 15 幀內再送一次」。
+                    if (EzThrottler.Throttle("Initating the quest")
+                        && AddonPressGuard.TryBeginPress("接取任務：送出開始任務", "WKSMission", mission, AddonPressGuard.BuildPressKey(true, 13, (int)missionId), AddonPressGuard.RoutineRePressEscapeFrames))
                     {
                         selectedMission.Initiate();
                     }
@@ -1385,12 +1405,14 @@ namespace ICE.Scheduler.Tasks
                 {
                     if (FrameThrottler.Throttle("Checking Weather Tab for mission", 16))
                     {
-                        mission.ProvisionalMissions();
+                        if (AddonPressGuard.TryBeginPress("接取任務：切到臨時任務分頁", "WKSMission", mission, "ProvisionalMissions", AddonPressGuard.RoutineRePressEscapeFrames))
+                            mission.ProvisionalMissions();
                         return false;
                     }
                     if (FrameThrottler.Throttle("Checking Standard Tab for missions", 16))
                     {
-                        mission.BasicMissions();
+                        if (AddonPressGuard.TryBeginPress("接取任務：切到基本任務分頁", "WKSMission", mission, "BasicMissions", AddonPressGuard.RoutineRePressEscapeFrames))
+                            mission.BasicMissions();
                         return false;
                     }
                 }

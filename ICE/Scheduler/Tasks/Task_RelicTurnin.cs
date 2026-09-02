@@ -98,7 +98,9 @@ namespace ICE.Scheduler.Tasks
             }
             else if (GenericHelpers.TryGetAddonMaster<Talk>("Talk", out var talk) && talk.IsAddonReady)
             {
-                if (EzThrottler.Throttle("Clicking the talk dialog", 100))
+                // Talk 類：守衛逃生口 15 幀，走到是常態、寫 Debug。
+                if (EzThrottler.Throttle("Clicking the talk dialog", 100)
+                    && AddonPressGuard.TryBeginPress("研究材料繳交：NPC 對話翻頁", "Talk", talk, "Click", AddonPressGuard.RoutineRePressEscapeFrames))
                 {
                     talk.Click();
                 }
@@ -152,7 +154,9 @@ namespace ICE.Scheduler.Tasks
             }
             else if (GenericHelpers.TryGetAddonMaster<SelectString>("SelectString", out var selectString) && selectString.IsAddonReady)
             {
-                if (EzThrottler.Throttle("Selecting the research one"))
+                // 選單一選即關：守衛擋下時這一幀不選，下一輪節流再來。
+                if (EzThrottler.Throttle("Selecting the research one")
+                    && AddonPressGuard.TryBeginPress("研究材料繳交：選擇研究項目", "SelectString", selectString, AddonPressGuard.BuildPressKey(true, 0)))
                     selectString.Entries[0].Select();
             }
 
@@ -198,7 +202,9 @@ namespace ICE.Scheduler.Tasks
 
             if (GenericHelpers.TryGetAddonMaster<SelectIconString>("SelectIconString", out var selectIconString) && selectIconString.IsAddonReady)
             {
-                if (EzThrottler.Throttle($"Selecting jobId: {Player.JobId}"))
+                // 選單一選即關：守衛擋下時這一幀不選，下一輪節流再來。
+                if (EzThrottler.Throttle($"Selecting jobId: {Player.JobId}")
+                    && AddonPressGuard.TryBeginPress("研究材料繳交：選擇職業", "SelectIconString", selectIconString, AddonPressGuard.BuildPressKey(true, (int)selectedEntry)))
                 {
                     IceLogging.Debug($"Selecting Entry: {selectedEntry} for job: {Player.JobId} to turnin relic");
                     selectIconString.Entries[selectedEntry].Select();
@@ -220,7 +226,9 @@ namespace ICE.Scheduler.Tasks
             }
             else if (GenericHelpers.TryGetAddonMaster<Talk>("Talk", out var talk) && talk.IsAddonReady)
             {
-                if (EzThrottler.Throttle("Clicking the talk dialog", 50))
+                // Talk 類：守衛逃生口 15 幀，走到是常態、寫 Debug。
+                if (EzThrottler.Throttle("Clicking the talk dialog", 50)
+                    && AddonPressGuard.TryBeginPress("研究材料繳交：繳交後對話翻頁", "Talk", talk, "Click", AddonPressGuard.RoutineRePressEscapeFrames))
                 {
                     IceLogging.Verbose("Clicking the talk dialog");
                     talk.Click();

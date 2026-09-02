@@ -660,7 +660,10 @@ namespace ICE.Scheduler.Tasks
                                 {
                                     if (item.IsCollectable)
                                     {
-                                        if (EzThrottler.Throttle("Swapping to collectable menu"))
+                                        // 採集窗按後不關（直到耐久歸 0），屬多次互動窗：逃生口 15 幀，key 帶道具 ID。
+                                        // 守衛擋下時與節流擋下同形：這一輪不採、下一輪再來（節流已被消耗，後面的項目同幀也不會再過）。
+                                        if (EzThrottler.Throttle("Swapping to collectable menu")
+                                            && AddonPressGuard.TryBeginPress("採集：切到收藏品採集", "Gathering", gather, $"Gather|{item.ItemID}", AddonPressGuard.RoutineRePressEscapeFrames))
                                         {
                                             item.Gather();
                                             Mission_Settings.item_collectableId = item.ItemID;
@@ -699,7 +702,9 @@ namespace ICE.Scheduler.Tasks
                                     {
                                         if (EzThrottler.Throttle("Gathering Item"))
                                         {
-                                            gather.GatheredItems.Where(x => x.ItemID == item.Key).FirstOrDefault().Gather();
+                                            var target = gather.GatheredItems.Where(x => x.ItemID == item.Key).FirstOrDefault();
+                                            if (AddonPressGuard.TryBeginPress("採集：採集任務道具", "Gathering", gather, $"Gather|{item.Key}", AddonPressGuard.RoutineRePressEscapeFrames))
+                                                target.Gather();
                                         }
                                         return false;
                                     }
@@ -708,7 +713,10 @@ namespace ICE.Scheduler.Tasks
                                 if (EzThrottler.Throttle("Gathering item for score", 100))
                                 {
                                     // if we're here, then we just need to gather for score. So... gathering for score lol
-                                    gather.GatheredItems.Where(x => x.ItemID != 0).FirstOrDefault().Gather();
+                                    // 100ms 是刻意的連按；守衛只擋「同一件在窗走完生命週期前 15 幀內再按」，實際節奏由採集動畫決定。
+                                    var scoreItem = gather.GatheredItems.Where(x => x.ItemID != 0).FirstOrDefault();
+                                    if (AddonPressGuard.TryBeginPress("採集：為分數採集", "Gathering", gather, $"Gather|{scoreItem.ItemID}", AddonPressGuard.RoutineRePressEscapeFrames))
+                                        scoreItem.Gather();
                                 }
                                 return false;
                             }
@@ -1212,13 +1220,18 @@ namespace ICE.Scheduler.Tasks
                 {
                     if (EzThrottler.Throttle("Desynthing the item"))
                     {
-                        if (!Player.IsBusy)
+                        // 分解後視窗多半留著顯示結果、不一定關：當多次互動窗處理（逃生口 15 幀、走到寫 Debug），
+                        // 只擋「同一位址同參數組在 15 幀內再送」。
+                        if (!Player.IsBusy
+                            && AddonPressGuard.TryBeginPress("分解：分解道具", "PurifyItemSelector", desynthWindow, AddonPressGuard.BuildPressKey(true, 12, 0), AddonPressGuard.RoutineRePressEscapeFrames))
                             ECommons.Automation.Callback.Fire(desynthWindow, true, 12, 0);
                     }
                 }
                 else if (GenericHelpers.TryGetAddonMaster<WKSMissionInfomation>("WKSMissionInfomation", out var missionInfo) && missionInfo.IsAddonReady)
                 {
-                    if (EzThrottler.Throttle("Opening the desynth window"))
+                    // WKSMissionInfomation 按「分解」後不關（開出分解視窗），屬多次互動窗：逃生口 15 幀。
+                    if (EzThrottler.Throttle("Opening the desynth window")
+                        && AddonPressGuard.TryBeginPress("分解：開啟分解視窗", "WKSMissionInfomation", missionInfo, "StellerReduction", AddonPressGuard.RoutineRePressEscapeFrames))
                     {
                         missionInfo.StellerReduction();
                     }

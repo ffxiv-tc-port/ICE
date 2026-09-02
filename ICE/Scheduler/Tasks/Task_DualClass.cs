@@ -139,7 +139,9 @@ namespace ICE.Scheduler.Tasks
             {
                 if (GenericHelpers.TryGetAddonByName("Gathering", out AtkUnitBase* gather) && GenericHelpers.IsAddonReady(gather))
                 {
-                    if (EzThrottler.Throttle("Closing Gathering Window"))
+                    // -1 是關窗：關閉中的那幾幀 IsAddonReady 仍過、本步每幀重跑，500ms 節流不是防護。擋下＝這一幀不送。
+                    if (EzThrottler.Throttle("Closing Gathering Window")
+                        && AddonPressGuard.TryBeginPress("雙職業：關閉採集視窗", "Gathering", gather, AddonPressGuard.BuildPressKey(true, -1)))
                         ECommons.Automation.Callback.Fire(gather, true, -1);
                 }
                 else if (Player.JobId == 18)
@@ -206,7 +208,9 @@ namespace ICE.Scheduler.Tasks
             {
                 if (GenericHelpers.TryGetAddonByName("WKSRecipeNotebook", out AtkUnitBase* moonCraft) && GenericHelpers.IsAddonReady(moonCraft))
                 {
-                    if (EzThrottler.Throttle("Exiting out of the gathering state"))
+                    // -1 是關窗：同上，關閉中的幀仍會進來。擋下＝這一幀不送，照舊 return false。
+                    if (EzThrottler.Throttle("Exiting out of the gathering state")
+                        && AddonPressGuard.TryBeginPress("雙職業：關閉宇宙製作筆記", "WKSRecipeNotebook", moonCraft, AddonPressGuard.BuildPressKey(true, -1)))
                         ECommons.Automation.Callback.Fire(moonCraft, true, -1);
                 }
                 return false;
@@ -399,7 +403,10 @@ namespace ICE.Scheduler.Tasks
                             if (EzThrottler.Throttle("Gathering item for score"))
                             {
                                 // if we're here, then we just need to gather for score. So... gathering for score lol
-                                gather.GatheredItems.Where(x => x.ItemID != 0).FirstOrDefault().Gather();
+                                // 採集窗按後不關（直到耐久歸 0），屬多次互動窗：逃生口 15 幀，key 帶道具 ID。
+                                var scoreItem = gather.GatheredItems.Where(x => x.ItemID != 0).FirstOrDefault();
+                                if (AddonPressGuard.TryBeginPress("雙職業：為分數採集", "Gathering", gather, $"Gather|{scoreItem.ItemID}", AddonPressGuard.RoutineRePressEscapeFrames))
+                                    scoreItem.Gather();
                             }
                         }
                         else

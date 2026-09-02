@@ -242,7 +242,9 @@ namespace ICE.Scheduler.Tasks
             }
             else if (GenericHelpers.TryGetAddonMaster<Talk>("Talk", out var talk) && talk.IsAddonReady)
             {
-                if (EzThrottler.Throttle("Closing Talk Window", 250))
+                // Talk 類（按一次翻一頁、窗不會因為被按而消失）：守衛逃生口 15 幀，走到是常態、寫 Debug。
+                if (EzThrottler.Throttle("Closing Talk Window", 250)
+                    && AddonPressGuard.TryBeginPress("宇宙好運道：NPC 對話翻頁", "Talk", talk, "Click", AddonPressGuard.RoutineRePressEscapeFrames))
                     talk.Click();
             }
             else
@@ -273,7 +275,9 @@ namespace ICE.Scheduler.Tasks
         {
             if (GenericHelpers.TryGetAddonMaster<SelectIconString>("SelectIconString", out var iconString) && iconString.IsAddonReady)
             {
-                if (EzThrottler.Throttle("Selecting Materia Selection"))
+                // 選單一選即關：守衛擋下時這一幀不選，下一輪節流再來。
+                if (EzThrottler.Throttle("Selecting Materia Selection")
+                    && AddonPressGuard.TryBeginPress("宇宙好運道：選擇轉盤選項", "SelectIconString", iconString, AddonPressGuard.BuildPressKey(true, 0)))
                 {
                     var select = iconString.Entries[0];
                     IceLogging.Debug($"Selecting: {select.Text}");
@@ -282,7 +286,8 @@ namespace ICE.Scheduler.Tasks
             }
             else if (GenericHelpers.TryGetAddonMaster<SelectString>("SelectString", out var selectString) && selectString.IsAddonReady)
             {
-                if (EzThrottler.Throttle("Selecting yes to gamba"))
+                if (EzThrottler.Throttle("Selecting yes to gamba")
+                    && AddonPressGuard.TryBeginPress("宇宙好運道：確認參加", "SelectString", selectString, AddonPressGuard.BuildPressKey(true, 0)))
                 {
                     selectString.Entries[0].Select();
                 }
@@ -402,7 +407,12 @@ namespace ICE.Scheduler.Tasks
                         select.No();
                 }
                 else if (confirmEnabled)
-                    gamba.ConfirmButton();
+                {
+                    // 零節流的每幀輪詢：按下之後鈕會停用，但「鈕停用所以不會重按」不算守衛。
+                    // 轉盤按下確認後窗不關（動畫完回到同一扇），屬多次互動窗：逃生口 15 幀、走到寫 Debug。
+                    if (AddonPressGuard.TryBeginPress("宇宙好運道：轉動轉盤", "WKSLottery", gamba, "Confirm", AddonPressGuard.RoutineRePressEscapeFrames))
+                        gamba.ConfirmButton();
+                }
                 else if (leftWheelEnabled || rightWheelEnabled)
                 {
                     float leftWeight = gamba.LeftWheelItems.Sum(item => C.GambaItemWeights.FirstOrDefault(x => x.ItemId == item.itemId)?.Weight ?? 0);
@@ -477,7 +487,9 @@ namespace ICE.Scheduler.Tasks
         {
             if (GenericHelpers.TryGetAddonMaster<Talk>("Talk", out var talk) && talk.IsAddonReady)
             {
-                if (EzThrottler.Throttle("Closing Talk Window", 250))
+                // 最後一頁按完 Talk 真的會關，關閉中的幀仍會進來；Talk 類守衛逃生口 15 幀（危險窗口 < 10 幀）。
+                if (EzThrottler.Throttle("Closing Talk Window", 250)
+                    && AddonPressGuard.TryBeginPress("宇宙好運道：關閉對話", "Talk", talk, "Click", AddonPressGuard.RoutineRePressEscapeFrames))
                     talk.Click();
                 return false;
             }

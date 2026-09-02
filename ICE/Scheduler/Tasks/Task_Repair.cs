@@ -192,8 +192,10 @@ namespace ICE.Scheduler.Tasks
                             && YesnoPressGuard.MayPress("委託修理：花費確認", (nint)Yesno.Base))
                             Yesno.Yes();
                     }
-                    else if (EzThrottler.Throttle("Firing off repair request", 300))
+                    else if (EzThrottler.Throttle("Firing off repair request", 300)
+                        && AddonPressGuard.TryBeginPress("委託修理：全部修理", "Repair", repair, "RepairAll", AddonPressGuard.RoutineRePressEscapeFrames))
                     {
+                        // 修理視窗按「全部修理」後不關（開出 SelectYesno），屬多次互動窗：逃生口 15 幀。
                         IceLogging.Debug("Repair Callback", "[Self Repair Task]");
                         repair.RepairAll();
                     }
@@ -201,7 +203,10 @@ namespace ICE.Scheduler.Tasks
             }
             else if (GenericHelpers.TryGetAddonByName<AtkUnitBase>("SelectIconString", out var iconString) && GenericHelpers.IsAddonReady(iconString))
             {
-                if (FrameThrottler.Throttle("Firing off repair string"))
+                // SelectIconString 一選即關：關閉中的幾幀 IsAddonReady 仍過而 Repair 還沒開起來，會再進這個分支；
+                // 60 幀節流只擋本呼叫點自己，守衛認的是視窗位址＋參數組。擋下＝這一幀不選，照舊 return false。
+                if (FrameThrottler.Throttle("Firing off repair string")
+                    && AddonPressGuard.TryBeginPress("委託修理：選擇修理選項", "SelectIconString", iconString, AddonPressGuard.BuildPressKey(true, 6)))
                 {
                     IceLogging.Debug("Selecting repair from vendor", "[Self Repair Task]");
                     ECommons.Automation.Callback.Fire(iconString, true, 6);
@@ -261,7 +266,9 @@ namespace ICE.Scheduler.Tasks
             }
             else if (GenericHelpers.TryGetAddonByName<AtkUnitBase>("Repair", out var addon2) && GenericHelpers.IsAddonReady(addon2))
             {
-                if (FrameThrottler.Throttle("Firing off repair request", 300))
+                // 修理視窗送 0（全部修理）後不關（開出 SelectYesno），屬多次互動窗：逃生口 15 幀。
+                if (FrameThrottler.Throttle("Firing off repair request", 300)
+                    && AddonPressGuard.TryBeginPress("自行修理：全部修理", "Repair", addon2, AddonPressGuard.BuildPressKey(true, 0), AddonPressGuard.RoutineRePressEscapeFrames))
                 {
                     IceLogging.Debug("Repair Callback", "[Self Repair Task]");
                     ECommons.Automation.Callback.Fire(addon2, true, 0);
@@ -291,7 +298,10 @@ namespace ICE.Scheduler.Tasks
             {
                 if (GenericHelpers.IsAddonReady(repairWindow))
                 {
-                    if (EzThrottler.Throttle("Attempting to close out the repair window", 300))
+                    // -1 是關窗：關閉中的那幾幀 IsAddonReady 仍過、本步每幀重跑，300ms 節流不是防護。
+                    // 擋下＝這一幀不送，照舊 return false；窗真的不見了由下面的 return true 收工。
+                    if (EzThrottler.Throttle("Attempting to close out the repair window", 300)
+                        && AddonPressGuard.TryBeginPress("修理收尾：關閉修理視窗", "Repair", repairWindow, AddonPressGuard.BuildPressKey(true, -1)))
                     {
                         IceLogging.Debug("Closing the repair window", "[Repair Task]");
                         ECommons.Automation.Callback.Fire(repairWindow, true, -1);

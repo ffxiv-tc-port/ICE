@@ -133,7 +133,9 @@ namespace ICE.Scheduler.Tasks
             {
                 if (GenericHelpers.TryGetAddonByName("Materialize", out AtkUnitBase* materialize))
                 {
-                    if (EzThrottler.Throttle("Closing the materialize window"))
+                    // -1 是關窗：關閉中的那幾幀仍拿得到實例、本步每幀重跑，500ms 節流不是防護。擋下＝這一幀不送。
+                    if (EzThrottler.Throttle("Closing the materialize window")
+                        && AddonPressGuard.TryBeginPress("精製：關閉精製視窗", "Materialize", materialize, AddonPressGuard.BuildPressKey(true, -1)))
                         ECommons.Automation.Callback.Fire(materialize, true, -1);
                 }
                 else
@@ -154,7 +156,9 @@ namespace ICE.Scheduler.Tasks
                 {
                     if (GenericHelpers.TryGetAddonByName("MaterializeDialog", out AtkUnitBase* addonMaterializeDialog) && GenericHelpers.IsAddonReady(addonMaterializeDialog))
                     {
-                        new AddonMaster.MaterializeDialog(addonMaterializeDialog).Materialize();
+                        // MaterializeDialog 按下確定即關（單答終結窗，守衛內併 key）：擋下時這一幀不按，照舊 return false 下一幀再來。
+                        if (AddonPressGuard.TryBeginPress("精製：精製確認", "MaterializeDialog", addonMaterializeDialog))
+                            new AddonMaster.MaterializeDialog(addonMaterializeDialog).Materialize();
                         return false;
                     }
                     if (!GenericHelpers.TryGetAddonByName("Materialize", out AtkUnitBase* addonMaterialize))
@@ -167,7 +171,14 @@ namespace ICE.Scheduler.Tasks
                         if (!TryGetSpiritbondTextNode(addonMaterialize, out var spiritbondTextNode))
                             return false;
 
-                        if (spiritbondTextNode->NodeText.ToString().Replace(" ", string.Empty) == "100%")
+                        var spiritbondText = spiritbondTextNode->NodeText.ToString();
+                        // 讀到 U+FFFD ＝ 視窗記憶體正在變動（多半是關閉中），這一幀不碰。
+                        if (AddonPressGuard.IsTextCorrupt("Materialize", spiritbondText))
+                            return false;
+
+                        // 選第一件裝備後精製視窗不關（開出 MaterializeDialog），屬多次互動窗：逃生口 15 幀。
+                        if (spiritbondText.Replace(" ", string.Empty) == "100%"
+                            && AddonPressGuard.TryBeginPress("精製：選擇第一件裝備", "Materialize", addonMaterialize, AddonPressGuard.BuildPressKey(true, 2, 0), AddonPressGuard.RoutineRePressEscapeFrames))
                             ECommons.Automation.Callback.Fire(addonMaterialize, true, 2, 0);
                     }
                 }
