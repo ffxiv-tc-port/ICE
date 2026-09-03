@@ -99,7 +99,7 @@ namespace ICE.Scheduler.Tasks
                 if (EzThrottler.Throttle("Artisan Crafting Task"))
                 {
                     // Information 而非 Debug:這是「IPC 真的送出去了」的唯一證據,
-                    // 而使用者的記錄等級會濾掉 Debug。上面那行 CheckMaterials 的
+                    // 而使用者的記錄等級只會濾掉 Verbose、Debug 收得到但單檔數十萬行會淹沒。上面那行 CheckMaterials 的
                     // 「Telling artisan to craft」只是宣告要做,不代表真的呼叫了。
                     IceLogging.Info($"Artisan IPC CraftItem sent: recipe {craftId} x{amount}");
                     P.Artisan.CraftItem(craftId, amount);
@@ -270,7 +270,7 @@ namespace ICE.Scheduler.Tasks
                     // This is the case when you need multiple items, or even just a single item.
 
                     // 每次做決定時把「所有目標」的狀態印出來,而且是 Information ——
-                    // 使用者的記錄等級會濾掉 Debug/Verbose。原本只印被選中的那一個,
+                    // 使用者的記錄等級只會濾掉 Verbose、Debug 收得到但單檔數十萬行會淹沒。原本只印被選中的那一個,
                     // 所以「為什麼跳過前面那些」在 log 裡完全看不出來。
                     // 這裡連 recipe id 一起印:原本只印 ItemId,查 log 時對不上 Artisan
                     // 那邊印的 recipe 編號,得多繞一圈才能比對兩邊。

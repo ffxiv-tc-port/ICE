@@ -54,7 +54,7 @@ namespace ICE.IPC
         /// 後者的失敗形式是「站在釣點不動直到逾時」，log 一行都沒有。
         /// <br/><br/>
         /// 📌 探測結果會快取，並且<b>只在第一次判定時寫一行 Information</b>
-        /// （使用者跑 LogLevel 2，Debug／Verbose 收不到；而這是「為什麼這個任務被跳過」唯一的線索）。
+        /// （使用者跑 LogLevel 1，盲區只有 Verbose,Debug 收得到但單檔數十萬行會淹沒；而這是「為什麼這個任務被跳過」唯一的線索）。
         /// </remarks>
         public bool SupportsFolderImport()
         {

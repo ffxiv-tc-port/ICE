@@ -42,7 +42,7 @@ namespace ICE.Scheduler.Tasks
         /// <summary>
         /// 進入釣魚流程時印一次現況。釣魚卡住的回報幾乎都缺這幾個欄位，
         /// 沒有它們就只能靠猜「停在哪一步」，所以刻意寫 Information 等級
-        /// （使用者的記錄等級會濾掉 Debug/Verbose）。
+        /// （使用者的記錄等級只會濾掉 Verbose、Debug 收得到但單檔數十萬行會淹沒）。
         /// </summary>
         private static void LogFishingEntryState()
         {

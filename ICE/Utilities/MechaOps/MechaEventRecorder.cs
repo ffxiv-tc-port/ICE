@@ -37,7 +37,7 @@ namespace ICE.Utilities.MechaOps;
 ///
 /// 🔴 <b>零自動化</b>：純讀取。不施放、不走位、不報名、不改任何遊戲狀態、不改任何使用者設定。
 ///
-/// 📌 <b>輸出</b>：一律 <c>Information</c> 級（使用者跑 LogLevel 2，Debug/Verbose 收不到），
+/// 📌 <b>輸出</b>：一律 <c>Information</c> 級（使用者跑 LogLevel 1，盲區只有 Verbose,Debug 收得到但單檔數十萬行會淹沒），
 /// 統一前綴 <c>[MechaRec]</c>，一筆一行、<c>欄位=值</c> 以分號串接，方便 grep 與 diff。
 /// ⚠️ 逐實體的大量行（<c>OBJ</c>／<c>MARK</c>／<c>OBJV</c>／<c>PRED</c>）只寫 <c>dalamud.log</c>，
 /// <b>刻意不進 ICE 自己的 <c>LogSystem</c></b>——那是一份只有 3000 筆的環形紀錄，
@@ -1418,7 +1418,7 @@ internal static class MechaEventRecorder
     /// <summary>
     /// 高流量的逐筆明細。**只寫 dalamud.log**，不進 ICE 的 <c>LogSystem</c>——
     /// 那是一份只有 3000 筆的環形紀錄，灌進去會把 ICE 其他診斷全部擠掉。
-    /// 📌 仍然是 <c>Information</c> 級，使用者的 LogLevel 2 收得到。
+    /// 📌 仍然是 <c>Information</c> 級，使用者的 LogLevel 1 收得到。
     /// </summary>
     private static void EmitBulk(string line) => PluginLog.Information($"{Prefix} {line}");
 

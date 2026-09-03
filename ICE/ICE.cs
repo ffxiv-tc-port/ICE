@@ -130,7 +130,7 @@ public sealed partial class ICE : IDalamudPlugin
         // 🔴 任務逾時目前在 log 裡查不到「是哪一步逾時」：ECommons 丟的
         //    TaskTimeoutException 訊息是空的（只剩 e.LogWarning() 的堆疊），
         //    唯一帶任務名稱的那行在 TaskManager.Tick 裡被 ShowDebug = false 關掉，
-        //    而且就算打開也是 Debug 級 —— 使用者跑 LogLevel 2 收不到。
+        //    而且就算打開也是 Debug 級 —— 使用者跑 LogLevel 1 收得到,只是單檔數十萬行 Debug 會把它淹沒。
         // ⚠️ 事件一定要在 new TaskManager(...) **之前**掛好：建構子做的是
         //    `new TaskManagerConfiguration{...}.With(defaultConfiguration)`，
         //    事件被複製進另一個物件，事後再對這個區域變數指派完全沒有效果。

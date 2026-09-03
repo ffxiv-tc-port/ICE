@@ -995,7 +995,7 @@ internal static unsafe class MechaObjectiveTracker
 
     /// <summary>
     /// 狀態變化時輸出一行 Information。
-    /// 📌 刻意用 Information 而不是 Debug：使用者跑 LogLevel 2，Debug 收不到，
+    /// 📌 刻意用 Information 而不是 Debug：使用者跑 LogLevel 1，Debug 收得到但單檔數十萬行會淹沒，
     /// 而這一行正是「目的指示為什麼沒出現」唯一問得出答案的地方。
     /// </summary>
     private static void ReportDiagnostics()

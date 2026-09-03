@@ -152,7 +152,7 @@ namespace ICE.Scheduler.Tasks
                         //    （Actual text／Actual text length／Trimmed text／Trimmed length），
                         //    **完全沒有節流，這個任務回 false 就是每一幀再印一次**。
                         //    IceLogging.Debug 沒有等級閘門：它一律先 LogSystem.Log() 推進上面說的
-                        //    那個 3000 筆環形緩衝區、再組字串丟給 PluginLog.Debug。使用者跑 LogLevel 2，
+                        //    那個 3000 筆環形緩衝區、再組字串丟給 PluginLog.Debug。使用者跑 LogLevel 1，
                         //    Dalamud 會把 PluginLog.Debug 整個丟掉 —— 也就是**這 4 行使用者永遠看不到**，
                         //    卻以每幀 4 筆的速度洗掉他要複製回報的上下文。跟上面那段法文 dump 同一種損害。
                         // 🔑 取捨：4 行裡有 3 行的內容跟下面那行已節流的 Error 重複（都印 select.Text），

@@ -97,7 +97,7 @@ internal static class TataruPraiseIPC
             lastPraisedTick = now;
             loggedNotInstalled = false;
 
-            // 📌 使用者跑 LogLevel 2，Debug／Verbose 收不到 —— 這是「誇獎到底有沒有送出去」唯一的線索。
+            // 📌 使用者跑 LogLevel 1，盲區只有 Verbose,Debug 收得到但單檔數十萬行會淹沒 —— 這是「誇獎到底有沒有送出去」唯一的線索。
             // ⚠️ 回傳 false 不是錯誤：可能是冷卻還沒過，也可能是「宇宙」這個情境在池裡一句都沒有。
             IceLogging.Info(
                 queued

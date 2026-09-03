@@ -438,7 +438,7 @@ internal static unsafe class MechaOpsMonitor
         // 只在「機甲技能可用期間」輸出；狀態變化時輸出一次，不每幀。
         // P2 實機校準已完成（形狀貼合、42258 扇形 90° 正確、PetHotbar 確認就是載體），
         // 所以 16 格原始傾印從 Information 降到 Debug；Information 只留一行摘要。
-        // ⚠️ 之後若又要請使用者回傳原始格位，記得他的記錄等級會濾掉 Debug/Verbose，
+        // ⚠️ 之後若又要請使用者回傳原始格位，記得他的記錄等級只會濾掉 Verbose、Debug 收得到但單檔數十萬行會淹沒，
         //    屆時要臨時把該行改回 Information，不要叫他去調記錄等級。
         if (candidates.Count == 0)
         {
@@ -689,7 +689,7 @@ internal static unsafe class MechaOpsMonitor
 
     /// <summary>
     /// 身份／白名單狀態變化時輸出一行 Information。
-    /// 📌 使用者跑 LogLevel 2，Debug 收不到；而「ICE 以為我是哪一種身份」正是
+    /// 📌 使用者跑 LogLevel 1，Debug 收得到但單檔數十萬行會淹沒；而「ICE 以為我是哪一種身份」正是
     /// 「目標對不對得上」唯一問得出答案的地方。
     /// </summary>
     private static void ReportRole()

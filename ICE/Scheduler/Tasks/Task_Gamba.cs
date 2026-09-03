@@ -310,7 +310,7 @@ namespace ICE.Scheduler.Tasks
         //    原本每一幀印一次。IceLogging 的環形緩衝區是 3000 筆，60fps 下約 50 秒就被
         //    同一句話洗光，使用者要回報的診斷反而整段不見 ⇒ 洗版本身就是在毀掉診斷價值。
         //
-        // ⚠️ 等級維持 Information 不動 —— 使用者跑 LogLevel 2，Information 是請他回報
+        // ⚠️ 等級維持 Information 不動 —— 使用者跑 LogLevel 1，Information 是請他回報
         //    診斷的既定管道（IceLogging.MinimumLevel 的上限也鎖死在 Info）。
         //    這裡改的是「印幾次」，不是「印不印得出來」。
         //
@@ -484,7 +484,7 @@ namespace ICE.Scheduler.Tasks
                     //    少一顆就是往位址 0xE8 寫入 = NullReferenceException；NeoTaskManager 預設
                     //    AbortOnError = true ⇒ 整條佇列被清、轉盤流程無聲中止。
                     //    這一幀什麼都不做，照舊 return false 下一幀再來（控制流不變）。
-                    // ⚠️ 「不知道」本身要看得見：寫 Information（使用者跑 LogLevel 2，Debug 收不到）。
+                    // ⚠️ 「不知道」本身要看得見：寫 Information（使用者跑 LogLevel 1，Debug 收得到但單檔數十萬行會淹沒）。
                     if (EzThrottler.Throttle("ICE: gamba wheel node missing", 5000))
                         IceLogging.Info($"轉盤視窗只找得到一邊的輪盤按鈕（左 {(leftWheelPresent ? "有" : "缺")}／右 {(rightWheelPresent ? "有" : "缺")}），這一輪不選輪盤。", tag);
                 }
@@ -540,7 +540,7 @@ namespace ICE.Scheduler.Tasks
             var rightWheel = gamba.WheelRightButton;
             if (leftWheel == null || rightWheel == null)
             {
-                // ⚠️ 「不知道」要看得見：寫 Information（使用者跑 LogLevel 2）。
+                // ⚠️ 「不知道」要看得見：寫 Information（使用者跑 LogLevel 1）。
                 if (EzThrottler.Throttle("ICE: gamba wheel button missing", 5000))
                     IceLogging.Info($"找不到輪盤按鈕（左 {(leftWheel == null ? "缺" : "有")}／右 {(rightWheel == null ? "缺" : "有")}），這一次不寫入輪盤選擇。", "[Gamba]");
 

@@ -50,7 +50,7 @@ namespace ICE.Utilities
     /// 🔴 <b>逃生口是刻意的</b>：萬一某扇窗既不 finalize 也不重新 setup（上一次的按壓根本沒生效、視窗就是還開著），
     /// 沒有逃生口的話呼叫端會永遠按不下去 —— ICE 這些步驟多半掛 <c>Utils.TaskConfig</c>（30 分鐘、逾時不中止），
     /// 等於半小時的無聲空轉。單答終結窗用 <see cref="DefaultEscapeFrames"/>（遠大於關閉所需的幾幀），
-    /// 走到逃生口是異常，寫 Information（使用者跑 LogLevel 2）；「按一次翻一頁、窗不會因為被按而消失」的
+    /// 走到逃生口是異常，寫 Information（使用者跑 LogLevel 1）；「按一次翻一頁、窗不會因為被按而消失」的
     /// 多次互動窗（<c>Talk</c> 是代表）用 <see cref="RoutineRePressEscapeFrames"/>，走逃生口是常態，寫 Debug 不洗版。<br/>
     /// <br/>
     /// 📌 <b>正常路徑的行為沒有改變</b>：第一次看到某一扇窗的某個按法一律當場放行；被擋下來時回 <c>false</c>
@@ -250,7 +250,7 @@ namespace ICE.Utilities
                 }
                 else
                 {
-                    // 📌 寫 Information：使用者跑 LogLevel 2，Debug 收不到，
+                    // 📌 寫 Information：使用者跑 LogLevel 1，Debug 收得到但單檔數十萬行會淹沒，
                     //    而「按了卻沒關掉」正是需要被回報的狀況。
                     IceLogging.Info($"{label}：「{addonName}」（實例 0x{addon:X}，按法「{pressKey}」）按下之後 {elapsed} 幀仍未關閉，補按一次。", Handle);
                 }
@@ -270,7 +270,7 @@ namespace ICE.Utilities
             // 🔴 只在「這一幀真的要送出按壓」時寫一行（每幀的檢查與被擋下的那些都不寫）；
             //    🔴 不節流（節流會讓「兩個外掛在同一毫秒按同一個位址」這件事看不見）；
             //    🔴 只印位址數值，絕不解參。
-            // 📌 Information 級：使用者跑 LogLevel 2，Debug/Verbose 收不到。
+            // 📌 Information 級：使用者跑 LogLevel 1，盲區只有 Verbose,Debug 收得到但單檔數十萬行會淹沒。
             IceLogging.Info($"plugin=ICE addon={addonName} addr=0x{addon:X} key={pressKey}", PressDiagnosticHandle);
 
             return true;
@@ -388,7 +388,7 @@ namespace ICE.Utilities
             Pressed.Clear();
         }
 
-        /// <summary>被擋那一幀的診斷：單答終結窗寫 Information（使用者跑 LogLevel 2）、多次互動窗寫 Debug；每扇窗 1 秒節流免得洗版。</summary>
+        /// <summary>被擋那一幀的診斷：單答終結窗寫 Information（使用者跑 LogLevel 1）、多次互動窗寫 Debug；每扇窗 1 秒節流免得洗版。</summary>
         private static void LogHold(string label, PressKey key, int escapeFrames)
         {
             if (!EzThrottler.Throttle($"AddonPressGuard-Hold-{key.AddonName}", 1000))

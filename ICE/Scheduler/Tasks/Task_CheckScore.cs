@@ -1184,7 +1184,7 @@ namespace ICE.Scheduler.Tasks
         private static string _lastGoalLogSignature = "";
 
         /// <summary>
-        /// 把交件門檻的判定過程寫進 log。<b>Information 級</b>：使用者跑 LogLevel 2，
+        /// 把交件門檻的判定過程寫進 log。<b>Information 級</b>：使用者跑 LogLevel 1，
         /// 這是「修對了沒」唯一能離線回答的證據，不能降成 Debug。
         /// 只在判定結果變動時印一次（分數會一直跳，但達標與否不會）。
         /// </summary>

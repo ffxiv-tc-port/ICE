@@ -73,7 +73,7 @@ namespace ICE.Scheduler.Tasks
                 // 判 false 會讓這個步驟一直重試並持續施放返回動作，而 ICE 在這個檔裡
                 // 已經有兩次「狀態機無聲卡死」的前科。下游的 PathToRepair 自己有
                 // TryGetMoonNpc 守衛，走到那裡會乾淨地 AbortToStateCheck。
-                // 📌 這一行寫 Information：使用者跑 LogLevel 2，Debug 收不到，
+                // 📌 這一行寫 Information：使用者跑 LogLevel 1，Debug 收得到但單檔數十萬行會淹沒，
                 //    而「我人不在月面卻在跑據點流程」正是需要被回報的狀況。
                 if (EzThrottler.Throttle("ICE: hub check unknown territory", 5000))
                     IceLogging.Info($"目前區域 {Player.Territory} 沒有登記據點中心座標（可能已經被傳送離開月面），據點範圍檢查直接放行。", "[Vendor Repair Check]");

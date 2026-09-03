@@ -102,7 +102,7 @@ internal static class CraftProgressGuard
         var backoff = BackoffSeconds[Math.Min(_consecutive, BackoffSeconds.Length) - 1];
         _nextAttemptAt = DateTime.Now.AddSeconds(backoff);
 
-        // Information 而非 Debug：使用者跑 LogLevel 2，Debug 收不到。
+        // Information 而非 Debug：使用者跑 LogLevel 1，Debug 收得到但單檔數十萬行會淹沒。
         IceLogging.Info(
             $"要求 Artisan 製作配方 {_recipeId}（{NameOf(_itemId)}）之後，持有數量仍是 {now}（要求前 {_countAtRequest}）—— "
             + $"連續第 {_consecutive}/{MaxConsecutiveNoProgress} 次沒有任何進展，等 {backoff} 秒再試。",

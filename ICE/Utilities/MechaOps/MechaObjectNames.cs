@@ -643,7 +643,7 @@ internal static class MechaObjectNames
         layoutToBaseId = map;
         objectRows = rowsById;
 
-        // 📌 Information 而不是 Debug：使用者跑 LogLevel 2，而這一行正是
+        // 📌 Information 而不是 Debug：使用者跑 LogLevel 1，而這一行正是
         //    「白名單有沒有生效」唯一問得出答案的地方（空的＝欄位推論不成立）。
         IceLogging.Info(
             $"機甲事件物件白名單：{ids.Count} 個 DataId"

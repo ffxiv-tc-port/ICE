@@ -141,7 +141,7 @@ public static class GatheringRouteLoader
     /// </summary>
     /// <remarks>
     /// 🔴 任何一個檔壞掉都<b>只影響那一個檔</b>：跳過它、保留內建的那條、把原因記進
-    /// <see cref="LoadErrors"/> 並寫一行 Information（使用者跑 LogLevel 2，Debug 收不到）。<br/>
+    /// <see cref="LoadErrors"/> 並寫一行 Information（使用者跑 LogLevel 1，Debug 收得到但單檔數十萬行會淹沒）。<br/>
     /// 🔴 節點數 0 的檔<b>一律拒絕</b>而不是採用 —— 採用它等於讓排程器走一條空路線，
     /// 那會表現成「站著不動」而且完全沒有訊息，比壞檔本身更難查。
     /// </remarks>

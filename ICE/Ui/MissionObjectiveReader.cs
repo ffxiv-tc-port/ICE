@@ -314,7 +314,7 @@ internal static class MissionObjectiveReader
         }
 
         // 面板是開著的卻一列都沒抓到 —— 這是要人回報的情況，所以寫在 Information
-        // （使用者的記錄等級會濾掉 Debug/Verbose）。每個任務只講一次，不洗版。
+        // （使用者的記錄等級只會濾掉 Verbose、Debug 收得到但單檔數十萬行會淹沒）。每個任務只講一次，不洗版。
         if (found.Count == 0 && loggedEmptyForMission != cachedMissionId)
         {
             loggedEmptyForMission = cachedMissionId;

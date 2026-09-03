@@ -71,7 +71,7 @@ internal static class MedalNotifier
             current.ToString("N0", CultureInfo.InvariantCulture),
             gold.ToString("N0", CultureInfo.InvariantCulture));
 
-        // 📌 使用者跑 LogLevel 2，Debug/Verbose 收不到 —— 要人回報得到的診斷一律 Information。
+        // 📌 使用者跑 LogLevel 1，盲區只有 Verbose,Debug 收得到但單檔數十萬行會淹沒 —— 要人回報得到的診斷一律 Information。
         IceLogging.Info(message, "[Medal Notifier]");
 
         // Svc.Chat.Print 只是把訊息塞進 Dalamud 自己的佇列（下一個 framework update 才真的印），

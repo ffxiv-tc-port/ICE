@@ -27,7 +27,7 @@ public static class IceLogging
     //    這 242 個裡 **186 個外層沒有任何 Throttle 守衛**，且 **203 個位在 Scheduler/**
     //    —— 那些是 NeoTaskManager 的任務本體，只要回 false 就**每一幀再跑一次**。
     // ⚠️ 最違反直覺的一塊：Debug／Verbose 是「先組好字串再交給 PluginLog」。
-    //    使用者跑 LogLevel 2 時 Dalamud 會把輸出整個丟掉，**但這段 StackFrame 成本照付**。
+    //    使用者跑 LogLevel 1 時 Dalamud 會把輸出整個丟掉，**但這段 StackFrame 成本照付**。
     //    沒帶 prefix 的 242 個裡有 137 個是 Debug。
     //
     // 🔴 為什麼 (檔案, 行號) 可以當快取鍵：兩個都是 `[Caller*]` **編譯期常數**（執行期零成本），
@@ -115,9 +115,9 @@ public static class IceLogging
     //    ② FormatMessage 再串一次前綴（再一次配置），
     //    ③ LogSystem.Log 進 3000 筆環形緩衝區（LogEntry 配置＋DateTime.Now），
     //    ④ ECommons PluginLog 還會 RunOnFrameworkThread 推一份進它自己的 InternalLog。
-    //    使用者跑 LogLevel 2 時，②③④ 全部是為了一行**沒有人看得到的輸出**在付錢。
+    //    使用者跑 LogLevel 1 時，②③④ 全部是為了一行**沒有人看得到的輸出**在付錢。
     //
-    // 🔴 上限鎖死在 Info：使用者跑 LogLevel 2，**Information 是請他回報診斷的既定管道**
+    // 🔴 上限鎖死在 Info：使用者跑 LogLevel 1，**Information 是請他回報診斷的既定管道**
     //    （宇宙探索／釣魚／機甲那些中文診斷行）。所以 Info 以上**在結構上就關不掉** ——
     //    不是靠「UI 不提供那個選項」，是靠這個 setter 夾住。
     //    ⇒ 底下也只有 Verbose 與 Debug 兩個方法帶閘門，Info/Warning/Error/Chat* 一律不加，

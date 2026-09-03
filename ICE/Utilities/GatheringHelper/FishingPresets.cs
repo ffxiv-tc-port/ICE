@@ -108,7 +108,7 @@ public static partial class GatheringUtil
     /// 把每個<b>時間型</b>釣魚任務的「交件依據會落在哪一層」寫進 log。
     /// </summary>
     /// <remarks>
-    /// 📌 <b>Information 級、啟動時只跑一次</b>——使用者跑 LogLevel 2，Debug／Verbose 收不到，
+    /// 📌 <b>Information 級、啟動時只跑一次</b>——使用者跑 LogLevel 1，盲區只有 Verbose,Debug 收得到但單檔數十萬行會淹沒，
     /// 而這是「486／493 到底修好了沒」唯一能離線回答的證據。
     /// <br/><br/>
     /// 對應 <c>Task_CheckScore.TimeGradedFishRequirementsMet</c> 的三層優先序：<br/>

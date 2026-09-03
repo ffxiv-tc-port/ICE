@@ -266,7 +266,7 @@ namespace ICE.Scheduler.Tasks
         /// 把這一輪被「不支援」擋掉的任務講出來。
         /// </summary>
         /// <remarks>
-        /// ⚠️ 一律寫 <c>Information</c>：使用者的記錄等級會濾掉 Debug/Verbose，寫 Debug 等於沒寫。<br/>
+        /// ⚠️ 一律寫 <c>Information</c>：使用者的記錄等級只會濾掉 Verbose、寫 Debug 會被單檔數十萬行淹沒。<br/>
         /// ⚠️ 節流：<c>RefreshSelectedMissions</c> 每一輪找任務都會跑，不節流會把記錄檔洗掉。
         /// log 60 秒一次，聊天視窗 5 分鐘一次，而且<b>名單內容有變就立刻重印</b>
         /// （換職業／換區域會換一整批任務，那時候的舊訊息會誤導人）。<br/>
@@ -313,7 +313,7 @@ namespace ICE.Scheduler.Tasks
 
             if (!(hasCritical || hasSpecial || hasBasic))
             {
-                // ⚠️ 這裡會直接把外掛停掉。原本只寫 Debug —— 使用者的記錄等級濾掉 Debug 之後，
+                // ⚠️ 這裡會直接把外掛停掉。原本只寫 Debug —— 使用者的記錄等級收得到 Debug、但單檔數十萬行會把它淹沒，
                 //    症狀就是「ICE 自己關了、沒有任何訊息」。排除不支援任務之後這條路徑更容易走到
                 //    （整批啟用的任務可能全被跳過），所以改成 Information + 聊天視窗。
                 IceLogging.ChatInfo(

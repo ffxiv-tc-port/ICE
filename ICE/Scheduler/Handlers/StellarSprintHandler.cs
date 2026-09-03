@@ -123,7 +123,7 @@ internal static unsafe class StellarSprintHandler
 
             // 宇宙衝刺用不了。可能是還在 1 秒冷卻裡（正常），
             // 也可能是台服這個技能根本拿不到（不正常，而且原本完全查不出來）。
-            // 🔴 寫 Information：使用者跑 LogLevel 2，Debug／Verbose 收不到。
+            // 🔴 寫 Information：使用者跑 LogLevel 1，盲區只有 Verbose,Debug 收得到但單檔數十萬行會淹沒。
             //    只在狀態碼「變了」的時候印，加上 5 分鐘節流，不會洗版。
             if (status != lastFallbackStatus && EzThrottler.Throttle("ICE: Stellar Sprint unavailable", 300000))
             {

@@ -204,7 +204,7 @@ internal static class CraftGoldFeasibility
     //
     // 🔑 這是把上面那個模型從「離線推論」升級成「這台機器上的地面真值」唯一的辦法，
     //    而且它同時也是使用者事後判斷「剛剛那次放棄是不是誤判」的依據。
-    //    Information 級：使用者跑 LogLevel 2，寫 Debug 等於沒寫。
+    //    Information 級：使用者跑 LogLevel 1，寫 Debug 會被單檔數十萬行淹沒。
     //    只在數字真的變動時印，所以最多一次製作一行（實機約一分鐘一次）。
 
     private static uint _observedMission;
