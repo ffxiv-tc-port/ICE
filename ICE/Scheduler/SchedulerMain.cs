@@ -19,6 +19,11 @@ namespace ICE.Scheduler
             // 就整個跳過），這裡不需要再加條件。
             MissionChain.RepairSequentialPrerequisites("[啟動檢查]");
 
+            // 具名壓制租約：請 AutoRetainer 在 ICE 跑完之前不要去跑僱員／換角色。
+            // 🔴 fail-safe：拿不到（沒安裝／舊版沒有這個端點）就照現況跑，絕不卡住這裡。
+            // 📌 續租與「狀態被別的路徑改掉」的對齊由 ICE.Tick 每幀的 Sync 負責，這裡只是讓它立刻生效。
+            P.AutoRetainer?.Sync(true);
+
             return true;
         }
         internal static bool DisablePlugin()
@@ -33,6 +38,9 @@ namespace ICE.Scheduler
                 if (P.Navmesh.IsRunning())
                     P.Navmesh.Stop();
             }
+
+            // 具名壓制租約還回去：ICE 停了就沒有理由再擋著 AutoRetainer。
+            P.AutoRetainer?.ReleaseNow("ICE 的自動化被停用");
 
             return true;
         }

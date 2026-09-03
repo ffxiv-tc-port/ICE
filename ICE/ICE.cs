@@ -62,6 +62,8 @@ public sealed partial class ICE : IDalamudPlugin
     internal VislandIPC Visland;
     internal AutoHookIPC AutoHook;
     internal IceCosmicExplorationIPC IceIpc;
+    // 具名壓制租約：ICE 在跑的時候請 AutoRetainer 別去跑僱員／換角色（見 AutoRetainerIPC 的註解）。
+    internal AutoRetainerIPC AutoRetainer;
 
     public ICE(IDalamudPluginInterface pi)
     {
@@ -84,6 +86,7 @@ public sealed partial class ICE : IDalamudPlugin
         Visland = new();
         AutoHook = new();
         IceIpc = new();
+        AutoRetainer = new();
 
         // all the windows
         windowSystem = new();
@@ -199,6 +202,12 @@ public sealed partial class ICE : IDalamudPlugin
         GenericManager.Tick();
         TextAdvancedManager.Tick();
         YesAlreadyManager.Tick();
+        // 具名壓制租約的續租／歸還。
+        // 🔴 刻意放在 Player.Available 的判斷**外面**：租約會逾時（提供端 5 分鐘），
+        //    而登出／跨區載入正是 AutoRetainer 最想接手的時機，那幾十秒不能停止續租。
+        // 📌 冪等：該不該壓著只看 SchedulerMain.State，所以任何沒有走 Enable/DisablePlugin
+        //    的狀態變化（例如錯誤路徑直接把 State 設回 Idle）也會在下一幀被對齊。
+        AutoRetainer?.Sync(SchedulerMain.State != IceState.Idle);
     }
 
     // 同步上游：離開宇宙探索區就把浮動視窗關掉，避免離開後視窗殘留在畫面上。
@@ -213,6 +222,8 @@ public sealed partial class ICE : IDalamudPlugin
 
     public void Dispose()
     {
+        // 🔴 最先做：卸載時一定要把租約還回去，否則 AutoRetainer 要等到租約逾時（5 分鐘）才會恢復。
+        GenericHelpers.Safe(() => AutoRetainer?.ReleaseNow("ICE 正在卸載"));
         GenericHelpers.Safe(() => Svc.Framework.Update -= Tick);
         GenericHelpers.Safe(() => Svc.ClientState.TerritoryChanged -= OnTerritoryChange);
         GenericHelpers.Safe(() => Svc.PluginInterface.UiBuilder.Draw -= windowSystem.Draw);
