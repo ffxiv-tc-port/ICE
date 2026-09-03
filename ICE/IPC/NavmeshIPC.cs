@@ -9,7 +9,7 @@ namespace ICE.IPC;
 public class NavmeshIPC
 {
     public const string Name = "vnavmesh";
-    public const string Repo = "https://puni.sh/api/repository/veyn";
+    public const string Repo = "https://raw.githubusercontent.com/ffxiv-tc-port/DalamudPluginsTC/main/repo.json";
     public NavmeshIPC() => EzIPC.Init(this, Name);
     public bool Installed => Utils.HasPlugin(Name);
 
