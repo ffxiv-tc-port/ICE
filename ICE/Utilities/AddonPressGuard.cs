@@ -62,6 +62,9 @@ namespace ICE.Utilities
     {
         private const string Handle = "[Addon Press Guard]";
 
+        /// <summary>按窗診斷那一行的前綴。<b>全艦隊逐字統一，不要改。</b></summary>
+        private const string PressDiagnosticHandle = "[按窗診斷]";
+
         /// <summary>
         /// 單答終結窗：已經按過、那扇窗卻還沒消失時，最多再等這麼多幀才允許補按一次。
         /// </summary>
@@ -260,6 +263,16 @@ namespace ICE.Utilities
             }
 
             Pressed[key] = new PressRecord(frame, escapeFrames);
+
+            // ─── 按窗診斷（全艦隊統一格式，用來回答「跨外掛重按是不是真的在發生」）───
+            // 🔴 格式逐字統一，15 份各自獨立的 AddonPressGuard 才能互相比對：
+            //    [按窗診斷] plugin=<外掛名> addon=<addon名> addr=0x<位址16進位大寫> key=<參數鍵>
+            // 🔴 只在「這一幀真的要送出按壓」時寫一行（每幀的檢查與被擋下的那些都不寫）；
+            //    🔴 不節流（節流會讓「兩個外掛在同一毫秒按同一個位址」這件事看不見）；
+            //    🔴 只印位址數值，絕不解參。
+            // 📌 Information 級：使用者跑 LogLevel 2，Debug/Verbose 收不到。
+            IceLogging.Info($"plugin=ICE addon={addonName} addr=0x{addon:X} key={pressKey}", PressDiagnosticHandle);
+
             return true;
         }
 
