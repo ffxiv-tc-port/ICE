@@ -346,6 +346,11 @@ internal static unsafe class MechaOpsMonitor
         // PetHotbar 的檢查之前就取樣。
         ReadEventFlags();
 
+        // 「報名視窗開了」的一次性通知。純通知，不做任何遊戲動作（見該類別的註解）。
+        // 🔑 放在這裡而不是繪製端：通知必須在使用者沒開任何機甲視窗時也送得出去，
+        //    而它吃的就是上一行剛發布的排程快照，不再自己讀任何遊戲結構。
+        MechaSignupNotifier.Tick(schedule);
+
         // 緊急事件跟機甲模組是兩條獨立的資料源（它走 AgentWKSAnnounce），
         // 所以就算 WKSManager／MechaEventModule 取不到也要照樣試。
         emergency = ReadEmergency();

@@ -339,6 +339,28 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                                   "Display only - never casts skills or moves for you.").Loc());
             }
 
+            // ---- 報名視窗開啟通知 ----
+            // ⚠️ 刻意留在頁首、**不套** ImRaii.Disabled(!showMechaAoe)：它跟「有沒有畫技能範圍」
+            //    無關（取樣路徑 ReadEventFlags 本來就與總開關無關），而且「只要通知、不要疊加層」
+            //    是成立的組合——收進任何一節都會變成「勾了沒反應」。
+            bool notifySignup = C.NotifyMechaSignupOpen;
+            if (ImGui.Checkbox("Notify When Mecha Sign-up Opens".Loc() + "###ICENotifyMechaSignupOpen", ref notifySignup))
+            {
+                C.NotifyMechaSignupOpen = notifySignup;
+                C.Save();
+            }
+            ImGui.SameLine();
+            ImGui.TextDisabled("?");
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip(("Off by default. Prints one chat line when the mecha ops pilot sign-up window opens, " +
+                                  "with the event name and the sign-up deadline.\n" +
+                                  "Notification only - it never signs you up, and there is deliberately no button here " +
+                                  "that would. Open the game's own mecha ops panel and sign up yourself.\n" +
+                                  "It is said once per event, and only while you are in a cosmic zone.\n" +
+                                  "This one works whether or not the range overlay above is on.").Loc());
+            }
+
             using (ImRaii.Disabled(!showMechaAoe))
             {
                 // ---- 版面：併進主視窗 vs 獨立視窗 ----

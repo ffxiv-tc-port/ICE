@@ -284,6 +284,20 @@ namespace ICE.Config
         //    整組仍然掛在 ShowMechaAoeOverlay 底下（該項預設關），沒開機甲功能的人不受影響。
         public bool ShowMechaPilotTicket { get; set; } = true;
 
+        // ---- 報名視窗開啟通知（Utilities/MechaOps/MechaSignupNotifier.cs）----
+        // 報名視窗一開就在聊天視窗講一次「報名已開放：<事件名> — 報名截止 HH:mm」。
+        //
+        // 🔴🔴 純通知。它不按任何視窗、不送任何指令，也刻意沒有「一鍵報名」的入口——
+        //    機甲行動零自動化是紅線，使用者看到訊息之後自己去點遊戲的面板。
+        //
+        // ⚠️ 預設 false：這是會主動在聊天視窗發言的功能，沒開口要的人不該被它打擾。
+        //    ICE 的設定是 YamlDotNet（缺鍵就吃這裡的初始值），所以既有使用者升級之後
+        //    這一項同樣是關著的——與 EzConfig 那套「改預設值對既有使用者無效」不同。
+        //
+        // 📌 刻意**不掛在 ShowMechaAoeOverlay 底下**：取樣路徑（ReadEventFlags）本來就
+        //    與那個總開關無關，而「只想收到報名通知、不要地上的疊加層」是成立的組合。
+        public bool NotifyMechaSignupOpen { get; set; } = false;
+
         // 🔴🔴 部署閘門：預設 false。
         // 開啟＝顯示緊急事件（紅色警報：磁暴／流星雨／孢子霧）的類型與剩餘時間。
         // 資料源是 AgentWKSAnnounce.Data，那是一塊**我們沒有辦法驗證大小**的堆積配置：
