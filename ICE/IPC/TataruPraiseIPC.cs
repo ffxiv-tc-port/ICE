@@ -26,8 +26,9 @@ internal static class TataruPraiseIPC
     /// <summary>對方外掛的內部名稱（只用在記錄檔的措辭上，判斷在不在一律靠 IPC 本身）。</summary>
     public const string Name = "TataruPraise";
 
-    /// <summary><c>Func&lt;bool&gt;</c>：現在有沒有辦法出聲（總開關開著而且池裡有已合成的句子）。</summary>
-    public const string IsAvailableIpc = "TataruPraise.IsAvailable";
+    /// <summary><c>Func&lt;string, bool&gt;</c>：<b>這一個情境</b>現在出不出得了聲（總開關＋這個情境的開關＋這個情境有已合成的語音）。</summary>
+    /// <remarks>📌 刻意<b>不</b>看冷卻：冷卻是「這一次剛好不出聲」，不是「不能出聲」。</remarks>
+    public const string IsAvailableForIpc = "TataruPraise.IsAvailableFor";
 
     /// <summary><c>Func&lt;string, bool&gt;</c>：從指定情境的誇獎池挑一句念。</summary>
     public const string PraiseIpc = "TataruPraise.Praise";
@@ -48,7 +49,7 @@ internal static class TataruPraiseIPC
     /// </remarks>
     private const long DuplicateWindowMs = 30_000;
 
-    private static ICallGateSubscriber<bool>? isAvailableSubscriber;
+    private static ICallGateSubscriber<string, bool>? isAvailableForSubscriber;
     private static ICallGateSubscriber<string, bool>? praiseSubscriber;
 
     /// <summary>上一次真的送出誇獎的任務 ID 與當下的 tick。</summary>
@@ -80,13 +81,15 @@ internal static class TataruPraiseIPC
 
         try
         {
-            isAvailableSubscriber ??= Svc.PluginInterface.GetIpcSubscriber<bool>(IsAvailableIpc);
+            isAvailableForSubscriber ??= Svc.PluginInterface.GetIpcSubscriber<string, bool>(IsAvailableForIpc);
 
-            // 先問「現在出得了聲嗎」。對方沒安裝／沒載入的話這一行就會擲 IpcNotReadyError，
+            // 先問「這一個情境現在出得了聲嗎」。對方沒安裝／沒載入的話這一行就會擲 IpcNotReadyError，
             // 下面的 Praise 根本不會被呼叫到。
-            if (!isAvailableSubscriber.InvokeFunc())
+            // 🔴 不要退回去問 IsAvailable：那個問的是「整池」，於是「別的情境有句子、
+            //    宇宙情境一句都沒有」時它照樣回 true，這道閘門等於白做。
+            if (!isAvailableForSubscriber.InvokeFunc(CosmicCategory))
             {
-                IceLogging.Debug($"{Name} 目前不方便出聲（總開關關著或誇獎池沒有已合成的句子），這次不誇。", "[TataruPraise IPC]");
+                IceLogging.Debug($"{Name} 現在念不了「{CosmicCategory}」（總開關關著、這個情境被關掉、或它一句已合成的都沒有），這次不誇。", "[TataruPraise IPC]");
                 return;
             }
 
@@ -112,7 +115,7 @@ internal static class TataruPraiseIPC
             {
                 loggedNotInstalled = true;
                 IceLogging.Info(
-                    $"想在交件金評時請 {Name} 誇獎，但它沒有安裝或尚未載入（IPC「{IsAvailableIpc}」沒有人註冊）。" +
+                    $"想在交件金評時請 {Name} 誇獎，但它沒有安裝或尚未載入（IPC「{IsAvailableForIpc}」沒有人註冊）。" +
                     "這個功能會維持靜默，其餘流程完全不受影響。",
                     "[TataruPraise IPC]");
             }
