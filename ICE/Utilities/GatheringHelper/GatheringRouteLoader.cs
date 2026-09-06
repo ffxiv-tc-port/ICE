@@ -60,6 +60,72 @@ public static class GatheringRouteLoader
     private static readonly object _loadLock = new();
 
     /// <summary>
+    /// 持鎖時把「本來要寫出去的 log」收在這裡，出鎖之後才由 <see cref="Emit"/> 照原順序寫出。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 IceLogging 與 PluginLog 最後都走 Dalamud 的 Serilog sink：sink 自己有鎖、還會做檔案 I/O。
+    /// 在 <c>_loadLock</c> 裡寫等於讓每一個等著拿採集路線的執行緒排在 log 檔後面，
+    /// 也把死鎖面積擴大到別人的元件上。<br/>
+    /// 🔑 收集端刻意只有 Add：整個型別裡唯一會真的寫出去的成員是 <see cref="Emit"/>，
+    /// 而 <see cref="Emit"/> 只在鎖外被呼叫 —— 這樣「鎖內可達的東西」裡不存在任何會寫 log 的成員，
+    /// 之後改碼也不容易不小心繞回去。<br/>
+    /// ⚠️ <see cref="Info"/> 一律把原本那個 prefix 原樣帶過去。IceLogging 沒帶 prefix 時會用
+    /// <c>StackFrame(3)</c> 反推呼叫端的類別與方法名，換了呼叫點就會印出別人的名字；
+    /// 本檔六個呼叫點原本就都明寫了 prefix，所以搬到這裡輸出逐字相同。
+    /// </remarks>
+    private sealed class PendingLogs
+    {
+        private enum Sink
+        {
+            IceInfo,
+            PluginInformation,
+            PluginDebug,
+            PluginError,
+        }
+
+        private readonly record struct Entry(Sink Kind, string Message, string? Prefix);
+
+        private readonly List<Entry> _entries = new();
+
+        /// <summary>對應原本的 <c>IceLogging.Info(message, prefix)</c>。</summary>
+        public void Info(string message, string prefix) => _entries.Add(new Entry(Sink.IceInfo, message, prefix));
+
+        /// <summary>對應原本的 <c>PluginLog.Information(message)</c>。</summary>
+        public void Information(string message) => _entries.Add(new Entry(Sink.PluginInformation, message, null));
+
+        /// <summary>對應原本的 <c>PluginLog.Debug(message)</c>。</summary>
+        public void Debug(string message) => _entries.Add(new Entry(Sink.PluginDebug, message, null));
+
+        /// <summary>對應原本的 <c>PluginLog.Error(message)</c>。</summary>
+        public void Error(string message) => _entries.Add(new Entry(Sink.PluginError, message, null));
+
+        /// <summary>照原順序寫出並清空。呼叫時必須已經離開 <c>_loadLock</c>。</summary>
+        public void Emit()
+        {
+            foreach (var entry in _entries)
+            {
+                switch (entry.Kind)
+                {
+                    case Sink.IceInfo:
+                        IceLogging.Info(entry.Message, entry.Prefix);
+                        break;
+                    case Sink.PluginInformation:
+                        PluginLog.Information(entry.Message);
+                        break;
+                    case Sink.PluginDebug:
+                        PluginLog.Debug(entry.Message);
+                        break;
+                    case Sink.PluginError:
+                        PluginLog.Error(entry.Message);
+                        break;
+                }
+            }
+
+            _entries.Clear();
+        }
+    }
+
+    /// <summary>
     /// 使用者自訂路線的資料夾。放進去的 <c>.yaml</c> 會覆寫同「區域＋旗標座標」的內嵌路線。
     /// </summary>
     /// <remarks>
@@ -81,26 +147,34 @@ public static class GatheringRouteLoader
         if (current != null)
             return current;
 
-        lock (_loadLock)
+        var pending = new PendingLogs();
+        try
         {
-            // 等鎖的時候可能已經有人建好了
-            if (_snapshot != null)
-                return _snapshot;
+            lock (_loadLock)
+            {
+                // 等鎖的時候可能已經有人建好了
+                if (_snapshot != null)
+                    return _snapshot;
 
-            var built = BuildSnapshot();
-            _snapshot = built;
-            return built;
+                var built = BuildSnapshot(pending);
+                _snapshot = built;
+                return built;
+            }
+        }
+        finally
+        {
+            pending.Emit();
         }
     }
 
-    private static RouteSnapshot BuildSnapshot()
+    private static RouteSnapshot BuildSnapshot(PendingLogs pending)
     {
         var snap = new RouteSnapshot();
 
-        LoadBuiltInRoutes(snap);
-        LoadCustomRoutes(snap);
+        LoadBuiltInRoutes(snap, pending);
+        LoadCustomRoutes(snap, pending);
 
-        IceLogging.Info($"採集路線載入完成：{snap.Routes.Count} 個區域、" +
+        pending.Info($"採集路線載入完成：{snap.Routes.Count} 個區域、" +
                         $"內建 {snap.BuiltInCount} 條、自訂 {snap.CustomCount} 條" +
                         $"（其中 {snap.OverriddenCount} 條覆寫了內建）、" +
                         $"讀取失敗 {snap.Errors.Count} 個檔。", "[採集路線]");
@@ -108,7 +182,7 @@ public static class GatheringRouteLoader
         return snap;
     }
 
-    private static void LoadBuiltInRoutes(RouteSnapshot snap)
+    private static void LoadBuiltInRoutes(RouteSnapshot snap, PendingLogs pending)
     {
         var assembly = Assembly.GetExecutingAssembly();
 
@@ -116,7 +190,7 @@ public static class GatheringRouteLoader
             .Where(r => r.Contains("GatheringRoutes") && r.EndsWith(".yaml"))
             .ToList();
 
-        PluginLog.Information($"Found {resourceNames.Count} gathering route resources");
+        pending.Information($"Found {resourceNames.Count} gathering route resources");
 
         foreach (var resourceName in resourceNames)
         {
@@ -126,12 +200,12 @@ public static class GatheringRouteLoader
                 Store(snap, route, GatheringRouteSource.BuiltIn, customFilePath: null);
                 snap.BuiltInCount++;
 
-                PluginLog.Debug($"Loaded route: Zone {route.ZoneId}, Flag ({route.Flag.X}, {route.Flag.Y}), Job {route.Job}");
+                pending.Debug($"Loaded route: Zone {route.ZoneId}, Flag ({route.Flag.X}, {route.Flag.Y}), Job {route.Job}");
             }
             catch (Exception ex)
             {
                 // 內嵌資源壞掉是我們自己的包裝問題，不是使用者能修的 —— 保持原本的 Error 等級。
-                PluginLog.Error($"Failed to load route from {resourceName}: {ex.Message}");
+                pending.Error($"Failed to load route from {resourceName}: {ex.Message}");
             }
         }
     }
@@ -145,7 +219,7 @@ public static class GatheringRouteLoader
     /// 🔴 節點數 0 的檔<b>一律拒絕</b>而不是採用 —— 採用它等於讓排程器走一條空路線，
     /// 那會表現成「站著不動」而且完全沒有訊息，比壞檔本身更難查。
     /// </remarks>
-    private static void LoadCustomRoutes(RouteSnapshot snap)
+    private static void LoadCustomRoutes(RouteSnapshot snap, PendingLogs pending)
     {
         string dir;
         try
@@ -156,7 +230,7 @@ public static class GatheringRouteLoader
         }
         catch (Exception ex)
         {
-            IceLogging.Info($"讀不到自訂採集路線資料夾，這一輪全部使用內建路線：{ex.Message}", "[採集路線]");
+            pending.Info($"讀不到自訂採集路線資料夾，這一輪全部使用內建路線：{ex.Message}", "[採集路線]");
             return;
         }
 
@@ -167,14 +241,14 @@ public static class GatheringRouteLoader
         }
         catch (Exception ex)
         {
-            IceLogging.Info($"列舉自訂採集路線資料夾失敗，這一輪全部使用內建路線：{ex.Message}", "[採集路線]");
+            pending.Info($"列舉自訂採集路線資料夾失敗，這一輪全部使用內建路線：{ex.Message}", "[採集路線]");
             return;
         }
 
         if (files.Count == 0)
             return;
 
-        IceLogging.Info($"在 {dir} 找到 {files.Count} 個自訂採集路線檔，開始載入。", "[採集路線]");
+        pending.Info($"在 {dir} 找到 {files.Count} 個自訂採集路線檔，開始載入。", "[採集路線]");
 
         foreach (var file in files)
         {
@@ -215,7 +289,7 @@ public static class GatheringRouteLoader
                 };
                 snap.Errors.Add(error);
 
-                IceLogging.Info($"自訂採集路線 {error.FileName} 載入失敗，這個旗標改用內建路線。" +
+                pending.Info($"自訂採集路線 {error.FileName} 載入失敗，這個旗標改用內建路線。" +
                                 $"原因：{error.Reason}（完整路徑：{error.FullPath}）", "[採集路線]");
                 continue;
             }
@@ -226,7 +300,7 @@ public static class GatheringRouteLoader
             if (overrides)
                 snap.OverriddenCount++;
 
-            IceLogging.Info($"套用自訂採集路線：區域 {route.ZoneId} 旗標 ({route.Flag.X}, {route.Flag.Y})、" +
+            pending.Info($"套用自訂採集路線：區域 {route.ZoneId} 旗標 ({route.Flag.X}, {route.Flag.Y})、" +
                             $"{route.Nodes.Count} 個採集點、來源 {Path.GetFileName(file)}" +
                             $"{(overrides ? "（覆寫內建）" : "（內建沒有這條，新增）")}。", "[採集路線]");
         }
@@ -305,10 +379,18 @@ public static class GatheringRouteLoader
     /// <remarks>⚠️ 偵錯視窗路線編輯器裡「還沒存檔」的修改是直接改記憶體裡的清單，重新載入會被丟掉。</remarks>
     public static void ReloadRoutes()
     {
-        lock (_loadLock)
+        var pending = new PendingLogs();
+        try
         {
-            _snapshot = null;
-            _snapshot = BuildSnapshot();
+            lock (_loadLock)
+            {
+                _snapshot = null;
+                _snapshot = BuildSnapshot(pending);
+            }
+        }
+        finally
+        {
+            pending.Emit();
         }
     }
 
