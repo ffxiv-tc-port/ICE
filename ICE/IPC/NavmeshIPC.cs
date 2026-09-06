@@ -43,7 +43,9 @@ public class NavmeshIPC
     //    才生效；放約或逾時（提供端硬性上限 5 分鐘）自動還原成使用者的值。
     // 🔴 **雙軌**：這幾支端點在舊版 vnavmesh 上不存在，呼叫會擲 IpcNotReadyError
     //    （NavmeshIPC 的 EzIPC.Init 沒有帶 SafeWrapper，例外會直接傳到呼叫端）。
-    //    擲了就閂住並永久退回既有的 SetTolerance 路徑，行為與這次改動前逐字相同。
+    //    擲了就退回既有的 SetTolerance 路徑，行為與這次改動前逐字相同；
+    //    那個閂鎖是**可復原的**（見 ToleranceUnsupportedRetryIntervalMs）。
+    // 🔴🔴 **這一整組端點都在鎖外呼叫**，作法見 toleranceGate 的註解。
     // 📌 回傳型別必須與提供端（vnavmesh/IPCProvider.cs）逐字相同：Guid 與 bool 都是
     //    **不可為 null 的值型別**。宣告成可空或別的形狀時 CallGateChannel 會走 JSON
     //    來回轉換而**不報錯**，失敗形式是靜默拿到垃圾值。
@@ -84,7 +86,17 @@ public class NavmeshIPC
     /// 保護底下那組租約狀態。
     /// </summary>
     /// <remarks>
-    /// 🔴 <b>鎖內不呼叫 ImGui、不做檔案 I/O、不寫 log</b>：訊息一律先組成字串，出了鎖才寫。
+    /// 🔴🔴 <b>鎖內不做任何 IPC</b>（也不呼叫 ImGui、不做檔案 I/O、不寫 log、不配置字串）。
+    /// 在鎖內打跨外掛 IPC ＝ <b>跨外掛鎖序</b>（我的鎖 → 對方的鎖）：對方日後只要長出一條
+    /// 回頭呼叫的路徑就是死鎖，而那條路徑是在<b>別人的 repo</b> 裡長出來的，這邊看不到；
+    /// 而且提供端常在自己的鎖外寫 Serilog ⇒ <b>檔案 I/O 會發生在我持鎖期間</b>。
+    /// <br/><br/>
+    /// 🔑 <b>作法＝版本序號（<see cref="toleranceOpSeq"/>）</b>：
+    /// <c>lock{ 拍快照、決定下一步、記下當下的序號 }</c> → <b>鎖外</b>做 IPC →
+    /// <c>lock{ 序號沒變才寫回結果，變了就丟棄 }</c>。
+    /// 丟棄時若那一步<b>剛取得了一把租約</b>，會主動把它還回去（同樣在鎖外），
+    /// 所以「重複 Acquire」不會漏租約，也不需要任何 busy 旗標。
+    /// <br/><br/>
     /// 🔴 <b>絕不用 <c>EzThrottler</c> 當租約時鐘</b>：它是整個外掛共用的靜態 Dictionary 且零同步，
     /// 而且首次必放行、key 全域持久。這裡自己記下一次該續約的時刻。
     /// 📌 目前所有呼叫端都在 Framework 執行緒（<c>P.TaskManager</c> 的任務與 <c>ICE.Tick</c>），
@@ -101,20 +113,97 @@ public class NavmeshIPC
     /// <summary>下一次可以做 IPC（續約或重新取得）的時刻，<see cref="Environment.TickCount64"/> 座標系。</summary>
     private long toleranceNextAttemptAt;
 
-    /// <summary>這版 vnavmesh 沒有租約端點（擲過 <see cref="IpcNotReadyError"/>）⇒ 永久走舊路徑。</summary>
+    /// <summary>這版 vnavmesh 沒有租約端點（擲過 <see cref="IpcNotReadyError"/>）⇒ 走舊路徑。</summary>
+    /// <remarks>🔴 <b>可復原</b>：<see cref="ToleranceUnsupportedRetryIntervalMs"/> 到期會再探一次。</remarks>
     private bool toleranceLeaseUnsupported;
 
     private bool loggedToleranceUnsupported;
     private bool loggedToleranceRefused;
 
-    /// <summary>ICE 現在有沒有押著 vnavmesh 的路徑容許值（只做顯示用，不是判定依據）。</summary>
-    public bool HoldingToleranceLease
+    /// <summary>租約狀態的版本號。<b>上面四個狀態欄位的每一次變動都必須把它往前推。</b></summary>
+    /// <remarks>
+    /// 🔑 這是「鎖外做 IPC」的正確性依據：規劃階段在鎖內記下當下的序號，提交階段只有在
+    /// 序號沒變時才寫回 —— 序號變了就代表在我做 IPC 的期間有別人動過狀態，
+    /// 我手上的結果已經過期，必須丟棄（並歸還那一步剛拿到的租約），下一圈重新規劃。
+    /// <br/>⚠️ <b>漏掉任何一處 ++ 都會讓過期的結果被當成新鮮的寫回去</b>，
+    /// 失敗形式是「偶爾押著一把早就該丟掉的租約」—— 所以四個狀態欄位的寫入
+    /// <b>全部</b>收斂到 <see cref="MutateToleranceLocked"/> 這一個地方，沒有第二個寫入點。
+    /// </remarks>
+    private long toleranceOpSeq;
+
+    /// <summary>
+    /// 租約狀態的<b>唯一</b>寫入點：改四個欄位並把版本號往前推。
+    /// 呼叫端必須先持有 <see cref="toleranceGate"/>。<b>不做任何 IPC。</b>
+    /// </summary>
+    private void MutateToleranceLocked(Guid lease, float leased, long nextAttemptAt, bool unsupported)
     {
-        get
+        toleranceLease = lease;
+        leasedTolerance = leased;
+        toleranceNextAttemptAt = nextAttemptAt;
+        toleranceLeaseUnsupported = unsupported;
+        toleranceOpSeq++;
+    }
+
+    /// <summary>租約狀態機的下一步。</summary>
+    private enum ToleranceStep
+    {
+        /// <summary>什麼都不用做（已經押著要的值）。</summary>
+        None,
+
+        /// <summary>續約（持有租約且到了心跳時間）。</summary>
+        Renew,
+
+        /// <summary>取得一把新租約。</summary>
+        Acquire,
+
+        /// <summary>把值押上去。</summary>
+        PushValue,
+
+        /// <summary>雙軌退路：直接寫 vnavmesh 的全域值（＝這次改動前的行為）。</summary>
+        Legacy,
+    }
+
+    /// <summary>
+    /// 決定下一步要做什麼，並拍下當下的版本號與憑證。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 呼叫端必須先持有 <see cref="toleranceGate"/>；<b>這一支不做任何 IPC、不配置任何東西</b>
+    /// （它唯一呼叫的是 <see cref="MutateToleranceLocked"/>，那也是純欄位寫入）。
+    /// </remarks>
+    private ToleranceStep PlanToleranceLocked(float tolerance, out long seq, out Guid lease)
+    {
+        var now = Environment.TickCount64;
+
+        // 這版 vnavmesh 沒有租約端點：退避期間走舊軌，退避到期就清掉閂鎖再探一次。
+        if (toleranceLeaseUnsupported)
         {
-            lock (toleranceGate)
-                return toleranceLease != Guid.Empty;
+            if (now < toleranceNextAttemptAt)
+            {
+                seq = toleranceOpSeq;
+                lease = Guid.Empty;
+                return ToleranceStep.Legacy;
+            }
+
+            MutateToleranceLocked(Guid.Empty, float.NaN, 0, false);
         }
+
+        seq = toleranceOpSeq;
+        lease = toleranceLease;
+
+        // ① 持有租約而且到了心跳時間 → 先確認它還活著。
+        if (lease != Guid.Empty && now >= toleranceNextAttemptAt)
+            return ToleranceStep.Renew;
+
+        // ② 沒有租約而且不在退避期間 → 取一把。
+        if (lease == Guid.Empty && now >= toleranceNextAttemptAt)
+            return ToleranceStep.Acquire;
+
+        // ③ 有租約：值變了就押上去，沒變就收工。
+        if (lease != Guid.Empty)
+            return leasedTolerance == tolerance ? ToleranceStep.None : ToleranceStep.PushValue;
+
+        // ④ 沒租約又還在退避期間 ⇒ 雙軌退路。
+        return ToleranceStep.Legacy;
     }
 
     /// <summary>
@@ -123,143 +212,201 @@ public class NavmeshIPC
     /// <remarks>
     /// 🔴 拿不到租約時<b>退回既有的 <c>Path.SetTolerance</c> 直接寫全域值</b>——與改動前的行為
     /// 逐字相同，絕不因為租約拿不到就不寫（那會讓 AutoDuty 留下的容許值繼續影響 ICE 的導航）。
+    /// 🔴 <b>所有 IPC 都在 <see cref="toleranceGate"/> 之外呼叫</b>（<c>SetTolerance</c> 本身也是 IPC）。
     /// </remarks>
     public void ApplyTolerance(float tolerance)
     {
-        string message;
-        lock (toleranceGate)
-            message = ApplyToleranceLocked(tolerance);
+        // 一次呼叫最多走 Renew → Acquire → PushValue 三步，第四圈必定收斂到 None/Legacy。
+        // 🔴 上限是硬性的：版本號競爭在極端情況下會讓某一步重來，不能讓它在這裡無限打轉。
+        //    真的用完四圈（單執行緒下不可能）就這一次不寫，下一次呼叫會再對齊一次。
+        for (var round = 0; round < 4; round++)
+        {
+            ToleranceStep step;
+            long seq;
+            Guid lease;
 
-        if (message != null)
-            IceLogging.Info(message, ToleranceHandle);
+            lock (toleranceGate)
+                step = PlanToleranceLocked(tolerance, out seq, out lease);
+
+            switch (step)
+            {
+                case ToleranceStep.None:
+                    return;
+
+                case ToleranceStep.Legacy:
+                    SetTolerance(tolerance); // 🔴 鎖外
+                    return;
+
+                case ToleranceStep.Renew:
+                    if (!RunToleranceRenewStep(seq, lease, tolerance))
+                        return;
+                    break;
+
+                case ToleranceStep.Acquire:
+                    if (!RunToleranceAcquireStep(seq, tolerance))
+                        return;
+                    break;
+
+                case ToleranceStep.PushValue:
+                    if (!RunTolerancePushStep(seq, lease, tolerance))
+                        return;
+                    break;
+            }
+        }
     }
 
-    /// <summary>呼叫端必須先持有 <see cref="toleranceGate"/>。回傳要寫的訊息（出鎖之後寫）。</summary>
-    private string ApplyToleranceLocked(float tolerance)
+    /// <summary>續約一步。回 <see langword="true"/>＝重新規劃並繼續，<see langword="false"/>＝收工。</summary>
+    /// <remarks>🔴 IPC 在鎖外；提交階段只有版本號沒變才寫回。</remarks>
+    private bool RunToleranceRenewStep(long seq, Guid lease, float tolerance)
     {
-        var now = Environment.TickCount64;
-
-        // 這版 vnavmesh 沒有租約端點：走原本的全域寫入。
-        // 🔴 這個閂鎖**刻意是可復原的**，理由見 ToleranceUnsupportedRetryIntervalMs。
-        if (toleranceLeaseUnsupported)
-        {
-            if (now < toleranceNextAttemptAt)
-            {
-                SetTolerance(tolerance);
-                return null;
-            }
-
-            toleranceLeaseUnsupported = false;
-        }
-
-        string message = null;
-
+        bool renewed;
         try
         {
-            // ① 有憑證而且到了心跳時間 → 續約。
-            //    🔴 回 false＝那把已經不在了（逾時／vnavmesh 重載），**不能**繼續假設自己押著。
-            if (toleranceLease != Guid.Empty && now >= toleranceNextAttemptAt)
-            {
-                if (RenewSuppression(toleranceLease))
-                {
-                    toleranceNextAttemptAt = now + ToleranceRenewIntervalMs;
-                }
-                else
-                {
-                    message = $"vnavmesh 的路徑容許值租約 {toleranceLease} 續約失敗（多半是 vnavmesh 重新載入，"
-                            + "或這把已經逾時被掃掉），重新取得一把。";
-                    toleranceLease = Guid.Empty;
-                    leasedTolerance = float.NaN;
-                }
-            }
-
-            // ② 沒有憑證就取一把。取不到就退避，退避期間走 ④ 的舊路徑。
-            if (toleranceLease == Guid.Empty && now >= toleranceNextAttemptAt)
-            {
-                var acquired = AcquireSuppressionFor(Owner, ToleranceLeaseMilliseconds);
-                if (acquired != Guid.Empty)
-                {
-                    toleranceLease = acquired;
-                    leasedTolerance = float.NaN;
-                    toleranceNextAttemptAt = now + ToleranceRenewIntervalMs;
-                    loggedToleranceRefused = false;
-                }
-                else
-                {
-                    toleranceNextAttemptAt = now + ToleranceRetryIntervalMs;
-                    if (!loggedToleranceRefused)
-                    {
-                        loggedToleranceRefused = true;
-                        var refused = $"向 vnavmesh 取得路徑容許值租約失敗（{Name}.Path.AcquireSuppressionFor 回 Guid.Empty，"
-                                    + "多半是它同時存在的租約已達上限）。這一輪改用舊的 Path.SetTolerance 直接寫全域值，"
-                                    + $"{ToleranceRetryIntervalMs / 1000} 秒後重試。";
-                        message = message == null ? refused : message + " " + refused;
-                    }
-                }
-            }
-
-            // ③ 有憑證就把值押上去。只在值真的變了的時候送，不是每次都送。
-            if (toleranceLease != Guid.Empty)
-            {
-                if (leasedTolerance == tolerance)
-                    return message;
-
-                if (SetLeasedTolerance(toleranceLease, tolerance))
-                {
-                    leasedTolerance = tolerance;
-                    var ok = $"已請 vnavmesh 在 ICE 導航期間把路徑容許值押成 {tolerance}"
-                           + $"（租約 {toleranceLease}，租用者「{Owner}」）。ICE 結束導航、被卸載或當掉時都會自動還原成使用者的值。";
-                    return message == null ? ok : message + " " + ok;
-                }
-
-                // 回 false＝那把不在了（傳進去的是有限數常數，不會是被拒絕的 NaN）。
-                var lost = $"vnavmesh 拒絕了容許值租約 {toleranceLease} 的設值請求（那把多半已經不在了），"
-                         + "這一輪改用舊的 Path.SetTolerance。";
-                message = message == null ? lost : message + " " + lost;
-                toleranceLease = Guid.Empty;
-                leasedTolerance = float.NaN;
-                toleranceNextAttemptAt = now + ToleranceRetryIntervalMs;
-            }
+            renewed = RenewSuppression(lease); // 🔴 鎖外
         }
         catch (IpcNotReadyError)
         {
-            // 這版 vnavmesh 根本沒有租約端點。閂住，永久走舊路徑。
-            return DropToLegacyToleranceLocked(tolerance);
+            DropToLegacyTolerance(seq, tolerance);
+            return false;
         }
         catch (Exception e)
         {
-            // 型別不合之類。退回舊路徑但**不**閂住，退避之後照樣重試。
-            // 🔴 先盡力把可能已經拿到的那把還回去：例外若發生在 Acquire **之後**
-            //    （例如 SetLeasedTolerance 的簽章對不上），光清掉本地欄位會讓那把留在提供端的
-            //    表上直到逾時 —— 每 5 秒漏一把，兩分半就吃光 vnavmesh 全域 32 把的上限，
-            //    連**別的外掛**都拿不到租約。
-            if (toleranceLease != Guid.Empty)
-            {
-                try
-                {
-                    ReleaseSuppression(toleranceLease);
-                }
-                catch
-                {
-                    // 還不回去就交給提供端逾時。這裡絕不能再擲例外。
-                }
-            }
-
-            toleranceLease = Guid.Empty;
-            leasedTolerance = float.NaN;
-            toleranceNextAttemptAt = now + ToleranceRetryIntervalMs;
-            SetTolerance(tolerance);
-            return $"呼叫 vnavmesh 的容許值租約端點時發生例外：{e.GetType().Name}: {e.Message}。"
-                 + $"這一輪改用舊的 Path.SetTolerance，{ToleranceRetryIntervalMs / 1000} 秒後重試。";
+            AbandonToleranceLease(seq, lease, tolerance, e);
+            return false;
         }
 
-        // ④ 雙軌退路：沒拿到租約時照改動前的行為直接寫全域值。
-        SetTolerance(tolerance);
-        return message;
+        var committed = false;
+        lock (toleranceGate)
+        {
+            if (seq == toleranceOpSeq)
+            {
+                committed = true;
+                if (renewed)
+                    MutateToleranceLocked(lease, leasedTolerance,
+                        Environment.TickCount64 + ToleranceRenewIntervalMs, false);
+                else
+                    // 🔴 到期時刻刻意不動：讓下一圈的 Acquire 立刻執行（與改動前一致）。
+                    MutateToleranceLocked(Guid.Empty, float.NaN, toleranceNextAttemptAt, false);
+            }
+        }
+
+        if (committed && !renewed)
+            IceLogging.Info($"vnavmesh 的路徑容許值租約 {lease} 續約失敗（多半是 vnavmesh 重新載入，"
+                          + "或這把已經逾時被掃掉），重新取得一把。", ToleranceHandle);
+
+        return true;
+    }
+
+    /// <summary>取得租約一步。</summary>
+    /// <remarks>
+    /// 🔴 結果過期（版本號被別人推過）而且我剛剛<b>真的拿到了一把</b>時會主動歸還：
+    /// 不還的話它會壓著提供端 32 把的上限直到逾時，<b>連別的外掛都拿不到租約</b>。
+    /// </remarks>
+    private bool RunToleranceAcquireStep(long seq, float tolerance)
+    {
+        Guid acquired;
+        try
+        {
+            acquired = AcquireSuppressionFor(Owner, ToleranceLeaseMilliseconds); // 🔴 鎖外
+        }
+        catch (IpcNotReadyError)
+        {
+            DropToLegacyTolerance(seq, tolerance);
+            return false;
+        }
+        catch (Exception e)
+        {
+            AbandonToleranceLease(seq, Guid.Empty, tolerance, e);
+            return false;
+        }
+
+        var stale = false;
+        var reportRefused = false;
+
+        lock (toleranceGate)
+        {
+            if (seq != toleranceOpSeq)
+            {
+                stale = true;
+            }
+            else if (acquired != Guid.Empty)
+            {
+                MutateToleranceLocked(acquired, float.NaN,
+                    Environment.TickCount64 + ToleranceRenewIntervalMs, false);
+                loggedToleranceRefused = false;
+            }
+            else
+            {
+                MutateToleranceLocked(Guid.Empty, float.NaN,
+                    Environment.TickCount64 + ToleranceRetryIntervalMs, false);
+                reportRefused = !loggedToleranceRefused;
+                if (reportRefused)
+                    loggedToleranceRefused = true;
+            }
+        }
+
+        if (stale && acquired != Guid.Empty)
+            ReleaseToleranceLeaseQuietly(acquired, "取得之後發現狀態已經被別的執行緒改過");
+
+        if (reportRefused)
+            IceLogging.Info($"向 vnavmesh 取得路徑容許值租約失敗（{Name}.Path.AcquireSuppressionFor 回 Guid.Empty，"
+                          + "多半是它同時存在的租約已達上限）。這一輪改用舊的 Path.SetTolerance 直接寫全域值，"
+                          + $"{ToleranceRetryIntervalMs / 1000} 秒後重試。", ToleranceHandle);
+
+        return true;
+    }
+
+    /// <summary>把容許值押上去一步。</summary>
+    private bool RunTolerancePushStep(long seq, Guid lease, float tolerance)
+    {
+        bool pushed;
+        try
+        {
+            pushed = SetLeasedTolerance(lease, tolerance); // 🔴 鎖外
+        }
+        catch (IpcNotReadyError)
+        {
+            DropToLegacyTolerance(seq, tolerance);
+            return false;
+        }
+        catch (Exception e)
+        {
+            AbandonToleranceLease(seq, lease, tolerance, e);
+            return false;
+        }
+
+        var committed = false;
+        lock (toleranceGate)
+        {
+            if (seq == toleranceOpSeq)
+            {
+                committed = true;
+                if (pushed)
+                    MutateToleranceLocked(lease, tolerance, toleranceNextAttemptAt, false);
+                else
+                    MutateToleranceLocked(Guid.Empty, float.NaN,
+                        Environment.TickCount64 + ToleranceRetryIntervalMs, false);
+            }
+        }
+
+        if (committed && pushed)
+        {
+            IceLogging.Info($"已請 vnavmesh 在 ICE 導航期間把路徑容許值押成 {tolerance}"
+                          + $"（租約 {lease}，租用者「{Owner}」）。ICE 結束導航、被卸載或當掉時都會自動還原成使用者的值。",
+                            ToleranceHandle);
+            return false;
+        }
+
+        if (committed)
+            IceLogging.Info($"vnavmesh 拒絕了容許值租約 {lease} 的設值請求（那把多半已經不在了），"
+                          + "這一輪改用舊的 Path.SetTolerance。", ToleranceHandle);
+
+        return true;
     }
 
     /// <summary>
-    /// 容許值租約的心跳。<b>每幀呼叫一次</b>；沒持有租約時第一行就回去，不做任何 IPC。
+    /// 容許值租約的心跳。<b>每幀呼叫一次</b>；沒持有租約（或還沒到期）時只讀兩個欄位就回去，
+    /// <b>不配置任何東西、不做任何 IPC</b>。
     /// </summary>
     /// <remarks>
     /// 🔑 <see cref="ApplyTolerance"/> 只在「開一條新路徑」時被呼叫（而且被 500 毫秒的節流擋著），
@@ -267,46 +414,71 @@ public class NavmeshIPC
     /// </remarks>
     public void RenewToleranceLease()
     {
-        string message = null;
+        Guid lease;
+        long seq;
 
+        // 每幀的穩態快路：兩個比較就回去。
         lock (toleranceGate)
         {
             if (toleranceLease == Guid.Empty)
                 return;
-
-            var now = Environment.TickCount64;
-            if (now < toleranceNextAttemptAt)
+            if (Environment.TickCount64 < toleranceNextAttemptAt)
                 return;
 
-            try
-            {
-                if (RenewSuppression(toleranceLease))
-                {
-                    toleranceNextAttemptAt = now + ToleranceRenewIntervalMs;
-                    return;
-                }
+            lease = toleranceLease;
+            seq = toleranceOpSeq;
+        }
 
-                message = $"vnavmesh 的路徑容許值租約 {toleranceLease} 續約失敗（多半是 vnavmesh 重新載入，"
-                        + "或這把已經逾時被掃掉）。下一次開新路徑時會重新取得一把；"
-                        + "在那之前 vnavmesh 用的是使用者自己的容許值。";
-            }
-            catch (IpcNotReadyError)
-            {
-                // 🔴 這裡**不**閂住：能走到心跳就代表先前 Acquire 成功過，也就是這版 vnavmesh
-                //    本來就有租約端點 ⇒ 這一次拿不到只可能是它正在重新載入或被卸載，是暫時的。
-                //    閂住會把一次重載變成「這個 session 之後永遠用不到租約」。
-                message = $"續約時 {Name} 的租約端點暫時不在（多半是它正在重新載入或被卸載）。"
-                        + "下一次開新路徑時會重新取得一把；在那之前 vnavmesh 用的是使用者自己的容許值。";
-            }
-            catch (Exception e)
-            {
-                message = $"續約 vnavmesh 的容許值租約時發生例外：{e.GetType().Name}: {e.Message}。"
-                        + "那把租約會在提供端逾時後自動放開，容許值屆時恢復成使用者的值。";
-            }
+        bool renewed;
+        try
+        {
+            renewed = RenewSuppression(lease); // 🔴 鎖外
+        }
+        catch (IpcNotReadyError)
+        {
+            // 🔴 這裡**不**閂住：能走到心跳就代表先前 Acquire 成功過，也就是這版 vnavmesh
+            //    本來就有租約端點 ⇒ 這一次拿不到只可能是它正在重新載入或被卸載，是暫時的。
+            //    閂住會把一次重載變成「這個 session 之後永遠用不到租約」。
+            DropHeartbeatLease(seq,
+                $"續約時 {Name} 的租約端點暫時不在（多半是它正在重新載入或被卸載）。"
+                + "下一次開新路徑時會重新取得一把；在那之前 vnavmesh 用的是使用者自己的容許值。");
+            return;
+        }
+        catch (Exception e)
+        {
+            DropHeartbeatLease(seq,
+                $"續約 vnavmesh 的容許值租約時發生例外：{e.GetType().Name}: {e.Message}。"
+                + "那把租約會在提供端逾時後自動放開，容許值屆時恢復成使用者的值。");
+            return;
+        }
 
-            toleranceLease = Guid.Empty;
-            leasedTolerance = float.NaN;
-            toleranceNextAttemptAt = 0;
+        if (renewed)
+        {
+            lock (toleranceGate)
+            {
+                if (seq == toleranceOpSeq)
+                    MutateToleranceLocked(lease, leasedTolerance,
+                        Environment.TickCount64 + ToleranceRenewIntervalMs, false);
+            }
+            return;
+        }
+
+        DropHeartbeatLease(seq,
+            $"vnavmesh 的路徑容許值租約 {lease} 續約失敗（多半是 vnavmesh 重新載入，"
+            + "或這把已經逾時被掃掉）。下一次開新路徑時會重新取得一把；"
+            + "在那之前 vnavmesh 用的是使用者自己的容許值。");
+    }
+
+    /// <summary>心跳失敗：丟掉那把租約並寫一行說明。<b>呼叫時不可持有 <see cref="toleranceGate"/>。</b></summary>
+    private void DropHeartbeatLease(long seq, string message)
+    {
+        lock (toleranceGate)
+        {
+            if (seq != toleranceOpSeq)
+                return;
+
+            // 🔴 心跳失敗不動閂鎖（沿用目前的值）：那是 ApplyTolerance 的職責。
+            MutateToleranceLocked(Guid.Empty, float.NaN, 0, toleranceLeaseUnsupported);
         }
 
         IceLogging.Info(message, ToleranceHandle);
@@ -314,9 +486,9 @@ public class NavmeshIPC
 
     /// <summary>把容許值租約還回去（沒持有就什麼都不做）。抵達目的地與外掛卸載都會走這裡。</summary>
     /// <remarks>
-    /// 🔴 <b>IPC 呼叫刻意放在鎖外，而且整個包在 try/catch 裡</b>：這一支也會在 <c>ICE.Dispose()</c>
-    /// 裡被呼叫，而那時候 vnavmesh 可能已經先被卸載了——「Dispose 裡無防護的 IPC 呼叫」是
-    /// 全艦隊稽核出來的既有缺陷形狀，不要在這裡長出新的一個。
+    /// 🔴 <b>IPC 在鎖外，而且整個包在 try/catch 裡</b>：這一支也會在 <c>ICE.Dispose()</c> 裡被呼叫，
+    /// 而那時候 vnavmesh 可能已經先被卸載了——「Dispose 裡無防護的 IPC 呼叫」是全艦隊稽核出來的
+    /// 既有缺陷形狀，不要在這裡長出新的一個。
     /// 📌 就算這裡整條路壞掉也不會留下爛攤子：那把租約會在提供端逾時（上限 5 分鐘）後自動放開。
     /// </remarks>
     public void ReleaseToleranceLease(string reason)
@@ -326,17 +498,19 @@ public class NavmeshIPC
         lock (toleranceGate)
         {
             id = toleranceLease;
-            toleranceLease = Guid.Empty;
-            leasedTolerance = float.NaN;
-            toleranceNextAttemptAt = 0;
+
+            // 🔴 這也是一次狀態機轉換，一定要推版本號：否則正在鎖外做 IPC 的那一步會以為
+            //    自己的結果還新鮮，把剛剛丟掉的租約又寫回來。
+            MutateToleranceLocked(Guid.Empty, float.NaN, 0, toleranceLeaseUnsupported);
             loggedToleranceRefused = false;
+
             if (id == Guid.Empty)
                 return;
         }
 
         try
         {
-            ReleaseSuppression(id);
+            ReleaseSuppression(id); // 🔴 鎖外
             IceLogging.Info($"已歸還 vnavmesh 的路徑容許值租約 {id}（{reason}），容許值恢復成使用者自己的設定。", ToleranceHandle);
         }
         catch (Exception e)
@@ -346,26 +520,76 @@ public class NavmeshIPC
         }
     }
 
+    /// <summary>盡力歸還一把租約，絕不擲例外、不碰任何共用狀態。<b>呼叫時不可持有 <see cref="toleranceGate"/>。</b></summary>
+    private void ReleaseToleranceLeaseQuietly(Guid id, string reason)
+    {
+        try
+        {
+            ReleaseSuppression(id); // 🔴 鎖外
+        }
+        catch (Exception e)
+        {
+            IceLogging.Info($"歸還 vnavmesh 的路徑容許值租約 {id}（{reason}）時發生例外：{e.GetType().Name}: {e.Message}。"
+                          + "那把租約會在提供端逾時後自動放開（上限 5 分鐘）。", ToleranceHandle);
+        }
+    }
+
     /// <summary>
     /// 這版 vnavmesh 沒有租約端點：閂住並退回既有的 <c>Path.SetTolerance</c> 路徑。
-    /// 呼叫端必須先持有 <see cref="toleranceGate"/>。
     /// </summary>
-    private string DropToLegacyToleranceLocked(float tolerance)
+    /// <remarks>
+    /// 🔴 <c>SetTolerance</c> 本身也是 IPC，所以它在鎖外呼叫。
+    /// 🔴 閂鎖是<b>可復原</b>的（見 <see cref="ToleranceUnsupportedRetryIntervalMs"/>）。
+    /// </remarks>
+    private void DropToLegacyTolerance(long seq, float tolerance)
     {
-        toleranceLease = Guid.Empty;
-        leasedTolerance = float.NaN;
-        toleranceLeaseUnsupported = true;
-        toleranceNextAttemptAt = Environment.TickCount64 + ToleranceUnsupportedRetryIntervalMs;
-        SetTolerance(tolerance);
+        var first = false;
 
-        if (loggedToleranceUnsupported)
-            return null;
+        lock (toleranceGate)
+        {
+            if (seq == toleranceOpSeq)
+            {
+                MutateToleranceLocked(Guid.Empty, float.NaN,
+                    Environment.TickCount64 + ToleranceUnsupportedRetryIntervalMs, true);
+                first = !loggedToleranceUnsupported;
+                if (first)
+                    loggedToleranceUnsupported = true;
+            }
+        }
 
-        loggedToleranceUnsupported = true;
-        return $"這版 {Name} 沒有路徑容許值租約端點（{Name}.Path.AcquireSuppressionFor 沒有人註冊），"
-             + $"ICE 改用舊的 Path.SetTolerance 直接寫它的全域值 {tolerance} —— 與這次改動前的行為完全相同。"
-             + $"要讓容許值在 ICE 結束導航後自動還原，請把 {Name} 更新到有租約端點的版本。"
-             + $"（每 {ToleranceUnsupportedRetryIntervalMs / 1000} 秒會再探一次，所以更新 {Name} 之後不必重載 ICE。"
-             + "這行訊息只會出現一次。）";
+        SetTolerance(tolerance); // 🔴 鎖外
+
+        if (first)
+            IceLogging.Info($"這版 {Name} 沒有路徑容許值租約端點（{Name}.Path.AcquireSuppressionFor 沒有人註冊），"
+                          + $"ICE 改用舊的 Path.SetTolerance 直接寫它的全域值 {tolerance} —— 與這次改動前的行為完全相同。"
+                          + $"要讓容許值在 ICE 結束導航後自動還原，請把 {Name} 更新到有租約端點的版本。"
+                          + $"（每 {ToleranceUnsupportedRetryIntervalMs / 1000} 秒會再探一次，所以更新 {Name} 之後不必重載 ICE。"
+                          + "這行訊息只會出現一次。）", ToleranceHandle);
+    }
+
+    /// <summary>
+    /// 呼叫租約端點時發生非 <see cref="IpcNotReadyError"/> 的例外（型別不合之類）：
+    /// 丟掉手上那把、退避之後重試，這一輪走舊軌。<b>不</b>閂住 —— 那是給「端點不存在」用的。
+    /// </summary>
+    private void AbandonToleranceLease(long seq, Guid lease, float tolerance, Exception e)
+    {
+        // 🔴 先盡力把手上那把還回去（鎖外）：例外若發生在 Acquire **之後**（例如
+        //    SetLeasedTolerance 的簽章對不上），只清本地欄位會讓那把留在提供端的表上直到逾時
+        //    —— 每 5 秒漏一把，兩分半就吃光 vnavmesh 全域 32 把的上限，連**別的外掛**都拿不到租約。
+        if (lease != Guid.Empty)
+            ReleaseToleranceLeaseQuietly(lease, "呼叫租約端點時發生例外");
+
+        lock (toleranceGate)
+        {
+            if (seq == toleranceOpSeq)
+                MutateToleranceLocked(Guid.Empty, float.NaN,
+                    Environment.TickCount64 + ToleranceRetryIntervalMs, false);
+        }
+
+        SetTolerance(tolerance); // 🔴 鎖外
+
+        IceLogging.Info($"呼叫 vnavmesh 的容許值租約端點時發生例外：{e.GetType().Name}: {e.Message}。"
+                      + $"這一輪改用舊的 Path.SetTolerance，{ToleranceRetryIntervalMs / 1000} 秒後重試。",
+                        ToleranceHandle);
     }
 }

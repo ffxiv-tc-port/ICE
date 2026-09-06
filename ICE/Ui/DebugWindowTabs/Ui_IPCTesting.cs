@@ -2,7 +2,6 @@
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using ICE.Utilities.Cosmic_Helper;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 
 namespace ICE.Ui.DebugWindowTabs
 {

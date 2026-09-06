@@ -132,8 +132,10 @@ namespace ICE.Scheduler.Tasks
                         {
                             if (PlayerHelper.GetItemCount(baitId, out var count) && count > 0)
                             {
-                                // TrySwapBait 會在 IPC 不可用時退回 /ahbait 指令，並且把結果寫進 log。
-                                // 直接呼叫 P.AutoHook.SwapBaitById 會在台服的 AutoHook 上靜默失敗。
+                                // TrySwapBait 會先探測 AutoHook 有沒有註冊 SwapBaitById，
+                                // 沒有就退回 /ahbait 指令，並且把結果寫進 log。
+                                // 🔴 不要直接呼叫 P.AutoHook.SwapBaitById：使用者的 AutoHook 可能還沒
+                                //    更新到有那支端點的版本，那時例外會被 SafeWrapper 吞掉、靜默回 false。
                                 P.AutoHook.TrySwapBait(baitId);
                                 if (EzThrottler.Throttle("ICE: fishing bait equip log", 5000))
                                     IceLogging.Info($"目前沒有掛餌，要求裝上餌 ID {baitId}（{bait.Key}）。", handle);
