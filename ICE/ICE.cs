@@ -208,6 +208,11 @@ public sealed partial class ICE : IDalamudPlugin
         // 📌 冪等：該不該壓著只看 SchedulerMain.State，所以任何沒有走 Enable/DisablePlugin
         //    的狀態變化（例如錯誤路徑直接把 State 設回 Idle）也會在下一幀被對齊。
         AutoRetainer?.Sync(SchedulerMain.State != IceState.Idle);
+        // vnavmesh 路徑容許值租約的心跳（見 NavmeshIPC.RenewToleranceLease）。
+        // 📌 沒持有租約時第一行就回去，不做任何 IPC；持有時每 30 秒才送一次續約。
+        // 🔴 同樣放在 Player.Available 的判斷**外面**：租約會逾時（提供端 5 分鐘），
+        //    跨區載入那幾十秒不能停止續租，否則容許值會在導航中途跳回使用者的值。
+        Navmesh?.RenewToleranceLease();
     }
 
     // 同步上游：離開宇宙探索區就把浮動視窗關掉，避免離開後視窗殘留在畫面上。
@@ -224,6 +229,7 @@ public sealed partial class ICE : IDalamudPlugin
     {
         // 🔴 最先做：卸載時一定要把租約還回去，否則 AutoRetainer 要等到租約逾時（5 分鐘）才會恢復。
         GenericHelpers.Safe(() => AutoRetainer?.ReleaseNow("ICE 正在卸載"));
+        GenericHelpers.Safe(() => Navmesh?.ReleaseToleranceLease("ICE 正在卸載"));
         GenericHelpers.Safe(() => Svc.Framework.Update -= Tick);
         GenericHelpers.Safe(() => Svc.ClientState.TerritoryChanged -= OnTerritoryChange);
         GenericHelpers.Safe(() => Svc.PluginInterface.UiBuilder.Draw -= windowSystem.Draw);

@@ -8,6 +8,13 @@ namespace ICE.Scheduler.Tasks
 {
     internal class Task_NavmeshMove
     {
+        /// <summary>ICE 導航期間要求 vnavmesh 使用的路徑容許值。刻意＝vnavmesh 自己的預設值。</summary>
+        /// <remarks>
+        /// ⚠️ 這個值<b>不是</b>多餘的：AutoDuty 會把 vnavmesh 的同一個全域欄位改成別的數字
+        /// （<c>AutoDuty/Helpers/MovementHelper.cs</c>），所以 ICE 開路前重設它是有作用的。
+        /// </remarks>
+        private const float NavigationTolerance = 0.25f;
+
         public static bool? Task_NavTo(Vector3 pos, bool waitForBusy = true, float distance = 2.0f, bool stayMounted = false)
         {
             bool usingCosmoliner = Svc.Condition[ConditionFlag.Unknown101];
@@ -116,6 +123,9 @@ namespace ICE.Scheduler.Tasks
                     {
                         IceLogging.Debug("We've met the distance threshold, continuing on");
                         ResetInfo();
+                        // 導航結束：把容許值租約還回去，vnavmesh 立刻恢復使用者自己的設定。
+                        // 📌 沒持有租約時是無操作；就算這一步沒被走到，租約也會自己逾時還原。
+                        P.Navmesh.ReleaseToleranceLease("已抵達目的地");
                         return true;
                     }
                 }
@@ -123,8 +133,13 @@ namespace ICE.Scheduler.Tasks
                 {
                     if (EzThrottler.Throttle("Telling navmesh to start"))
                     {
-                        P.Navmesh.SetTolerance(0.25f);
-                        IceLogging.Debug("We're setting the tolerance to 0.25f here");
+                        // 🔴 這裡原本是 P.Navmesh.SetTolerance(0.25f) —— 對 vnavmesh 的**全域**欄位
+                        //    FollowPath.Tolerance 單向寫入，寫進去就一直停在那裡，沒有任何人會還原。
+                        // 🔑 改成租約之後語意不變（ICE 導航期間就是 0.25），差別在於 ICE 結束導航、
+                        //    被卸載或當掉時 vnavmesh 會自己還原成使用者的值。
+                        //    舊版 vnavmesh 沒有租約端點時會自動退回原本那個直接寫入的行為。
+                        P.Navmesh.ApplyTolerance(NavigationTolerance);
+                        IceLogging.Debug($"We're setting the tolerance to {NavigationTolerance}f here");
                         IceLogging.DestinationLogs.Log(pos);
                         P.Navmesh.PathfindAndMoveTo(pos, false);
                     }
