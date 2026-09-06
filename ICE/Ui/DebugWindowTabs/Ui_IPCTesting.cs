@@ -89,7 +89,10 @@ namespace ICE.Ui.DebugWindowTabs
                     IceLogging.Debug("Bait is not currently equipped");
                 }
 
-                P.AutoHook.SwapBaitById(baitId);
+                // SwapBaitById 現在直接回 bool（與 AutoHook 提供端的簽章一致）。
+                // 把結果印出來——否則按下去沒反應時，分不出「AutoHook 拒絕了」與「這顆按鈕根本沒作用」。
+                var swapped = P.AutoHook.SwapBaitById(baitId);
+                IceLogging.Info($"[除錯] AutoHook.SwapBaitById({baitId}) 回傳 {swapped}。", "[AutoHook IPC]");
             }
             if (ImGui.Button("Stupid Test".Loc()))
             {
@@ -146,20 +149,14 @@ namespace ICE.Ui.DebugWindowTabs
 
         private static void SwapBait(uint baitId)
         {
-            _ = Task.Run(async () =>
-            {
-                baitSwapped = await TaskSwapBait(baitId);
-            });
-
-            _ = Task.Run(async () =>
-            {
-                await P.AutoHook.SwapBaitById(baitId);
-            });
-        }
-
-        private static async Task<bool> TaskSwapBait(uint bait)
-        {
-            return await P.AutoHook.SwapBaitById(bait);
+            // 🔴 這裡原本開兩個 Task.Run 去 await SwapBaitById。除了型別已經不是 Task<bool>
+            //    之外，那個形狀本身就是壞的：AutoHook 的 SwapBaitById 第一件事就是判
+            //    IsInFrameworkUpdateThread，不在就拒絕並回 false（換餌走遊戲的原生函式，
+            //    跨執行緒踩下去是 try/catch 攔不到的 AccessViolation）。
+            //    ⇒ 從執行緒池呼叫它**必定**失敗，而且只在 AutoHook 那邊留一行記錄。
+            //    ImGui 的繪製回呼與 Framework 更新在同一條主執行緒上，直接同步呼叫才是對的。
+            baitSwapped = P.AutoHook.SwapBaitById(baitId);
+            IceLogging.Info($"[除錯] AutoHook.SwapBaitById({baitId}) 回傳 {baitSwapped}。", "[AutoHook IPC]");
         }
     }
 }

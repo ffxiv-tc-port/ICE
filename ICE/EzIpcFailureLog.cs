@@ -13,8 +13,20 @@ namespace ICE;
 /// —— 結果就是「功能完全不動、log 一行都沒有」。
 /// </para>
 /// <para>
-/// 實例：ICE 呼叫 AutoHook.SwapBaitById，但台服的 AutoHook 版本較舊、根本沒註冊這個 IPC，
-/// 症狀只是「餌永遠裝不上」，查了三輪才找到。
+/// 實例：ICE 呼叫 <c>AutoHook.SwapBaitById</c>，而當時台服的 AutoHook 分岔得早、根本沒註冊
+/// 這個 IPC，症狀只是「餌永遠裝不上」，查了三輪才找到。
+/// </para>
+/// <para>
+/// 📌 <b>那個端點後來已經補上了</b>（AutoHook 端註冊成 <c>bool SwapBaitById(uint)</c>，
+/// ICE 端的宣告也已經對齊），所以上面留的是<b>失敗形狀</b>而不是現況——
+/// 不要拿它去判斷 SwapBaitById 現在有沒有註冊。
+/// </para>
+/// <para>
+/// 🔴 <b>同一個坑換了形狀還在</b>：ICE 一度把它宣告成 <c>Func&lt;uint, Task&lt;bool&gt;&gt;</c>，
+/// 端點在、名字對，只有<b>回傳型別</b>對不上。那時 Dalamud 擲的是 <c>IpcTypeMismatchError</c>，
+/// 而 <see cref="SafeWrapper.IPCException"/> <b>只攔得住 <c>IpcNotReadyError</c>、攔不住它</b>
+/// （<see cref="SafeWrapper.AnyException"/> 兩種都攔，所以 ICE 這邊是靜默回 default）。
+/// ⇒ 要改端點的形狀，正解是<b>提供端換一個新名字讓舊名字消失</b>，不是同名改型別。
 /// </para>
 /// <para>
 /// ⚠️ ECommons 是逐 repo vendored 的，每個外掛都編出自己的一份 ECommons.dll，
