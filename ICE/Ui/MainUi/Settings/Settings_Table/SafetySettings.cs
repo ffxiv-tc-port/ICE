@@ -147,6 +147,32 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 "still be thrown away.").Loc()
             );
 
+            // 宇宙製作要用哪個求解器。透過 Artisan 的「臨時求解器」IPC 指定，
+            // 不會寫進使用者的 Artisan 設定檔。
+            // 🔴 這裡**只改設定、不呼叫 CosmicSolverOverride**：Artisan 端的 IpcFrameworkGate
+            //    在非 Framework 執行緒上會等主執行緒最多 5 秒，而這裡是 ImGui 的繪製回呼。
+            //    設定改動由 ICE.Tick 的 CosmicSolverOverride.SyncMission() 在下一幀處理。
+            var craftSolver = (int)C.CraftSolverOverride;
+            string[] craftSolverOptions =
+            [
+                "Default (do not override)".Loc(),
+                "Expert solver".Loc(),
+                "Raphael",
+            ];
+            ImGui.SetNextItemWidth(320f);
+            if (ImGui.Combo("Cosmic craft solver".Loc() + "###ICECosmicCraftSolver",
+                            ref craftSolver, craftSolverOptions, craftSolverOptions.Length))
+            {
+                C.CraftSolverOverride = (CosmicCraftSolver)craftSolver;
+                C.Save();
+            }
+            ImGuiEx.HelpMarker(
+                ("Cosmic recipes are all expert recipes, but unless you assign a solver yourself Artisan picks " +
+                "whichever one has the highest priority for that recipe, which is not always the expert solver.\n" +
+                "This is applied through Artisan's temporary solver IPC: it is never written into your Artisan " +
+                "settings, and it is handed back when the mission ends, when ICE stops and when the plugin unloads.\n" +
+                "If your Artisan is too old to offer that IPC, or that solver is not available for the recipe, " +
+                "the craft runs exactly as it did before and one line is written to the log.").Loc());
             bool jumpIfStuck = C.JumpIfStuck;
             if (ImGui.Checkbox("Jump if stuck during nav movement".Loc() + "###ICEJumpIfStuck", ref jumpIfStuck))
             {

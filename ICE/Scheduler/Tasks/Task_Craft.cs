@@ -102,6 +102,10 @@ namespace ICE.Scheduler.Tasks
                     // 而使用者的記錄等級只會濾掉 Verbose、Debug 收得到但單檔數十萬行會淹沒。上面那行 CheckMaterials 的
                     // 「Telling artisan to craft」只是宣告要做,不代表真的呼叫了。
                     IceLogging.Info($"Artisan IPC CraftItem sent: recipe {craftId} x{amount}");
+                    // 🔴 一定要排在 CraftItem 之前：Artisan 是在收到製作指令、
+                    //    建立 CraftState 的那一刻才決定要用哪個求解器。
+                    //    這一支是冪等的，而且任何失敗都只是「照原樣製作」。
+                    CosmicSolverOverride.ApplyBeforeCraft(craftId, "[Task Craft: Throttle Artisan]");
                     P.Artisan.CraftItem(craftId, amount);
                 }
 

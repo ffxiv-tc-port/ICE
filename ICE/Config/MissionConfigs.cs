@@ -416,6 +416,20 @@ namespace ICE.Config
         /// </remarks>
         public GoldUnreachableAction CraftGoldUnreachable { get; set; } = GoldUnreachableAction.Off;
 
+        /// <summary>
+        /// 宇宙製作時要不要透過 Artisan 的「臨時求解器」IPC 指定求解器。
+        /// </summary>
+        /// <remarks>
+        /// 📌 預設 <c>Expert</c>：宇宙配方全部是專家配方（<c>IsExpert=True</c>、
+        /// <c>ConditionsFlag=995</c>），而 Artisan 在沒有指派時挑的是優先度最高的求解器，
+        /// 不保證是專家求解器。<br/>
+        /// 🔴 覆寫是<b>臨時的</b>：不寫進使用者的 Artisan 設定檔，而且任務結束／ICE 停止／
+        /// 外掛卸載時都會還原。實作見 <see cref="ICE.Utilities.CosmicSolverOverride"/>。<br/>
+        /// ⚠️ Artisan 太舊（沒有這兩個 IPC 端點）或該配方沒有這個求解器可選時，
+        /// 一律退回「照原樣製作」，只在記錄檔留一行 Information。
+        /// </remarks>
+        public CosmicCraftSolver CraftSolverOverride { get; set; } = CosmicCraftSolver.Expert;
+
         public bool ShowExtraMissionInfo { get; set; } = true;
         public Dictionary<uint, uint> ScoreKeeper { get; set; } = new();
 

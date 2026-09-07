@@ -213,6 +213,11 @@ public sealed partial class ICE : IDalamudPlugin
         // 🔴 同樣放在 Player.Available 的判斷**外面**：租約會逾時（提供端 5 分鐘），
         //    跨區載入那幾十秒不能停止續租，否則容許值會在導航中途跳回使用者的值。
         Navmesh?.RenewToleranceLease();
+        // 宇宙製作的臨時求解器覆寫：任務結束／被遊戲端取消／離開宇宙探索區時還給 Artisan。
+        // 📌 沒有覆寫在身上時第一行就回去，不做任何 IPC，也不讀遊戲結構。
+        // 🔴 同樣放在 Player.Available 的判斷**外面**：登出／跨區時任務會歸 0，
+        //    那正是該還原的時機，不是該停止檢查的時機。
+        CosmicSolverOverride.SyncMission();
     }
 
     // 同步上游：離開宇宙探索區就把浮動視窗關掉，避免離開後視窗殘留在畫面上。
@@ -230,6 +235,10 @@ public sealed partial class ICE : IDalamudPlugin
         // 🔴 最先做：卸載時一定要把租約還回去，否則 AutoRetainer 要等到租約逾時（5 分鐘）才會恢復。
         GenericHelpers.Safe(() => AutoRetainer?.ReleaseNow("ICE 正在卸載"));
         GenericHelpers.Safe(() => Navmesh?.ReleaseToleranceLease("ICE 正在卸載"));
+        // 宇宙製作的臨時求解器要還回去，否則使用者接下來手動製作同一個配方時
+        // 還會被我們設進去的求解器接管（Artisan 的臨時設定只在它自己重載時才消失）。
+        // 🔴 Artisan 可能已經先卸載了 —— ClearAll 內部逐筆攔 IpcNotReadyError。
+        GenericHelpers.Safe(() => CosmicSolverOverride.ClearAll("ICE 正在卸載"));
         GenericHelpers.Safe(() => Svc.Framework.Update -= Tick);
         GenericHelpers.Safe(() => Svc.ClientState.TerritoryChanged -= OnTerritoryChange);
         GenericHelpers.Safe(() => Svc.PluginInterface.UiBuilder.Draw -= windowSystem.Draw);

@@ -42,6 +42,10 @@ namespace ICE.Scheduler
             // 具名壓制租約還回去：ICE 停了就沒有理由再擋著 AutoRetainer。
             P.AutoRetainer?.ReleaseNow("ICE 的自動化被停用");
 
+            // 宇宙製作的臨時求解器也一併還給 Artisan：ICE 停了就沒有理由再影響
+            // 使用者自己手動製作那些配方。沒有覆寫在身上時這一支第一行就回去。
+            CosmicSolverOverride.ClearAll("ICE 的自動化被停用");
+
             return true;
         }
 
