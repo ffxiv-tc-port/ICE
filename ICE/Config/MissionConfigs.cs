@@ -680,13 +680,23 @@ namespace ICE.Config
         //
         // ⚠️ 它**不是**用來擋 IOException 的 —— 那一層已經在 YamlConfig 裡（`LockFor(path)`
         //    的 per-path SemaphoreSlim），而且涵蓋範圍更廣（所有 yaml 設定都走它）。
-        //    這一層擋的是 YamlConfig 擋不到的另一件事：那邊的 `Serializer.Serialize(config)`
-        //    在閘門**外面**，所以兩個存檔可以先各自序列化出快照、再排隊寫檔 ——
-        //    先序列化的那份有可能**後**寫，於是磁碟上留下的是比較舊的快照。
-        //    把序列化與寫檔一起圈進來，這份 330 KB 的設定就不會出現「存了但存到舊的」。
+        //    這一層擋的是 YamlConfig 擋不到的另一件事：兩個存檔可以先各自拍好自己的快照、
+        //    再排隊寫檔 —— 先拍的那份有可能**後**寫，於是磁碟上留下的是比較舊的快照。
+        //    這份設定有 330 KB，「存了但存到舊的」使用者完全看不出來。
+        // 🔴 舊的解法是「把序列化與寫檔一起圈進這個閘門裡」。快照改成要回主執行緒拍之後
+        //    **那個作法不能再用**：SaveSync() 是在呼叫端的執行緒上**阻塞**等這個閘門的，
+        //    只要有人在主執行緒上呼叫它，而閘門正被一個「持有閘門、正在等主執行緒」的存檔
+        //    拿著，兩邊就互相等 —— 那是死結，不是變慢。
+        //    所以改成：快照在閘門**外面**拍，但拍的當下順手記一個遞增序號；進了閘門再比對，
+        //    序號比已經寫下去的舊就直接放棄。「不會存到舊的」這個保證一字不變。
         // ⚠️ 兩層閘門的取得順序永遠是「先 _saveGate 再 YamlConfig」（SaveAsync 與 SaveSync
         //    都是），順序一致所以不會死結。
         private static readonly SemaphoreSlim _saveGate = new(1, 1);
+
+        // 快照序號。🔑 遞增這個動作與「序列化」在**同一個主執行緒的動作裡**完成，
+        // 所以序號的大小關係就是快照的新舊關係。_writtenSeq 是已經真的寫進磁碟的最大序號。
+        private static long _snapshotSeq;
+        private static long _writtenSeq;
 
         // Standard save. Deliberately routed through the debounced path.
         //
@@ -737,12 +747,36 @@ namespace ICE.Config
         }
 
         // Core async implementation
+        //
+        // 🔴🔴 快照必須在**遊戲主執行緒**上拍。序列化會走訪整個設定物件圖，而
+        //    MissionConfig 是裸 Dictionary、GambaItemWeights 之類是裸 List ——
+        //    改動它們的是主執行緒（UI 的每一個勾選、排程器、IPC 端點）。
+        //    這一步以前跑在**執行緒池**上（Task.Run 的續行）⇒ 只要使用者在 500 毫秒的
+        //    去抖動窗結束之後、序列化跑完之前動了任何一個設定，YamlDotNet 就會在走訪途中擲
+        //    InvalidOperationException（Collection was modified）——
+        //    而 SaveDebounced 的 catch 把它寫成一行「Failed to save MissionConfigs」，
+        //    **使用者的設定就這樣沒存到，而畫面上什麼都看不出來**。
+        // 📌 交回主執行緒的只有「序列化成字串」這一步。字串是不可變的，
+        //    寫檔照舊留在背景 —— 主執行緒不會多扛任何一次磁碟 I/O。
+        // 📌 遊戲正在關閉時不會把最後一次存檔弄丟：Dalamud 的
+        //    Framework.RunOnFrameworkThread(Func<T>) 在 IsInFrameworkUpdateThread
+        //    **或 IsFrameworkUnloading** 時就地執行（Dalamud/Game/Framework.cs:167），
+        //    也就是自動退回這次改動之前的行為。
         public async Task SaveAsync()
         {
+            var snapshot = await Svc.Framework.RunOnFrameworkThread(
+                () => (Yaml: YamlConfig.Serialize(this), Seq: Interlocked.Increment(ref _snapshotSeq)))
+                .ConfigureAwait(false);
+
             await _saveGate.WaitAsync().ConfigureAwait(false);
             try
             {
-                await YamlConfig.SaveAsync(this, ConfigPath).ConfigureAwait(false);
+                // 已經有更新的快照寫下去了 ⇒ 放棄這一份，不要用舊的蓋掉新的。
+                if (snapshot.Seq < Interlocked.Read(ref _writtenSeq))
+                    return;
+
+                await YamlConfig.WriteAsync(snapshot.Yaml, ConfigPath).ConfigureAwait(false);
+                Interlocked.Exchange(ref _writtenSeq, snapshot.Seq);
             }
             finally
             {
