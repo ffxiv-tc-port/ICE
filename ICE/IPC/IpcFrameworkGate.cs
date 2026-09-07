@@ -1,0 +1,137 @@
+﻿using ECommons.DalamudServices;
+using ECommons.Logging;
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace ICE.IPC;
+
+/// <summary>
+/// IPC 端點的「遊戲主執行緒閘門」。
+/// </summary>
+/// <remarks>
+/// 🔴🔴 為什麼需要這一層：Dalamud 的 CallGate 是<b>直接方法呼叫</b>，提供端的碼跑在
+/// <b>呼叫端的執行緒</b>上。別的外掛從自己的背景工作、<c>Task.Run</c>、或任何非 framework
+/// 執行緒打過來時，ICE 這一側就會在那條執行緒上做這三種事：
+/// <br/>① <b>讀遊戲的原生記憶體</b>（<c>WKSManager.Instance()-&gt;CurrentMissionUnitRowId</c>、
+/// <c>AgentMap.Instance()-&gt;SetFlagMapMarker</c>、<c>Player.JobId</c>）。那些東西由遊戲主執行緒
+/// 每幀重建，讀到一半被換掉就是 AccessViolationException —— 而 AVE 在 .NET Core 是
+/// corrupted-state exception，<c>try</c>/<c>catch</c> 攔不到，整個遊戲直接崩掉。
+/// <br/>② <b>寫共享的裸集合</b>：<c>C.MissionConfig</c> 是 <c>Dictionary</c>、
+/// <c>P.TaskManager.Tasks</c> 是 <c>List</c>、<c>IceLogging.LogSystem</c> 的緩衝區是 <c>Queue</c>
+/// —— 三個都零同步，而主執行緒同時在 <c>SchedulerMain.Tick</c> 與 UI 繪製裡走訪它們。
+/// 並行改動的失敗形式不是「拿到舊值」，而是<b>字典／清單本身壞掉</b>，或走訪時擲
+/// <c>InvalidOperationException</c>（而那個例外常被既有的 catch 吞成別的症狀）。
+/// <br/>③ <b>對別的外掛發 IPC</b>（vnavmesh 的 <c>Path.Stop</c>、AutoRetainer 的租約端點）。
+/// <br/><br/>
+/// 🔑 所以凡是同步可達上面任何一項的端點，一律把<b>整個方法體</b>交回主執行緒執行 ——
+/// 交回去的是整段，不是只有第一行檢查，這樣連下游 helper（<c>SchedulerMain.EnablePlugin</c>、
+/// <c>MissionChain.RepairSequentialPrerequisites</c>、<c>Utils.SetGatheringRing</c>）也一起
+/// 被覆蓋，不必逐一追。
+/// <br/><br/>
+/// 📌 <b>已經在主執行緒上呼叫時行為逐字不變</b>：直接就地執行，不配置 Task、不改變例外型別、
+/// 不多花任何一幀。絕大多數消費端（別的外掛在自己的 <c>Framework.Update</c> 或
+/// <c>TaskManager</c> 任務裡呼叫）走的就是這條路。
+/// <br/><br/>
+/// ⚠️ 逾時的處置：等主執行緒最多 <see cref="TimeoutMs"/> 毫秒。逾時就回該端點的「不可用」值
+/// （false / 0），語意與「現在做不到」相同 —— 呼叫端本來就要處理這個狀態。同時用
+/// <see cref="Interlocked"/> 把還沒開始跑的工作標成放棄，避免「呼叫端已經拿到回值走人了，
+/// 五秒後 ICE 才真的啟動」這種無人值守被啟動的形狀。
+/// <br/><br/>
+/// 🔴 用 <c>RunOnFrameworkThread</c> 不是 <c>Framework.Run</c>：前者在已經是主執行緒時就地執行，
+/// 同步等它不會死結；後者一律 <c>StartNew</c>，同步等會死結。
+/// </remarks>
+internal static class IpcFrameworkGate
+{
+    /// <summary>等主執行緒的上限。超過就當作「現在做不到」。</summary>
+    internal const int TimeoutMs = 5000;
+
+    private const int StatePending = 0;
+    private const int StateRunning = 1;
+    private const int StateAbandoned = 2;
+
+    /// <summary>有回傳值的端點。<paramref name="unavailable"/> 是逾時時要回的「不可用」值。</summary>
+    internal static T Get<T>(string endpoint, Func<T> body, T unavailable)
+    {
+        if (Svc.Framework.IsInFrameworkUpdateThread) return body();
+
+        var state = StatePending;
+        var task = Svc.Framework.RunOnFrameworkThread(() =>
+        {
+            // 呼叫端已經逾時走人了就什麼都不做。
+            if (Interlocked.CompareExchange(ref state, StateRunning, StatePending) != StatePending) return unavailable;
+            return body();
+        });
+        // WaitAny 對已經失敗的工作也回 0（不擲），交給 GetResult 原樣重擲原始例外，
+        // 這樣呼叫端看到的例外型別與沒有這層閘門時完全一樣（不會變成 AggregateException）。
+        if (Task.WaitAny([task], TimeoutMs) == 0) return task.GetAwaiter().GetResult();
+        ReportTimeout(endpoint, Interlocked.CompareExchange(ref state, StateAbandoned, StatePending) == StatePending);
+        return unavailable;
+    }
+
+    /// <summary>沒有回傳值的端點。</summary>
+    internal static void Run(string endpoint, Action body)
+    {
+        if (Svc.Framework.IsInFrameworkUpdateThread)
+        {
+            body();
+            return;
+        }
+
+        var state = StatePending;
+        var task = Svc.Framework.RunOnFrameworkThread(() =>
+        {
+            if (Interlocked.CompareExchange(ref state, StateRunning, StatePending) != StatePending) return;
+            body();
+        });
+        if (Task.WaitAny([task], TimeoutMs) == 0)
+        {
+            task.GetAwaiter().GetResult();
+            return;
+        }
+        ReportTimeout(endpoint, Interlocked.CompareExchange(ref state, StateAbandoned, StatePending) == StatePending);
+    }
+
+    /// <summary>同一個端點的逾時訊息重印間隔。</summary>
+    private const long TimeoutLogIntervalMs = 10000;
+
+    /// <summary>節流表上限，避免端點名意外發散時無限成長。</summary>
+    private const int MaxTrackedTimeoutKeys = 128;
+
+    private static readonly Dictionary<string, long> TimeoutLogTimes = [];
+
+    /// <summary>
+    /// 自帶的節流：首次必放行，之後每 <see cref="TimeoutLogIntervalMs"/> 毫秒放行一次。
+    /// 🔴 這裡刻意<b>不用</b> <c>EzThrottler</c>：它是整個外掛共用的靜態 Dictionary 且零同步，
+    /// 而這條路徑跑在呼叫端的執行緒上，並行插入弄壞的是整張表 —— 連帶弄壞 ICE 裡
+    /// 所有模組的節流（<c>IceLogging.ChatInfo</c>／<c>ChatError</c> 也在用它）。
+    /// 所以自帶字典＋自己的鎖。
+    /// 🔴 鎖內只碰字典 —— 不寫 log、不做 I/O、不呼叫任何別的外掛。
+    /// </summary>
+    private static bool ShouldLogTimeout(string key)
+    {
+        var now = Environment.TickCount64;
+        lock (TimeoutLogTimes)
+        {
+            if (TimeoutLogTimes.TryGetValue(key, out var last) && now - last < TimeoutLogIntervalMs) return false;
+            if (TimeoutLogTimes.Count >= MaxTrackedTimeoutKeys && !TimeoutLogTimes.ContainsKey(key)) TimeoutLogTimes.Clear();
+            TimeoutLogTimes[key] = now;
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// 要使用者回報的診斷寫 Information（使用者的 LogLevel 收得到，且不會被 Debug 的數十萬行淹沒）。
+    /// 🔴 刻意用 <c>PluginLog</c> 而不是 <c>IceLogging</c>：後者會把訊息推進零同步的
+    /// <c>LogSystem</c> 環形緩衝區，而這裡跑在呼叫端的執行緒上 —— 那正是本閘門要防的事。
+    /// </summary>
+    private static void ReportTimeout(string endpoint, bool abandoned)
+    {
+        if (!ShouldLogTimeout(endpoint)) return;
+        var outcome = abandoned
+            ? "工作還沒開始就被取消，什麼都沒做"
+            : "工作已經開始執行，會照常跑完（呼叫端拿到的回值不代表它沒發生）";
+        PluginLog.Information($"[ICE IPC 閘門] {endpoint} 等待遊戲主執行緒超過 {TimeoutMs} 毫秒，已回傳「不可用」值。{outcome}。通常代表遊戲正在讀取畫面或嚴重掉幀；若持續出現請回報。");
+    }
+}
