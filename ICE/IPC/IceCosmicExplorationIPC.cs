@@ -8,19 +8,38 @@ using System.Threading.Tasks;
 
 namespace ICE.IPC;
 
+/// <summary>ICE 對外提供的 IPC 端點。</summary>
+/// <remarks>
+/// 🔴 <b>凡是同步可達「原生記憶體／裸集合／別的外掛」的端點，一律經過
+/// <see cref="IpcFrameworkGate"/> 交回遊戲主執行緒</b>（理由與失敗形式寫在那個檔）。
+/// 端點本體只留閘門呼叫，真正的實作放在同名的 <c>…Core</c> 私有方法裡，
+/// 這樣「哪些端點上了閘門」用肉眼一列就看得完。
+/// <br/><br/>
+/// 📌 <b>兩個端點刻意不上閘門</b>：<see cref="IsRunning"/> 與 <see cref="CurrentState"/>
+/// 只讀 <c>SchedulerMain.State</c> 這一個受管理的列舉靜態欄位 —— 沒有原生讀取、沒有集合
+/// 走訪、int 大小的讀取本身是不可分割的。替它們上閘門只會多出一種新的失敗形式：
+/// 逾時要回一個「不可用」值，而 <c>false</c>／空字串會被消費端讀成「ICE 沒在跑」，
+/// 反而可能讓對方在 ICE 正在跑的時候動手。<b>沒有 AVE 風險就不要拿正確性去換。</b>
+/// </remarks>
 public class IceCosmicExplorationIPC
 {
     public IceCosmicExplorationIPC() => EzIPC.Init(this);
 
 
+    // 📌 不上閘門：純受管理的靜態列舉讀取，見類別說明。
     [EzIPC] public bool IsRunning() => SchedulerMain.State != IceState.Idle;
-    [EzIPC] public void Enable() => SchedulerMain.EnablePlugin();
-    [EzIPC] public void Disable() => SchedulerMain.DisablePlugin();
+    [EzIPC] public void Enable() => IpcFrameworkGate.Run(nameof(Enable), EnableCore);
+    private static void EnableCore() => SchedulerMain.EnablePlugin();
+    [EzIPC] public void Disable() => IpcFrameworkGate.Run(nameof(Disable), DisableCore);
+    private static void DisableCore() => SchedulerMain.DisablePlugin();
     /// <summary>
     /// Adds the following missions to your mission list
     /// </summary>
     /// <param name="missionId"></param>
     [EzIPC] public void AddMissions(HashSet<uint> missionId)
+        => IpcFrameworkGate.Run(nameof(AddMissions), () => AddMissionsCore(missionId));
+
+    private static void AddMissionsCore(HashSet<uint> missionId)
     {
         // ✅ 已修：無效的 ID 會被下方的 TryGetValue 濾掉並記一筆，不會丟例外回給呼叫端。
         //    原因留存：這是公開的 IPC 介面，missionId 完全由別的外掛決定 ——
@@ -40,6 +59,9 @@ public class IceCosmicExplorationIPC
     /// </summary>
     /// <param name="missionIds"></param>
     [EzIPC] public void RemoveMissions(HashSet<uint> missionIds)
+        => IpcFrameworkGate.Run(nameof(RemoveMissions), () => RemoveMissionsCore(missionIds));
+
+    private static void RemoveMissionsCore(HashSet<uint> missionIds)
     {
         foreach (var id in missionIds)
         {
@@ -56,6 +78,9 @@ public class IceCosmicExplorationIPC
     /// </summary>
     /// <param name="missionIds"></param>
     [EzIPC] public void ToggleMissions(HashSet<uint> missionIds)
+        => IpcFrameworkGate.Run(nameof(ToggleMissions), () => ToggleMissionsCore(missionIds));
+
+    private static void ToggleMissionsCore(HashSet<uint> missionIds)
     {
         foreach (var id in missionIds)
         {
@@ -71,6 +96,9 @@ public class IceCosmicExplorationIPC
     /// </summary>
     /// <param name="missionIds"></param>
     [EzIPC] public void OnlyMissions(HashSet<uint> missionIds)
+        => IpcFrameworkGate.Run(nameof(OnlyMissions), () => OnlyMissionsCore(missionIds));
+
+    private static void OnlyMissionsCore(HashSet<uint> missionIds)
     {
         foreach (var mission in C.MissionConfig.Where(x => x.Value.Enabled))
         {
@@ -91,6 +119,9 @@ public class IceCosmicExplorationIPC
     /// Clears all missions that you have enabled
     /// </summary>
     [EzIPC] public void ClearAllMissions()
+        => IpcFrameworkGate.Run(nameof(ClearAllMissions), ClearAllMissionsCore);
+
+    private static void ClearAllMissionsCore()
     {
         foreach (var mission in C.MissionConfig)
         {
@@ -104,6 +135,9 @@ public class IceCosmicExplorationIPC
     /// </summary>
     /// <param name="id"></param>
     [EzIPC] public void FlagMissionArea(uint id)
+        => IpcFrameworkGate.Run(nameof(FlagMissionArea), () => FlagMissionAreaCore(id));
+
+    private static void FlagMissionAreaCore(uint id)
     {
         var info = CosmicHelper.SheetMissionDict.FirstOrDefault(x => x.Key == id);
         if (info.Value == default) return;
@@ -118,6 +152,9 @@ public class IceCosmicExplorationIPC
     /// <param name="config"></param>
     /// <param name="state"></param>
     [EzIPC] public void ChangeSetting(string config, bool state)
+        => IpcFrameworkGate.Run(nameof(ChangeSetting), () => ChangeSettingCore(config, state));
+
+    private static void ChangeSettingCore(string config, bool state)
     {
         IceLogging.Info($"Setting: {config}, state: {state}");
         switch (config)
@@ -138,6 +175,9 @@ public class IceCosmicExplorationIPC
     /// <param name="config"></param>
     /// <param name="amount"></param>
     [EzIPC] public void ChangeSettingAmount(string config, int amount)
+        => IpcFrameworkGate.Run(nameof(ChangeSettingAmount), () => ChangeSettingAmountCore(config, amount));
+
+    private static void ChangeSettingAmountCore(string config, int amount)
     {
         switch (config)
         {
@@ -148,6 +188,7 @@ public class IceCosmicExplorationIPC
         C.Save();
     }
 
+    // 📌 不上閘門：同 IsRunning，只讀 SchedulerMain.State。
     /// <summary>
     /// Returns the current state(s) that ICE is currently in a string format. 
     /// </summary>
@@ -158,6 +199,9 @@ public class IceCosmicExplorationIPC
     }
 
     [EzIPC] public uint CurrentMission()
+        => IpcFrameworkGate.Get(nameof(CurrentMission), CurrentMissionCore, 0u);
+
+    private static uint CurrentMissionCore()
     {
         return CosmicHelper.CurrentLunarMission;
     }
