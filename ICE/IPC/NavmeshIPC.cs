@@ -21,7 +21,72 @@ public class NavmeshIPC
     [EzIPC("Nav.%m")] public readonly Func<bool> Rebuild;
     [EzIPC("Nav.%m")] public readonly Func<Vector3, Vector3, bool, Task<List<Vector3>>> Pathfind;
 
-    [EzIPC("SimpleMove.%m")] public readonly Func<Vector3, bool, bool> PathfindAndMoveTo;
+    // 🔴 這一支從公開欄位改成「私有委派 ＋ 同名包裝方法」，理由見下面 PathfindAndMoveTo 的說明。
+    // 🔴 端點名寫死成字面值，<b>不可以</b>改回 "SimpleMove.%m"：%m 展開的是<b>成員名</b>，
+    //    欄位改名之後會變成 vnavmesh.SimpleMove.PathfindAndMoveToRpc —— 那個端點沒有人註冊，
+    //    失敗形式是每次呼叫擲 IpcNotReadyError（不是編譯錯誤，也不是任何訊息）。
+    [EzIPC("SimpleMove.PathfindAndMoveTo")] private readonly Func<Vector3, bool, bool> PathfindAndMoveToRpc;
+
+    /// <summary>同一個端點的故障訊息重印間隔（毫秒）。</summary>
+    private const long PathfindFaultLogIntervalMs = 10_000;
+
+    /// <summary>導航故障訊息的 log 前綴。</summary>
+    private const string NavFaultHandle = "[vnavmesh 導航]";
+
+    /// <summary>上一次印過故障訊息的時刻（<see cref="System.Environment.TickCount64"/> 座標系）。</summary>
+    /// <remarks>🔴 刻意不是 <c>EzThrottler</c>：它是整個外掛共用的靜態 <c>Dictionary</c> 且零同步。</remarks>
+    private long pathfindFaultLoggedAt;
+
+    /// <summary>
+    /// 算路徑並開始移動。<b>vnavmesh 那一側自己擲例外時回 <see langword="false"/></b>。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 🔴 <b>vnavmesh 的這支端點會擲例外，而本類的 <c>EzIPC.Init</c> 沒有帶 SafeWrapper</b>
+    /// （那是刻意的，見檔案上方租約那一段的說明）⇒ 例外原樣傳到呼叫端。
+    /// <c>NavmeshManager.QueryPath</c> 在 <c>_currentCTS</c> 為 null 時直接擲一個普通的
+    /// <c>Exception</c>（訊息 <c>Can't initiate query - navmesh is not loaded</c>）——
+    /// 那個狀態在「切圖／讀取畫面期間導航網格被卸掉」與「使用者關掉 vnavmesh 的自動載入」時都成立。
+    /// Dalamud 的 <c>CallGateChannel.InvokeFunc</c> 是用 <c>Delegate.DynamicInvoke</c> 呼叫提供端的，
+    /// 所以提供端擲出的東西一律被包成 <see cref="System.Reflection.TargetInvocationException"/>，
+    /// 而它<b>不是</b> <c>IpcError</c> 的子型別 ⇒ 連 <c>SafeWrapper.IPCException</c> 都攔不到它。
+    /// </para>
+    /// <para>
+    /// 補這一層之前，例外會直接逃進呼叫端。ICE 的 15 個呼叫點裡只有一部分先問過
+    /// <c>IsReady()</c>（<c>Task_NavmeshMove</c>／<c>Task_Gamba</c>／<c>Task_RelicTurnin</c>／
+    /// <c>Task_BuyCosmoItems</c>）；<c>Task_FindMission</c>、<c>Task_Fishing</c>、
+    /// <c>Task_HubActivities</c>、<c>Task_Repair</c>、<c>Task_TurninMission</c> 只問了
+    /// <c>IsRunning()</c>。那些是 <c>P.TaskManager</c> 的任務本體，例外逃出去等於
+    /// <c>AbortOnError</c> ⇒ <b>整條佇列被清掉、無人值守的宇宙探索就這樣停住</b>。
+    /// </para>
+    /// <para>
+    /// 回 <see langword="false"/> 之後那些呼叫點的行為＝「這一輪沒有開始移動」，
+    /// 它們外層都有 <c>EzThrottler</c> 節流，下一輪會自己重試 —— 導航網格載回來就繼續。
+    /// </para>
+    /// <para>
+    /// 🔴 刻意<b>只</b>攔 <see cref="System.Reflection.TargetInvocationException"/>，不是裸
+    /// <c>catch (Exception)</c> —— ICE 自己這一側的程式錯誤不會被包成這個型別，照樣往上冒；
+    /// <c>IpcNotReadyError</c>（vnavmesh 沒安裝／還沒註冊）的處置也一個字都沒改，仍然往上冒。
+    /// </para>
+    /// </remarks>
+    public bool PathfindAndMoveTo(Vector3 destination, bool fly)
+    {
+        try
+        {
+            return PathfindAndMoveToRpc(destination, fly);
+        }
+        catch (System.Reflection.TargetInvocationException e)
+        {
+            var now = System.Environment.TickCount64;
+            if (now - System.Threading.Volatile.Read(ref pathfindFaultLoggedAt) >= PathfindFaultLogIntervalMs)
+            {
+                System.Threading.Volatile.Write(ref pathfindFaultLoggedAt, now);
+                var inner = e.InnerException ?? e;
+                IceLogging.Info($"{Name} 的「SimpleMove.PathfindAndMoveTo」端點自己擲了例外，這一次當成「沒有開始移動」處理：{inner.GetType().Name}: {inner.Message}。這通常代表導航網格現在沒有載入（切圖中，或 vnavmesh 的自動載入被關掉）；下一輪會自己重試。持續出現請連同這一行回報。", NavFaultHandle);
+            }
+            return false;
+        }
+    }
     [EzIPC("SimpleMove.%m")] public readonly Func<bool> PathfindInProgress;
 
     [EzIPC("Path.%m")] public readonly Action<List<Vector3>, bool> MoveTo;
