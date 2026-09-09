@@ -186,7 +186,13 @@ public sealed partial class ICE : IDalamudPlugin
             AddonPressGuard.Tick();
             PlayerHandlers.Tick();
             if (SchedulerMain.State != IceState.Idle)
+            {
+                // 排程還在跑 ⇒ 把「停下來時念一句」重新舉起。ICE 的停止路徑有十幾條，
+                // 這個「每幀重舉、送出即放下」的旗標是「一輪只念一次」唯一的保證。
+                // 🔴 只是一個 bool 指派，不做任何 IPC、不讀遊戲結構。
+                TataruPraiseIPC.ArmStopNotice();
                 SchedulerMain.Tick();
+            }
             WeatherForecastHandler.Tick();
             // 機甲行動偵察（P0）＋繪製快照：遊戲結構只在 Framework 執行緒讀。
             MechaOpsMonitor.Tick();

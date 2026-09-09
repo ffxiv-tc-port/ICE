@@ -153,6 +153,34 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             }
 
             #endregion
+
+            #region Tataru Praise
+
+            // 📌 純通知：對方沒安裝就完全靜默（IPC 擲 IpcNotReadyError 被 TataruPraiseIPC 接掉），
+            //    也永遠不會影響排程。一輪自動化最多說一句，去重在 TataruPraiseIPC 那一側。
+            bool praiseOnStop = C.PraiseOnAutomationStopped;
+            if (ImGui.Checkbox("Have Tataru say a line when ICE stops (requires TataruPraise)".Loc() + "###ICEPraiseOnAutomationStopped", ref praiseOnStop))
+            {
+                C.PraiseOnAutomationStopped = praiseOnStop;
+                C.Save();
+            }
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip("Said once per run, when ICE stops because one of the stop conditions above was met, or because you chose to stop after the current mission.\nUses TataruPraise's \"宇宙停止\" category. That category is new, so its voice lines have not been synthesised yet - nothing is said until you synthesise them once in TataruPraise.\nDoes nothing at all when TataruPraise is not installed, and never affects scheduling.".Loc());
+            }
+
+            bool praiseOnStuck = C.PraiseOnAutomationStuck;
+            if (ImGui.Checkbox("Have Tataru call for help when ICE gets stuck (requires TataruPraise)".Loc() + "###ICEPraiseOnAutomationStuck", ref praiseOnStuck))
+            {
+                C.PraiseOnAutomationStuck = praiseOnStuck;
+                C.Save();
+            }
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip("Said once per run, but only when ICE had to stop for a reason you did not ask for: it kept rerolling and still found no mission, or the current job has no runnable mission in this zone.\nUses TataruPraise's existing \"需要幫忙\" category, so this one works right away.\nDoes nothing at all when TataruPraise is not installed, and never affects scheduling.".Loc());
+            }
+
+            #endregion
         }
     }
 }

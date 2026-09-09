@@ -7,6 +7,7 @@ using System.Text;
 using System.Threading.Tasks;
 using YamlDotNet.Core.Tokens;
 using static ECommons.UIHelpers.AddonMasterImplementations.AddonMaster;
+using ICE.IPC;
 
 namespace ICE.Scheduler.Tasks
 {
@@ -119,6 +120,7 @@ namespace ICE.Scheduler.Tasks
                             if (Mission_Settings.StopAfterCurrent)
                             {
                                 SchedulerMain.State = IceState.Idle;
+                                TataruPraiseIPC.NotifyStopped("使用者選了跑完這輪就停（放棄任務之後）");
                                 P.TaskManager.Tasks.Clear();
                             }
                             else if (SchedulerMain.State != IceState.Idle)

@@ -7,6 +7,7 @@ using ICE.Ui;
 using ICE.Utilities.Cosmic_Helper;
 using ICE.Utilities.GatheringHelper;
 using static ECommons.UIHelpers.AddonMasterImplementations.AddonMaster;
+using ICE.IPC;
 
 namespace ICE.Scheduler.Tasks
 {
@@ -65,6 +66,7 @@ namespace ICE.Scheduler.Tasks
                 {
                     IceLogging.Debug($"Stop after current was enabled. Stopping now", "[Task Turnin]");
                     SchedulerMain.State = IceState.Idle;
+                    TataruPraiseIPC.NotifyStopped("使用者選了跑完這輪就停");
                     return true;
                 }
                 else
@@ -382,6 +384,7 @@ namespace ICE.Scheduler.Tasks
                 IceLogging.Info("We're stopping after this mission", "[Gold Check Task]");
                 Mission_Settings.StopAfterCurrent = false;
                 SchedulerMain.State = IceState.Idle;
+                TataruPraiseIPC.NotifyStopped("使用者選了跑完這輪就停");
 
                 if (C.PlaySoundAlert)
                     _ = SoundPlayer.PlaySoundAsync();

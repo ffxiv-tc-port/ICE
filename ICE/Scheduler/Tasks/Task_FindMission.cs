@@ -12,6 +12,7 @@ using System.Collections.Generic;
 using static ECommons.UIHelpers.AddonMasterImplementations.AddonMaster;
 using static FFXIVClientStructs.FFXIV.Client.UI.Agent.AgentWKSMission;
 using static ICE.Utilities.CosmicHelper;
+using ICE.IPC;
 
 namespace ICE.Scheduler.Tasks
 {
@@ -323,6 +324,7 @@ namespace ICE.Scheduler.Tasks
                         : string.Empty),
                     "[ICE]");
                 SchedulerMain.State = IceState.Idle;
+                TataruPraiseIPC.NotifyNeedsHelp("這個職業在這個區域沒有可跑的任務");
                 SchedulerMain.DisablePlugin();
             }
 
@@ -1795,6 +1797,7 @@ namespace ICE.Scheduler.Tasks
                     consecutiveRerolls = 0;
                     triedJobsThisSweep.Clear();
                     SchedulerMain.State = IceState.Idle;
+                    TataruPraiseIPC.NotifyNeedsHelp("連續重骰仍然找不到可接的任務");
                     P.TaskManager.Tasks.Clear();
 
                     if (C.PlaySoundAlert)

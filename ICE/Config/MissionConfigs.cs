@@ -544,6 +544,30 @@ namespace ICE.Config
         /// </remarks>
         public bool PraiseOnGoldTurnin { get; set; } = true;
 
+        /// <summary>
+        /// 宇宙探索的自動化<b>達成停止條件收工</b>時，請 TataruPraise 念一句。
+        /// </summary>
+        /// <remarks>
+        /// 📌 純通知，<b>不影響排程</b>。涵蓋等級／宇宙評分／月靈點／宇宙點達標、靈器完成、
+        /// 標準任務全金，以及使用者自己選的「跑完這輪就停」。
+        /// 🔴 一輪自動化<b>最多念一句</b>——ICE 的停止路徑有十幾條，去重靠
+        /// <c>ICE.IPC.TataruPraiseIPC</c> 的 <c>stopNoticeArmed</c>（每幀重舉、送出即放下）。
+        /// ⚠️ 走 TataruPraise 的「宇宙停止」情境。那是新加的情境，既有使用者的<b>語音還沒合成</b>
+        /// ⇒ 預設開著也不會突然多出聲音，要自己去 TataruPraise 按一次合成才會響。
+        /// </remarks>
+        public bool PraiseOnAutomationStopped { get; set; } = true;
+
+        /// <summary>
+        /// 宇宙探索的自動化<b>卡住被迫停下</b>時，請 TataruPraise 念一句「需要幫忙」。
+        /// </summary>
+        /// <remarks>
+        /// 📌 只在「不是你想要的停止」時響：連續重骰仍找不到可接任務、目前職業在這個區域
+        /// 沒有可跑的任務、以及任務表對不上的錯誤路徑。正常收工走
+        /// <see cref="PraiseOnAutomationStopped"/>——兩件事念同一句話等於沒講。
+        /// ⚠️ 走 TataruPraise <b>既有</b>的「需要幫忙」情境，既有使用者本來就有那個情境的語音。
+        /// </remarks>
+        public bool PraiseOnAutomationStuck { get; set; } = true;
+
         #endregion
 
         #region Relic Settings

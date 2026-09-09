@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using YamlDotNet.Core.Tokens;
 using static ECommons.UIHelpers.AddonMasterImplementations.AddonMaster;
 using static ICE.Utilities.CosmicHelper;
+using ICE.IPC;
 
 namespace ICE.Scheduler.Tasks
 {
@@ -38,6 +39,7 @@ namespace ICE.Scheduler.Tasks
                 if (C.StopWhenLevel && Player.Level >= C.TargetLevel)
                 {
                     SchedulerMain.State = IceState.Idle;
+                    TataruPraiseIPC.NotifyStopped("等級達到設定的上限");
                     IceLogging.ChatInfo("Stop At Player Level is enabled. \nYour current level is: ?? and Goal: ??".Loc(Player.Level, C.TargetLevel), "[I.C.E.]");
                     if (C.PlaySoundAlert)
                     {
@@ -54,6 +56,7 @@ namespace ICE.Scheduler.Tasks
                     {
                         IceLogging.ChatInfo("Stop At Cosmic Score is enabled. \nYour current level is: ?? and Goal: ??".Loc(scores.classScore, C.CosmicScoreCap), "[I.C.E.]");
                         SchedulerMain.State = IceState.Idle;
+                        TataruPraiseIPC.NotifyStopped("宇宙評分達到設定的上限");
                         if (C.PlaySoundAlert)
                         {
                             _ = SoundPlayer.PlaySoundAsync();
@@ -76,6 +79,7 @@ namespace ICE.Scheduler.Tasks
                         {
                             IceLogging.ChatInfo("You've either hit the Lunar Credit threshold, or gone above it.\nStopping I.C.E.".Loc(), "[I.C.E.]");
                             SchedulerMain.State = IceState.Idle;
+                            TataruPraiseIPC.NotifyStopped("月靈點達到設定的上限");
                             if (C.PlaySoundAlert)
                             {
                                 _ = SoundPlayer.PlaySoundAsync();
@@ -90,6 +94,7 @@ namespace ICE.Scheduler.Tasks
                     {
                         IceLogging.ChatInfo("Stopping the plugin as you have ?? Cosmocredits.".Loc(hud.CosmoCredit), "[I.C.E.]");
                         SchedulerMain.State = IceState.Idle;
+                        TataruPraiseIPC.NotifyStopped("宇宙點達到設定的上限");
                         if (C.PlaySoundAlert)
                         {
                             _ = SoundPlayer.PlaySoundAsync();
@@ -113,6 +118,7 @@ namespace ICE.Scheduler.Tasks
 
                         IceLogging.Info("You have met all necessary relic xp, and you have \"Stop on Relic Completion\" enabled, so stopping for now");
                         SchedulerMain.State = IceState.Idle;
+                        TataruPraiseIPC.NotifyStopped("靈器經驗值已經全滿");
                         if (C.PlaySoundAlert)
                         {
                             _ = SoundPlayer.PlaySoundAsync();
@@ -137,6 +143,7 @@ namespace ICE.Scheduler.Tasks
                         {
                             IceLogging.Info("You have met all necessary relic xp, and you have \"Stop on Relic Completion\" enabled, so stopping for now");
                             SchedulerMain.State = IceState.Idle;
+                            TataruPraiseIPC.NotifyStopped("靈器已經做到最終階段");
                             if (C.PlaySoundAlert)
                             {
                                 _ = SoundPlayer.PlaySoundAsync();
@@ -368,6 +375,7 @@ namespace ICE.Scheduler.Tasks
 
             IceLogging.ChatInfo("All standard missions have been graded gold (??/??). Stopping I.C.E.".Loc(golded, total), "[I.C.E.]");
             SchedulerMain.State = IceState.Idle;
+            TataruPraiseIPC.NotifyStopped("這個職業在這個區域的標準任務全部拿到金評");
             P.TaskManager.Tasks.Clear();
             if (C.PlaySoundAlert)
             {

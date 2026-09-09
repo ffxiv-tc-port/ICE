@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using ICE.IPC;
 
 namespace ICE.Scheduler.Tasks
 {
@@ -20,6 +21,7 @@ namespace ICE.Scheduler.Tasks
                 if (Mission_Settings.StopAfterCurrent)
                 {
                     SchedulerMain.State = IceState.Idle;
+                    TataruPraiseIPC.NotifyStopped("使用者選了跑完這輪就停（手動模式）");
                     Mission_Settings.StopAfterCurrent = false;
                     P.TaskManager.Tasks.Clear();
                 }

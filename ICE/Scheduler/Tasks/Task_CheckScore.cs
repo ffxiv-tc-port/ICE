@@ -8,6 +8,7 @@ using System.Reflection;
 using YamlDotNet.Core.Tokens;
 using static Dalamud.Interface.Utility.Raii.ImRaii;
 using static ECommons.UIHelpers.AddonMasterImplementations.AddonMaster;
+using ICE.IPC;
 
 namespace ICE.Scheduler.Tasks
 {
@@ -322,6 +323,7 @@ namespace ICE.Scheduler.Tasks
                         IceLogging.Error("We're homehow here, which means you've found a mission that doesn't exist?? Please let me know.\n" +
                                         $"MissionID (allegedly) {id}");
                         SchedulerMain.State = IceState.Idle;
+                        TataruPraiseIPC.NotifyNeedsHelp("遇到任務表裡不存在的任務 ID");
                         P.TaskManager.Tasks.Clear();
                         return true;
                     }
