@@ -171,7 +171,15 @@ namespace ICE.Scheduler.Tasks
                         if (!TryGetSpiritbondTextNode(addonMaterialize, out var spiritbondTextNode))
                             return false;
 
-                        var spiritbondText = spiritbondTextNode->NodeText.ToString();
+                        // 🔴 ToString() 就是 Encoding.UTF8.GetString(AsSpan())，不剝 SeString payload
+                        //    ⇒ 含 payload 的文字必定解出 U+FFFD ⇒ 下面那道守衛永遠成立、精製永遠不動作。
+                        //    GetText() 底下是 MemoryHelper.ReadSeString，只保留 TextPayload。
+                        // ⚠️ StringPtr 為 null 而 Length 還留著殘值時，AsSpan() 會建出長度非零、
+                        //    指向位址 0 的 Span ⇒ 攔不到的存取違規。判空後比照守衛擋下處理。
+                        if (!spiritbondTextNode->NodeText.StringPtr.HasValue)
+                            return false;
+
+                        var spiritbondText = spiritbondTextNode->NodeText.GetText();
                         // 讀到 U+FFFD ＝ 視窗記憶體正在變動（多半是關閉中），這一幀不碰。
                         if (AddonPressGuard.IsTextCorrupt("Materialize", spiritbondText))
                             return false;
