@@ -1,4 +1,5 @@
-﻿using FFXIVClientStructs.FFXIV.Client.Game.WKS;
+﻿using Dalamud.Interface.Colors;
+using FFXIVClientStructs.FFXIV.Client.Game.WKS;
 using ICE.Ui;
 using static ECommons.UIHelpers.AddonMasterImplementations.AddonMaster;
 
@@ -6,23 +7,49 @@ namespace ICE.Ui.DebugWindowTabs
 {
     internal class Hud_MissionInfo
     {
+        /// <summary>讀不到時畫這個 —— 刻意不畫 0，分數 0 本身是有效值。</summary>
+        private const string UnknownMark = "?";
+
+        /// <summary>有值就照畫，讀不到就畫灰色的「?」。</summary>
+        /// <remarks>
+        /// 🔴 為什麼不能沿用 <c>ImGui.Text($"{值}")</c>：那幾個 getter 是 <c>uint?</c>，
+        /// 而 <c>$"{(uint?)null}"</c> 渲染出來是<b>空字串</b> —— 表格上是一個空白格，
+        /// 看起來像「這個欄位不適用」而不是「這一幀讀不到」。「不知道」本身要在列上看得見。
+        /// </remarks>
+        private static void DrawValueOrUnknown(string? value)
+        {
+            if (value == null)
+                ImGui.TextColored(ImGuiColors.DalamudGrey, UnknownMark);
+            else
+                ImGui.Text(value);
+        }
+
         public static unsafe void Draw()
         {
-            uint currentScore = 0;
-            uint silverScore = 0;
-            uint goldScore = 0;
-
             if (GenericHelpers.TryGetAddonMaster<WKSMissionInfomation>("WKSMissionInfomation", out var x) && x.IsAddonReady)
             {
-                // ECommons 加固後四個分數 getter 都是 uint?(讀不到回 null);
-                // 這裡是除錯 HUD,顯示 0 即可。
-                currentScore = x.CurrentScore ?? 0;
-                silverScore = x.SilverScore ?? 0;
-                goldScore = x.GoldScore ?? 0;
+                // 🔴🔴 x.IsAddonReady 只驗 ULD 節點樹（IsVisible ＋ UldManager.LoadedState==Loaded
+                //    ＋ IsFullyLoaded），它<b>完全沒有驗 AtkValues</b> —— 而這幾個分數 getter 讀的正是
+                //    AtkValues 裡的字串指標。按下「回報結果」／「放棄任務」之後那扇窗有「正在關閉中」
+                //    的幾幀，IsAddonReady 三關照樣全過，此時去讀 AtkValues 字串就是攔不到的
+                //    AccessViolationException（AVE 在 .NET Core 是 corrupted-state exception，
+                //    try/catch 與任何例外隔離都無效）。
+                //    🔑 ICE 既有的讀窗守衛就是 AddonPressGuard.IsHeld —— Task_TurninMission 與
+                //    Task_AbandonMission 讀窗前都先問它（它的說明逐字寫著「被擋的那幾幀連文字都不去讀」），
+                //    只有這個除錯分頁漏了沒問，而它是每幀無條件讀。
+                var valuesReadable = !AddonPressGuard.IsHeld(
+                    "WKSMissionInfomation", x, AddonPressGuard.WksMissionExitPressKey);
+
+                // 🔑 讀不到一律留 null 讓下游畫「?」，不要 `?? 0` —— 分數 0 本身是有效值，
+                //    畫 0 會讓使用者以為「真的是 0 分」。同 repo 的 OverlayWindow 早就是這個做法
+                //    （CurrentScore?.ToString() ?? UnknownMark），原本只有這個分頁寫 `?? 0`。
+                var currentScore = valuesReadable ? x.CurrentScore?.ToString() : null;
+                var silverScore = valuesReadable ? x.SilverScore?.ToString() : null;
+                var goldScore = valuesReadable ? x.GoldScore?.ToString() : null;
 
                 var isAddonReady = AddonHelper.IsAddonActive("WKSMissionInfomation");
                 ImGui.Text($"Addon Ready: {isAddonReady}");
-                if (isAddonReady)
+                if (isAddonReady && valuesReadable)
                 {
                     ImGui.Text($"Node Text: {AddonHelper.GetNodeText("WKSMissionInfomation", 27)}");
                 }
@@ -45,7 +72,7 @@ namespace ICE.Ui.DebugWindowTabs
                     ImGui.Text("Current Score:".Loc());
 
                     ImGui.TableNextColumn();
-                    ImGui.Text($"{currentScore}");
+                    DrawValueOrUnknown(currentScore);
 
                     ImGui.TableNextRow();
 
@@ -53,7 +80,7 @@ namespace ICE.Ui.DebugWindowTabs
                     ImGui.Text("Silver Score:".Loc());
 
                     ImGui.TableNextColumn();
-                    ImGui.Text($"{silverScore}");
+                    DrawValueOrUnknown(silverScore);
 
                     ImGui.TableNextRow();
 
@@ -61,14 +88,23 @@ namespace ICE.Ui.DebugWindowTabs
                     ImGui.Text("Gold Score:".Loc());
 
                     ImGui.TableNextColumn();
-                    ImGui.Text($"{goldScore}");
+                    DrawValueOrUnknown(goldScore);
 
                     ImGui.TableNextRow();
                     ImGui.TableSetColumnIndex(0);
                     ImGui.Text("Critical Value:".Loc());
 
                     ImGui.TableNextColumn();
-                    ImGui.Text($"{x.CriticalScore}");
+                    // 🔴 CriticalScore 是 uint?，$"{null}" 會渲染成空字串（看起來像「不適用」）。
+                    //    讀得到但解析不出可信數字時，一併印出面板原字串 —— CriticalScoreRaw 存在的
+                    //    理由就是診斷：光看 null 分不出「面板還沒載入」與「載入了但格式跟預期不一樣」。
+                    if (!valuesReadable)
+                        ImGui.TextColored(ImGuiColors.DalamudGrey, UnknownMark);
+                    else if (x.CriticalScore is uint criticalScore)
+                        ImGui.Text($"{criticalScore}");
+                    else
+                        ImGui.TextColored(ImGuiColors.DalamudGrey,
+                            $"{UnknownMark}（面板原字串：「{x.CriticalScoreRaw ?? "尚未載入"}」）");
 
                     ImGui.TableNextRow();
                     ImGui.TableSetColumnIndex(0);
@@ -165,7 +201,14 @@ namespace ICE.Ui.DebugWindowTabs
 
                 // 目標進度的原始資料傾印。之後若要把來源從「走訪節點樹」改成寫死的
                 // AtkValue 索引（比較便宜），就靠這裡的輸出來校準 —— 不要用猜的。
-                if (ImGui.CollapsingHeader("Objective progress raw dump###ICEObjectiveDump"))
+                // 🔴 這段會走訪 addon 的節點樹與 AtkValues（MissionObjectiveReader 自己有判空與
+                //    深度上限，但關閉中的那幾幀連走訪都不該做，理由同上面的 valuesReadable）。
+                if (!valuesReadable)
+                {
+                    ImGui.TextColored(ImGuiColors.DalamudGrey,
+                        $"Objective progress raw dump: {UnknownMark}（視窗正在關閉中，這一幀不讀）");
+                }
+                else if (ImGui.CollapsingHeader("Objective progress raw dump###ICEObjectiveDump"))
                 {
                     if (ImGui.Button("Copy to clipboard###ICEObjectiveDumpCopy".Loc()))
                         ImGui.SetClipboardText(string.Join("\n", MissionObjectiveReader.DumpDiagnostics()));
