@@ -36,9 +36,35 @@ namespace ICE.Scheduler.Tasks
                 return false;
             }
 
+            const string handle = "[Task_DualClass | Check Materials]";
+
+            // 🔴 底下有兩條破壞性出口（「沒箱子了 → AbandonMission + Tasks.Clear()」、
+            //    「材料不夠 → Tasks.Clear() + 切去採集」），兩條都只看 GetItemCount 的結果。
+            //    傳送／換區途中那個 API 一律回 0，於是「身上有材料」跟「現在讀不到」
+            //    會得到一模一樣的結論。
+            if (!PlayerHelper.InventoryReadable())
+            {
+                if (EzThrottler.Throttle("ICE: dualclass inventory unreadable log", 5000))
+                    IceLogging.Info("玩家目前處於傳送／讀取中，暫停雙職業材料檢查" +
+                                    "（此時道具數量讀出來會全是 0，會被誤判成沒材料）。", handle);
+                return false;
+            }
+
+            // SheetMissionDict 沒有 key 0，而遊戲端取消任務時 CurrentLunarMission 就是 0。
+            if (SchedulerMain.CurrentMissionUnavailable(handle, out var mission))
+                return true;
+
             var id = CosmicHelper.CurrentLunarMission;
-            var mission = CosmicHelper.SheetMissionDict[id];
-            var missionConfig = C.MissionConfig[id];
+
+            // MissionConfig 的鍵集合跟 SheetMissionDict 不一樣（前者被 MissionTimer 按需補上），
+            // 所以「任務在 SheetMissionDict 裡」不代表「它也在 MissionConfig 裡」，要分開守。
+            if (!C.MissionConfig.TryGetValue(id, out var missionConfig))
+            {
+                IceLogging.ChatError($"任務 {id} 沒有對應的 MissionConfig，雙職業流程無法判斷回報條件。", "[ICE]");
+                SchedulerMain.AbortToStateCheck();
+                return true;
+            }
+
             var crafterJobId = mission.Jobs.Where(x => CosmicHelper.CrafterJobList.Contains(x)).FirstOrDefault();
             var gatheringJobId = mission.Jobs.Where(x => CosmicHelper.GatheringJobList.Contains(x)).FirstOrDefault();
 
@@ -47,7 +73,7 @@ namespace ICE.Scheduler.Tasks
             var recipeId = mission.Crafts_Main.Keys.FirstOrDefault();
             var itemId = mainCraft.ItemId;
 
-            var gatherProfileId = C.MissionConfig[id].GProfileId;
+            var gatherProfileId = missionConfig.GProfileId;
             var dualCraftAmount = 3;
 
             if (missionConfig.TurninGold || missionConfig.AutoTurnin)
@@ -110,7 +136,9 @@ namespace ICE.Scheduler.Tasks
             {
                 if (GenericHelpers.TryGetAddonByName("Gathering", out AtkUnitBase* gather) && GenericHelpers.IsAddonReady(gather))
                 {
-                    if (EzThrottler.Throttle("Closing Gathering Window"))
+                    // -1 是關窗：關閉中的那幾幀 IsAddonReady 仍過、本步每幀重跑，500ms 節流不是防護。擋下＝這一幀不送。
+                    if (EzThrottler.Throttle("Closing Gathering Window")
+                        && AddonPressGuard.TryBeginPress("雙職業：關閉採集視窗", "Gathering", gather, AddonPressGuard.BuildPressKey(true, -1)))
                         ECommons.Automation.Callback.Fire(gather, true, -1);
                 }
                 else if (Player.JobId == 18)
@@ -127,9 +155,20 @@ namespace ICE.Scheduler.Tasks
                 return false;
             }
 
+            // 前一次要求製作完全沒有進展時的退避期（同 Task_Craft.CheckMaterials）。
+            if (!CraftProgressGuard.MayAttemptNow(out var waitSeconds))
+            {
+                if (EzThrottler.Throttle("ICE: dualclass craft backoff log", 5000))
+                    IceLogging.Info(
+                        $"上一次要求 Artisan 製作沒有任何進展（連續第 {CraftProgressGuard.ConsecutiveFailures} 次），"
+                        + $"退避中，還要等 {waitSeconds:0.0} 秒。", "[Task_DualClass: Check Craft State]");
+                return false;
+            }
+
             if (PlayerHelper.GetItemCount(itemId, out var count) && count < dualCraftAmount)
             {
                 // We have enough to craft. Telling it to craft the item... x amount of times
+                CraftProgressGuard.Arm(recipeId, itemId, mainCraft.RequiredItems);
                 P.Artisan.CraftItem(recipeId, dualCraftAmount);
                 P.TaskManager.Tasks.Clear();
                 InsertArtisanWait();
@@ -139,6 +178,7 @@ namespace ICE.Scheduler.Tasks
             else
             {
                 // We have enough for atleast 1 more craft, telling artisan to craft. Uno mas.
+                CraftProgressGuard.Arm(recipeId, itemId, mainCraft.RequiredItems);
                 P.Artisan.CraftItem(recipeId, 1);
                 P.TaskManager.Tasks.Clear();
                 InsertArtisanWait();
@@ -153,8 +193,9 @@ namespace ICE.Scheduler.Tasks
 
             IceLogging.Debug("Starting 'Check Gather State'");
 
-            var id = CosmicHelper.CurrentLunarMission;
-            var mission = CosmicHelper.SheetMissionDict[id];
+            if (SchedulerMain.CurrentMissionUnavailable(handle, out var mission))
+                return true;
+
             var crafterJobId = mission.Jobs.Where(x => CosmicHelper.CrafterJobList.Contains(x)).FirstOrDefault();
             var gatheringJobId = mission.Jobs.Where(x => CosmicHelper.GatheringJobList.Contains(x)).FirstOrDefault();
 
@@ -162,7 +203,9 @@ namespace ICE.Scheduler.Tasks
             {
                 if (GenericHelpers.TryGetAddonByName("WKSRecipeNotebook", out AtkUnitBase* moonCraft) && GenericHelpers.IsAddonReady(moonCraft))
                 {
-                    if (EzThrottler.Throttle("Exiting out of the gathering state"))
+                    // -1 是關窗：關閉中的那幾幀仍會進來。擋下＝這一幀不送，照舊 return false。
+                    if (EzThrottler.Throttle("Exiting out of the gathering state")
+                        && AddonPressGuard.TryBeginPress("雙職業：關閉宇宙製作筆記", "WKSRecipeNotebook", moonCraft, AddonPressGuard.BuildPressKey(true, -1)))
                         ECommons.Automation.Callback.Fire(moonCraft, true, -1);
                 }
                 return false;
@@ -170,7 +213,9 @@ namespace ICE.Scheduler.Tasks
             else if (GenericHelpers.TryGetAddonMaster<Gathering>("Gathering", out var gatheringAddon))
             {
                 IceLogging.Info($"We're currently in the middle of gathering, so going to just swap over to interacting with the gathering node", handle);
-                P.TaskManager.Enqueue(() => GatheringInteraction(), "Interacting with the gathering node");
+                // 要帶 Utils.TaskConfig（與 Task_Gather.Enqueue() 一致）：
+                // 採一個點（含技能、暈眩、GP 等待）超過 30 秒很常見。
+                P.TaskManager.Enqueue(() => GatheringInteraction(), "Interacting with the gathering node", Utils.TaskConfig);
                 return true;
             }
             else if (Player.JobId != gatheringJobId)
@@ -181,7 +226,7 @@ namespace ICE.Scheduler.Tasks
             }
             else if (Player.JobId == 16 || Player.JobId == 17)
             {
-                bool selfRepairGather = C.SelfRepairGather && PlayerHelper.NeedsRepair(C.RepairPercent);
+                bool selfRepairGather = C.SelfRepairGather && !Task_Repair.SelfRepairGaveUp && PlayerHelper.NeedsRepair(C.RepairPercent);
 
                 if (selfRepairGather)
                 {
@@ -196,14 +241,16 @@ namespace ICE.Scheduler.Tasks
 
                 // Us getting here means that we're fresh into the node gathering. So just going to queue up the rest of the gathering process.
                 IceLogging.Info("You've gotten to this point so. Queueing up checking the gathering location, pathing to node, and navmesh movement", handle);
-                P.TaskManager.Enqueue(() => Task_Gather.CheckCurrentLocation(), "Checking Gathering Location Info");
-                P.TaskManager.Enqueue(() => Task_Gather.PathandCheckNode(), "Pathing to the gathering node");
+                // PathandCheckNode 是 vnav 走去採集點，分鐘級。預設 30 秒 + AbortOnTimeout
+                // 會在半路把整個佇列清掉（含後面的採集步驟），而且不留任何訊息。
+                P.TaskManager.Enqueue(() => Task_Gather.CheckCurrentLocation(), "Checking Gathering Location Info", Utils.TaskConfig);
+                P.TaskManager.Enqueue(() => Task_Gather.PathandCheckNode(), "Pathing to the gathering node", Utils.TaskConfig);
                 return true;
             }
             else if (Player.JobId == 18)
             {
                 IceLogging.Info("We're on a fishing job, so going fishing.", handle);
-                bool selfRepairGather = C.SelfRepairGather && PlayerHelper.NeedsRepair(C.RepairPercent);
+                bool selfRepairGather = C.SelfRepairGather && !Task_Repair.SelfRepairGaveUp && PlayerHelper.NeedsRepair(C.RepairPercent);
 
                 if (selfRepairGather)
                 {
@@ -216,7 +263,9 @@ namespace ICE.Scheduler.Tasks
                     );
                 }
 
-                P.TaskManager.Enqueue(() => FishingCheck(), "Checking to see what to fish for");
+                // 要帶 Utils.TaskConfig（與 Task_Fishing.Enqueue() 的 FishingCheck 一致）：
+                // 等咬鉤本來就會連續回 false 好幾分鐘。
+                P.TaskManager.Enqueue(() => FishingCheck(), "Checking to see what to fish for", Utils.TaskConfig);
                 return true;
             }
 
@@ -228,6 +277,15 @@ namespace ICE.Scheduler.Tasks
             if (!P.Artisan.IsBusy())
             {
                 IceLogging.Info("Artisan is no longer running, continuing the process");
+
+                // 同 Task_Craft.WaitingForArtisan：「Artisan 不忙了」不等於「做出東西來了」。
+                CraftProgressGuard.OnArtisanStopped("[Task_DualClass: Waiting For Artisan]");
+                if (CraftProgressGuard.LimitReached)
+                {
+                    CraftProgressGuard.ReportAndStop("[Task_DualClass: Waiting For Artisan]");
+                    return true;
+                }
+
                 P.TaskManager.Tasks.Clear();
                 return true;
             }
@@ -261,18 +319,25 @@ namespace ICE.Scheduler.Tasks
 
         public static unsafe bool? GatheringInteraction()
         {
-            var missionInfo = CosmicHelper.CurrentMissionInfo;
+            if (SchedulerMain.CurrentMissionUnavailable("[Task_DualClass | Gathering Interaction]", out var missionInfo))
+                return true;
+
             bool collectableItem = missionInfo.Attributes.HasFlag(MissionAttributes.Collectables);
             bool reduceItems = missionInfo.Attributes.HasFlag(MissionAttributes.ReducedItems);
-            var configId = C.MissionConfig[CosmicHelper.CurrentLunarMission].GProfileId;
-            if (C.GatherProfiles.TryGetValue(configId, out var gatherConfig))
+            // MissionConfig 的鍵集合跟 SheetMissionDict 不同，要分開守；查不到就退回預設採集設定檔。
+            var configId = C.MissionConfig.TryGetValue(CosmicHelper.CurrentLunarMission, out var gatherMissionConfig)
+                ? gatherMissionConfig.GProfileId
+                : 0;
+            // GatherProfiles 也要 TryGetValue：設定檔裡沒有 0 號採集設定檔（使用者刪掉、或設定檔壞掉）時
+            // 直接索引就是 KeyNotFoundException。同 Task_Gather 的處置。
+            if (!C.GatherProfiles.TryGetValue(configId, out var gatherConfig) &&
+                !C.GatherProfiles.TryGetValue(0, out gatherConfig))
             {
+                IceLogging.ChatError("找不到任何可用的採集設定檔（連預設的 0 號都沒有），無法自動採集。", "[ICE]");
+                SchedulerMain.AbortToStateCheck();
+                return true;
+            }
 
-            }
-            else
-            {
-                gatherConfig = C.GatherProfiles[0];
-            }
             var gathActions = GatheringUtil.GathActionDict;
 
             var collectorBuffs = GatheringUtil.GathCollectableBuffs;
@@ -330,7 +395,10 @@ namespace ICE.Scheduler.Tasks
                             if (EzThrottler.Throttle("Gathering item for score"))
                             {
                                 // if we're here, then we just need to gather for score. So... gathering for score lol
-                                gather.GatheredItems.Where(x => x.ItemID != 0).FirstOrDefault().Gather();
+                                // 採集窗按後不關（直到耐久歸 0），屬多次互動窗：逃生口 15 幀，key 帶道具 ID。
+                                var scoreItem = gather.GatheredItems.Where(x => x.ItemID != 0).FirstOrDefault();
+                                if (AddonPressGuard.TryBeginPress("雙職業：為分數採集", "Gathering", gather, $"Gather|{scoreItem.ItemID}", AddonPressGuard.RoutineRePressEscapeFrames))
+                                    scoreItem.Gather();
                             }
                         }
                         else
@@ -377,6 +445,11 @@ namespace ICE.Scheduler.Tasks
                 _fishingDebug = new FishingDebug();
             }
 
+            // 跟 Task_Fishing.FishingCheck() 同形狀：底下會直接解參考任務資料，
+            // 而遊戲端隨時可能把任務取消掉（CurrentLunarMission 變 0）。
+            if (SchedulerMain.CurrentMissionUnavailable(handle, out var currentMission))
+                return true;
+
             if (CosmicHelper.CurrentBait == 0)
             {
                 if (EzThrottler.Throttle("Equipping bait"))
@@ -387,8 +460,11 @@ namespace ICE.Scheduler.Tasks
                         {
                             if (PlayerHelper.GetItemCount(baitId, out var count) && count > 0)
                             {
-                                P.AutoHook.SwapBaitById(baitId);
-                                IceLogging.Debug($"Telling it to equip bait ID: {baitId}", handle);
+                                // 見 AutoHookIPC.TrySwapBait 的註解：不要直接叫 SwapBaitById，
+                                // 使用者的 AutoHook 可能還沒更新到有那支端點的版本。
+                                P.AutoHook.TrySwapBait(baitId);
+                                if (EzThrottler.Throttle("ICE: dualclass bait equip log", 5000))
+                                    IceLogging.Info($"目前沒有掛餌，要求裝上餌 ID {baitId}（{bait.Key}）。", handle);
                                 return false;
                             }
                         }
@@ -410,16 +486,16 @@ namespace ICE.Scheduler.Tasks
                     else
                     {
                         IceLogging.Debug("Our current fishing position isn't viable. So going to move to the next fishing spot");
-                        var mission = CosmicHelper.CurrentMissionInfo;
-                        var flag = mission.MapPosition;
-                        var territoryId = mission.TerritoryId;
+                        var flag = currentMission.MapPosition;
+                        var territoryId = currentMission.TerritoryId;
 
                         var nextFishingSpot = Task_Fishing.GetNextFishingSpot(territoryId, flag, Player.Position);
                         if (nextFishingSpot != null)
                         {
                             IceLogging.Info($"We found another fishing spot to move to! {nextFishingSpot.FishingSpot} | moving to it");
                             P.TaskManager.Tasks.Clear();
-                            P.TaskManager.Enqueue(() => Task_Fishing.InitiateMoving(nextFishingSpot.FishingSpot), "Vnav moving to fishing");
+                            // 同 Task_Fishing：vnav 移動是分鐘級，不能吃 30 秒的預設逾時。
+                            P.TaskManager.Enqueue(() => Task_Fishing.InitiateMoving(nextFishingSpot.FishingSpot), "Vnav moving to fishing", Utils.TaskConfig);
                             return true;
                         }
                     }
@@ -434,7 +510,7 @@ namespace ICE.Scheduler.Tasks
             else
             {
                 // Means we are fishing, all we need to do is enable autohook then wait for us to get the amount of fish we need
-                P.AutoHook.SetPluginState(true);
+                P.AutoHook.BorrowEnabled(handle);
                 IceLogging.Info("We're starting to fish. So kicking it over to checking the fish items", handle);
                 P.TaskManager.Insert(() => CheckItems(), "Checking for items to meet the quantity set", Utils.TaskConfig);
                 return true;
@@ -454,11 +530,20 @@ namespace ICE.Scheduler.Tasks
             else
             {
                 // Currently in the middle of gathering here. Going to check for just general item progress.
-                var mission = CosmicHelper.CurrentMissionInfo;
+                if (SchedulerMain.CurrentMissionUnavailable(handle, out var mission))
+                    return true;
+
+                if (!C.MissionConfig.TryGetValue(CosmicHelper.CurrentLunarMission, out var missionConfig))
+                {
+                    IceLogging.ChatError($"任務 {CosmicHelper.CurrentLunarMission} 沒有對應的 MissionConfig，" +
+                                         "無法判斷要收集幾個道具。", "[ICE]");
+                    SchedulerMain.AbortToStateCheck();
+                    return true;
+                }
+
                 if (EzThrottler.Throttle("Checking for current item count"))
                 {
                     var mainCraft = mission.Crafts_Main.Values.FirstOrDefault();
-                    var missionConfig = C.MissionConfig[CosmicHelper.CurrentLunarMission];
 
                     // Need to really figure out what all we need... 
                     // If going for gold, should really only need x3 of the item

@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using System.Numerics; // Add this for Vector2 and Vector3
+using System.Diagnostics.CodeAnalysis;
 
 namespace ICE.Utilities;
 
@@ -22,6 +23,7 @@ internal static class NpcData // Renamed the class to avoid conflict
     {
         public NpcType type { get; set; }
         public uint NpcId { get; set; }
+        public uint[] AlternateNpcIds { get; set; } = [];
         public string Name { get; set; }
         public Vector2 BoxCorner1 { get; set; }
         public Vector2 BoxCorner2 { get; set; }
@@ -32,6 +34,23 @@ internal static class NpcData // Renamed the class to avoid conflict
         public Vector3 Corner4 { get; set; }
     }
 
+    /// <summary>
+    /// 取得某個月面區域裡指定用途的 NPC。查不到就回 false —— <b>不要直接索引 MoonNpcs</b>。
+    /// </summary>
+    /// <remarks>
+    /// 🔴 <c>MoonNpcs</c> 只有兩個 key（1237 Sinus Ardorum／1291 Phaenna），而所有呼叫端
+    /// 傳進來的都是 <c>Player.Territory</c> —— 也就是<b>會在任務排隊到一半突然改變</b>的值。
+    /// </remarks>
+    public static bool TryGetMoonNpc(uint zoneId, NpcType type, [MaybeNullWhen(false)] out NPCInfo npc)
+    {
+        npc = null;
+        if (!MoonNpcs.TryGetValue(zoneId, out var list))
+            return false;
+
+        npc = list.FirstOrDefault(x => x.type == type);
+        return npc != null;
+    }
+
     public static Dictionary<uint, List<NPCInfo>> MoonNpcs = new() // Use NPCInfo instead of NpcInfo
     {
         [1237] = new List<NPCInfo>
@@ -40,6 +59,7 @@ internal static class NpcData // Renamed the class to avoid conflict
             {
                 type = NpcType.Repair,
                 NpcId = 1052610,
+                AlternateNpcIds = [1052589, 1052601, 1052609],
                 Name = "Godgyth",
                 NpcLocation = new Vector3(19.46f, 1.69f, 18.11f),
                 Corner1 = new Vector3(18.50f, 1.69f, 15.25f),
@@ -51,6 +71,7 @@ internal static class NpcData // Renamed the class to avoid conflict
             {
                 type = NpcType.Credit,
                 NpcId = 1052608,
+                AlternateNpcIds = [1052588, 1052600, 1052607],
                 Name = "Mesouaidonque",
                 NpcLocation = new Vector3(18.23f, 1.69f, 19.42f),
                 Corner1 = new Vector3(17.80f, 1.69f, 15.94f),
@@ -62,6 +83,7 @@ internal static class NpcData // Renamed the class to avoid conflict
             {
                 type = NpcType.Relic,
                 NpcId = 1052605,
+                AlternateNpcIds = [1052583, 1052586, 1052598],
                 Name = "Researchingway",
                 NpcLocation = new Vector3(-18.91f, 2.15f, 18.84f),
                 Corner1 = new Vector3(-14.67f, 1.69f, 19.09f),
@@ -73,6 +95,7 @@ internal static class NpcData // Renamed the class to avoid conflict
             {
                 type = NpcType.Gamba,
                 NpcId = 1052612,
+                AlternateNpcIds = [1052590, 1052602, 1052611],
                 Name = "Orbitingway",
                 NpcLocation = new Vector3(18.84f, 2.24f, -18.91f),
                 Corner1 = new Vector3(14.97f, 1.69f, -18.79f),
@@ -81,6 +104,10 @@ internal static class NpcData // Renamed the class to avoid conflict
                 Corner4 = new Vector3(13.96f, 1.69f, -17.90f),
             }
         },
+        // ⚠️ 第二顆星 Phaenna。整組資料都是上游照國際服寫的，台服**目前一筆也驗不了**（那些列尚未開放）。
+        //    🔴 上面 [1237] 的每個 NPC 都帶 AlternateNpcIds，因為**同一個 NPC 會依據據點的建設階段換成不同的 DataId**，
+        //    而上游只寫死了國際服當時那一階的值。這裡的 [1291] **沒有任何 AlternateNpcIds**，
+        //    所以台服開放 Phaenna 時幾乎一定會再中一次同一顆雷。
         [1291] = new List<NPCInfo>
         {
             new NPCInfo()

@@ -46,7 +46,7 @@ namespace ICE.Ui.DebugWindowTabs
         /// <returns>True if fishable, false otherwise</returns>
         public bool IsFishable(float? rotation = null)
         {
-            if (Svc.ClientState.LocalPlayer is not { } player)
+            if (Svc.Objects.LocalPlayer is not { } player)
                 return false;
 
             if (_raycastSimple == null)
@@ -68,7 +68,7 @@ namespace ICE.Ui.DebugWindowTabs
         {
             fishablePosition = null;
 
-            if (Svc.ClientState.LocalPlayer is not { } player)
+            if (Svc.Objects.LocalPlayer is not { } player)
                 return false;
 
             if (_raycastSimple == null)
@@ -164,7 +164,7 @@ namespace ICE.Ui.DebugWindowTabs
         {
             var fishableLocations = new List<(Vector3, float)>();
 
-            if (Svc.ClientState.LocalPlayer is not { } player)
+            if (Svc.Objects.LocalPlayer is not { } player)
                 return fishableLocations;
 
             if (_raycastSimple == null)
@@ -189,6 +189,15 @@ namespace ICE.Ui.DebugWindowTabs
         private bool CheckFishableAtRotation(Vector3 position, float rotation, out Vector3? hitPoint)
         {
             hitPoint = null;
+
+            // 🔴 Framework.Instance() 與 BGCollisionModule 都可能是 null：在函式入口一次取好、判空即放棄本次判定（回 false ＝ 這個角度不可釣），
+            //    失敗方向是「少列一個可釣點」而不是崩潰。
+            var framework = Framework.Instance();
+            if (framework == null)
+                return false;
+            var collisionModule = framework->BGCollisionModule;
+            if (collisionModule == null)
+                return false;
 
             var v8 = MathF.Cos(rotation);
             var v9 = MathF.Sin(rotation);
@@ -233,7 +242,7 @@ namespace ICE.Ui.DebugWindowTabs
 
             RaycastHit castHitInfo;
 
-            if (_raycastSimple(Framework.Instance()->BGCollisionModule, &castHitInfo, &rodPoint, &fishRayNormalized, fishRayLen, 1) == 1)
+            if (_raycastSimple(collisionModule, &castHitInfo, &rodPoint, &fishRayNormalized, fishRayLen, 1) == 1)
             {
                 // Check if material is fishable
                 if ((castHitInfo.Material & 0x8000) != 0)
@@ -248,7 +257,7 @@ namespace ICE.Ui.DebugWindowTabs
                     var extraHitTest = castHitInfo.Point + (fishRayNormalized * 0.01f);
                     RaycastHit castHitInfo2;
 
-                    if (_raycastSimple(Framework.Instance()->BGCollisionModule, &castHitInfo2, &extraHitTest, &fishRayNormalized, fishRayLen, 1) == 1)
+                    if (_raycastSimple(collisionModule, &castHitInfo2, &extraHitTest, &fishRayNormalized, fishRayLen, 1) == 1)
                     {
                         if ((castHitInfo2.Material & 0x8000) != 0)
                         {
@@ -264,7 +273,7 @@ namespace ICE.Ui.DebugWindowTabs
 
         public void Draw()
         {
-            if (Svc.ClientState.LocalPlayer is not { } player)
+            if (Svc.Objects.LocalPlayer is not { } player)
                 return;
 
             if (!ShowFishRay)
@@ -275,6 +284,17 @@ namespace ICE.Ui.DebugWindowTabs
                 ImGui.TextColored(new Vector4(1, 0, 0, 1), "Raycast not initialized!");
                 return;
             }
+
+            // 🔴 與 CheckFishableAtRotation 同一個形狀：Framework.Instance() 是 isPointer:true
+            //    的靜態位址（可能 null），BGCollisionModule 是 +0x2B58 的裸欄位（換區期間可能 null）。
+            //    交給原生 _raycastSimple 會是攔不到的 AVE。這裡是每幀繪製路徑，不記 log，
+            //    取不到就整段不畫（畫面少一條射線，不崩潰）。
+            var framework = Framework.Instance();
+            if (framework == null)
+                return;
+            var collisionModule = framework->BGCollisionModule;
+            if (collisionModule == null)
+                return;
 
             var position = player.Position;
             var rotation = player.Rotation;
@@ -350,7 +370,7 @@ namespace ICE.Ui.DebugWindowTabs
 
             RaycastHit castHitInfo;
 
-            if (_raycastSimple(Framework.Instance()->BGCollisionModule, &castHitInfo, &rodPoint, &fishRayNormalized, fishRayLen, 1) == 1)
+            if (_raycastSimple(collisionModule, &castHitInfo, &rodPoint, &fishRayNormalized, fishRayLen, 1) == 1)
             {
                 if ((castHitInfo.Material & 0x8000) != 0)
                 {
@@ -363,7 +383,7 @@ namespace ICE.Ui.DebugWindowTabs
                     var extraHitTest = castHitInfo.Point + (fishRayNormalized * 0.01f);
                     RaycastHit castHitInfo2;
 
-                    if (_raycastSimple(Framework.Instance()->BGCollisionModule, &castHitInfo2, &extraHitTest, &fishRayNormalized, fishRayLen, 1) == 1)
+                    if (_raycastSimple(collisionModule, &castHitInfo2, &extraHitTest, &fishRayNormalized, fishRayLen, 1) == 1)
                     {
                         drawCast(rodPoint, castHitInfo2.Point, (castHitInfo2.Material & 0x8000) == 0 ? Failure : Success);
                         return;

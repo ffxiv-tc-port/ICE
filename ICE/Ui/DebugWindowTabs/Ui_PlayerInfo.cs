@@ -10,17 +10,17 @@ namespace ICE.Ui.DebugWindowTabs
     {
         public static void Draw()
         {
-            ImGui.Text("Need to actually put the player info here. It got lost");
+            ImGui.Text("Need to actually put the player info here. It got lost".Loc());
             ImGui.Spacing();
             ImGui.AlignTextToFramePadding();
             ImGui.Text($"Player Position: X:{Player.Position.X:N2}, Y:{Player.Position.Y:N2}, Z:{Player.Position.Z:N2}");
             ImGui.SameLine();
-            if (ImGui.Button("Copy Vector2"))
+            if (ImGui.Button("Copy Vector2".Loc()))
             {
                 ImGui.SetClipboardText($"{Player.Position.X:N2}f, {Player.Position.Z:N2}f");
             }
             ImGui.SameLine();
-            if (ImGui.Button("Copy Vector3"))
+            if (ImGui.Button("Copy Vector3".Loc()))
             {
                 ImGui.SetClipboardText($"{Player.Position.X:N2}f, {Player.Position.Y:N2}f, {Player.Position.Z:N2}f");
             }
@@ -51,17 +51,20 @@ namespace ICE.Ui.DebugWindowTabs
                 if (PlayerHelper.GetItemCount(item.Id, out var count) && count > 0)
                     ImGui.Text($"{item.Name} | {item.Id}");
             }
-            if (ImGui.Button("Use Gathering Food"))
+            if (ImGui.Button("Use Gathering Food".Loc()))
             {
                 P.TaskManager.Enqueue(() => Task_Gather.UseFood());
             }
+
+            ImGui.Text($"Collectables unlocked (quest {CollectableUnlock.CollectablesQuestId}): {CollectableUnlock.IsCollectablesUnlocked()?.ToString() ?? "?"}");
+            ImGui.Text($"Aetherial reduction unlocked (quest {CollectableUnlock.ReductionQuestId}): {CollectableUnlock.IsReductionUnlocked()?.ToString() ?? "?"}");
 
             ClassInfo();
         }
 
         private static unsafe void ClassInfo()
         {
-            ImGui.Text("Manipulation Check");
+            ImGui.Text("Manipulation Check".Loc());
             Dictionary<uint, uint> ManipClassInfo = new()
             {
                 [8] = 4574,
@@ -76,7 +79,8 @@ namespace ICE.Ui.DebugWindowTabs
 
             foreach (var job in ManipClassInfo)
             {
-                var isUnlocked = ActionManager.Instance()->GetActionStatus(ActionType.Action, job.Value, checkRecastActive: false, checkCastingActive: false) is 574 or 586;
+                var isUnlocked = ActionManager.Instance()->GetActionStatus(ActionType.Action, job.Value, checkRecastActive: false, checkCastingActive: false)
+                    is PlayerHelper.ActionStatusWrongClassJob or PlayerHelper.ActionStatusCraftingOnly;
                 ImGui.Text($"JobId: {job.Key} | Unlocked: {isUnlocked}");
                 // 573 | Not unlocked??? 
                 // 574 | Is unlocked

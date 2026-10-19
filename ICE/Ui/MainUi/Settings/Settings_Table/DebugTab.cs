@@ -7,12 +7,17 @@ using System.Threading.Tasks;
 
 namespace ICE.Ui.MainUi.Settings.Settings_Table
 {
+    // 🔴 死碼：全 repo 零呼叫端（靜態掃描；本 repo 沒有任何反射式 UI 探索 ——
+    //    唯一的反射是 IceLogging 的 StackFrame.GetMethod()，與 UI 無關，所以靜態掃描即權威）。
+    //    ⚠️ 與 /ice d 開的 DebugWindow 無關 —— 那個走 Ui/DebugWindow.cs ＋ Ui/DebugWindowTabs/，
+    //       是另一套完全不同的東西。不要因為名字像就把兩者當同一個。
+    //    保留不刪（使用者裁決：死碼只要確認真的死，不用刪）。
     internal class DebugTab
     {
         public static void Draw()
         {
-            ImGui.Checkbox("Force OOM Main", ref SchedulerMain.DebugOOMMain);
-            ImGui.Checkbox("Force OOM Sub", ref SchedulerMain.DebugOOMSub);
+            ImGui.Checkbox("Force OOM Main".Loc(), ref SchedulerMain.DebugOOMMain);
+            ImGui.Checkbox("Force OOM Sub".Loc(), ref SchedulerMain.DebugOOMSub);
             // ImGui.Checkbox("Legacy Failsafe WKSRecipe Select", ref C.FailsafeRecipeSelect);
 
             var missionMap = new List<(string name, Func<byte> get, Action<byte> set)>
@@ -27,7 +32,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 .OrderBy(m => m.Priority)
                 .ToList();
 
-            if (ImGui.Button("Get Sinus Forecast"))
+            if (ImGui.Button("Get Sinus Forecast".Loc()))
             {
                 List<WeatherForecast> forecast = WeatherForecastHandler.GetTerritoryForecast(1237);
                 Func<WeatherForecast, string> formatTime = (forecast) => WeatherForecastHandler.FormatForecastTime(forecast.Time);
@@ -49,13 +54,13 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
             using (ImRaii.Disabled(!PlayerHelper.IsInCosmicZone()))
             {
-                if (ImGui.Button("Refresh Forecast"))
+                if (ImGui.Button("Refresh Forecast".Loc()))
                 {
                     WeatherForecastHandler.GetForecast();
                 }
             }
             bool gatherDebug = C.ShowDebugGatherInfo;
-            if (ImGui.Checkbox("Show Gather Debug Info", ref gatherDebug))
+            if (ImGui.Checkbox("Show Gather Debug Info".Loc(), ref gatherDebug))
             {
                 C.ShowDebugGatherInfo = gatherDebug;
                 C.Save();

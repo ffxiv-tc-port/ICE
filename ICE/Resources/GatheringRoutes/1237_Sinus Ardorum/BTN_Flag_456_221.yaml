@@ -4,8 +4,8 @@ job: BTN
 flag:
   x: 456
   y: 221
-author: Puni.sh Community
-date_modified: 2025-12-15T02:28:29.5717184Z
+author: "Puni.sh Community; angle data: Leontopodium Nivale"
+date_modified: 2026-06-08T14:44:24.0871853Z
 nodes:
 - node_id: 35143
   position:
@@ -17,9 +17,9 @@ nodes:
     y: 32.62
     z: 189.4
   radius_start: 0
-  radius_end: 360
+  radius_end: 359
   min_distance: 1
-  max_distance: 5
+  max_distance: 2
 - node_id: 35150
   position:
     x: 441.48
@@ -30,9 +30,9 @@ nodes:
     y: 33.22
     z: 186.48
   radius_start: 0
-  radius_end: 360
+  radius_end: 359
   min_distance: 1
-  max_distance: 5
+  max_distance: 2
 - node_id: 35147
   position:
     x: 439.68
@@ -42,10 +42,10 @@ nodes:
     x: 439.92
     y: 33.71
     z: 210.52
-  radius_start: 0
-  radius_end: 360
+  radius_start: 197
+  radius_end: 130
   min_distance: 1
-  max_distance: 5
+  max_distance: 2
 - node_id: 35148
   position:
     x: 460.41
@@ -55,10 +55,10 @@ nodes:
     x: 460.12
     y: 33.59
     z: 206.25
-  radius_start: 0
-  radius_end: 360
+  radius_start: 73
+  radius_end: 72
   min_distance: 1
-  max_distance: 5
+  max_distance: 2
 - node_id: 35149
   position:
     x: 468.54
@@ -68,10 +68,10 @@ nodes:
     x: 468.2
     y: 34.34
     z: 216.77
-  radius_start: 0
-  radius_end: 360
+  radius_start: 101
+  radius_end: 100
   min_distance: 1
-  max_distance: 5
+  max_distance: 2
 - node_id: 35144
   position:
     x: 459.23
@@ -81,10 +81,10 @@ nodes:
     x: 459.71
     y: 34.33
     z: 234.41
-  radius_start: 0
-  radius_end: 360
+  radius_start: 21
+  radius_end: 320
   min_distance: 1
-  max_distance: 5
+  max_distance: 2
 - node_id: 35145
   position:
     x: 454.67
@@ -94,10 +94,10 @@ nodes:
     x: 454.88
     y: 34.04
     z: 254.43
-  radius_start: 0
-  radius_end: 360
+  radius_start: 304
+  radius_end: 243
   min_distance: 1
-  max_distance: 5
+  max_distance: 2
 - node_id: 35146
   position:
     x: 461.14
@@ -107,7 +107,7 @@ nodes:
     x: 461.07
     y: 34.47
     z: 267.78
-  radius_start: 0
-  radius_end: 360
+  radius_start: 122
+  radius_end: 30
   min_distance: 1
-  max_distance: 5
+  max_distance: 2

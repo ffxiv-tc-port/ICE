@@ -2,6 +2,7 @@
 using ICE.Ui.MainUi.Settings.Settings_Table;
 using ICE.Utilities.Cosmic_Helper;
 using ICE.Utilities.GatheringHelper;
+using ICE.Utilities.MechaOps;
 using Lumina.Excel.Sheets;
 using System;
 using System.Collections.Generic;
@@ -240,7 +241,11 @@ namespace ICE.Config
             }
             if (C.ConfigVersion == 2)
             {
-                foreach (var mission in C.MissionConfig.Where(x => x.Key > 544 && CosmicHelper.SheetMissionDict[x.Key].Jobs.Contains(18)))
+                // 🔴 這個 Where 選的是 key > 544；SheetMissionDict 不一定有那些 key，所以一定要用 TryGetValue：
+                //    遷移是在外掛載入時跑的，這裡丟例外＝外掛直接載不起來。
+                foreach (var mission in C.MissionConfig.Where(x => x.Key > 544
+                                                                   && CosmicHelper.SheetMissionDict.TryGetValue(x.Key, out var m)
+                                                                   && m.Jobs.Contains(18)))
                 {
                     var id = mission.Key;
                     if (GatheringUtil.FishingPreset.TryGetValue(id, out var fishPreset) && fishPreset.FishingPreset.Count > 0)
@@ -429,10 +434,77 @@ namespace ICE.Config
                 C.ConfigVersion = 11;
                 C.Save();
             }
+            if (C.ConfigVersion == 11)
+            {
+                MigrateMechaGlobalSlidersToPerSkill();
+                C.ConfigVersion = 12;
+                C.Save();
+            }
+        }
+
+        /// <summary>
+        /// 機甲行動的兩個<b>全域</b>形狀滑桿（宇宙火焰噴射器扇形角度／宇宙鑽頭矩形長度）
+        /// 收斂進 per-skill 覆蓋。
+        /// 🔴 <b>這是保值不是改行為</b>：搬完之後每一個技能的**效果值逐一相同**。
+        /// ⚠️ 舊鍵本身<b>留在設定檔裡不刪</b>：萬一日後發現搬錯，原值還在；
+        /// 程式從這一版起不再讀它們。
+        /// </summary>
+        private static void MigrateMechaGlobalSlidersToPerSkill()
+        {
+            // ⚠️ 不要改成引用 MechaActionShapes 的常數然後「順手」調整——
+            //    這裡要比對的是**舊鍵的預設**，不是新的內建值；兩者現在剛好相等，
+            //    但日後若調了內建值，這個比對必須維持在舊的那個數字上。
+            const float legacyConeDefault = 240f;
+            const float legacyDrillDefault = 4f;
+
+            Migrate(MechaActionShapes.CosmicFlamethrowerActionId, C.MechaConeAngleDeg, legacyConeDefault,
+                ov => ov.AngleDeg != null, (ov, v) => ov.AngleDeg = v, "扇形角度");
+
+            Migrate(MechaActionShapes.CosmicDrillActionId, C.MechaDrillLength, legacyDrillDefault,
+                ov => ov.Primary != null, (ov, v) => ov.Primary = v, "矩形長度");
+
+            static void Migrate(uint actionId, float legacyValue, float legacyDefault,
+                Func<MechaShapeOverride, bool> alreadyOverridden, Action<MechaShapeOverride, float> apply, string what)
+            {
+                // 沒調過就不留痕跡——內建值與舊預設相同，效果一樣。
+                if (Math.Abs(legacyValue - legacyDefault) < 0.001f)
+                    return;
+
+                if (C.MechaShapeOverrides.TryGetValue(actionId, out var existing) && existing != null)
+                {
+                    if (alreadyOverridden(existing))
+                    {
+                        IceLogging.Info(
+                            $"機甲形狀設定遷移：技能 {actionId} 的{what}已經有 per-skill 覆蓋，"
+                            + $"保留覆蓋、不套用舊的全域值 {legacyValue:F1}（覆蓋本來就優先）。",
+                            "[ConfigMigrator]");
+                        return;
+                    }
+                }
+                else
+                {
+                    existing = new MechaShapeOverride();
+                    C.MechaShapeOverrides[actionId] = existing;
+                }
+
+                apply(existing, legacyValue);
+                IceLogging.Info(
+                    $"機甲形狀設定遷移：舊的全域{what} {legacyValue:F1} 已搬進技能 {actionId} 的個別覆蓋（效果值不變）。",
+                    "[ConfigMigrator]");
+            }
         }
 
         public static void UpdateConfigMissionList()
         {
+            // 🔴 key 0 是既有使用者設定檔裡可能殘留的垃圾資料（MissionTimer.AbandonMission() 曾在 currentMission 歸零時寫入）。
+            //    0 不是任務表的 row，任何「迭代 MissionConfig 再索引 SheetMissionDict」的地方都會被它炸掉。
+            //    寫入端的哨兵在 MissionTimer；這裡清掉既有檔案裡的殘留（Remove 回 false 就不存檔，冪等）。
+            if (C.MissionConfig.Remove(0))
+            {
+                IceLogging.Warning("已從任務設定中移除無效的任務 ID 0。", "[Config Migrator]");
+                C.Save();
+            }
+
             foreach (var entry in CosmicHelper.SheetMissionDict)
             {
                 var id = entry.Key;

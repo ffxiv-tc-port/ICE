@@ -22,14 +22,14 @@ namespace ICE.Ui.DebugWindowTabs
 
         public static void Draw()
         {
-            if (Svc.ClientState.LocalPlayer != null)
-                currentPos = Svc.ClientState.LocalPlayer.Position;
+            if (Svc.Objects.LocalPlayer != null)
+                currentPos = Svc.Objects.LocalPlayer.Position;
             else
                 currentPos = new Vector3(0, 0, 0);
 
             ImGui.Text($"Current pos: {currentPos.X:N2} | {currentPos.Y:N2} | {currentPos.Z:N2}");
 
-            if (ImGui.Button("Add Position"))
+            if (ImGui.Button("Add Position".Loc()))
             {
                 finalPath.Add(currentPos);
             }

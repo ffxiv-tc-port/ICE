@@ -201,6 +201,7 @@ MissionID,Class,MissionName,Score
 200,LTW,Test Material Gloves,17
 201,LTW,High-grade Rest Lounges,17
 202,LTW,High-durability Leather String,54
+203,LTW,Premium-grade Paper,51
 204,LTW,Research Plant Rug,52
 205,LTW,Thermal Leather,41
 206,LTW,Lunar Flora Test Processing,84
@@ -327,6 +328,7 @@ MissionID,Class,MissionName,Score
 327,CUL,Emergency Foodstuff Development,8
 328,CUL,Essential Whole Meals,6
 329,CUL,Experimental Foodstuffs,16
+330,CUL,Water-resistant Lubricant,13
 331,CUL,Experimental Potables,9
 332,CUL,Launch Party Foodstuffs,16
 333,CUL,Home-cooked Seafood Meal,18
@@ -376,6 +378,7 @@ MissionID,Class,MissionName,Score
 377,MIN,Lunar Yellow Copper Ore,11
 378,MIN,Technique Appraisal,11
 379,MIN,Energization Materials,11
+380,MIN,Fine-grade Processing Materials,14
 381,MIN,Stellar Repair Materials,27
 382,MIN,Alloy Processing Materials,27
 383,MIN,Crater Extraction,20
@@ -420,6 +423,7 @@ MissionID,Class,MissionName,Score
 422,BTN,Blue Fiber Collection Appraisal,11
 423,BTN,Technique Appraisal,11
 424,BTN,Energization Materials,11
+425,BTN,Fine-grade Processing Materials,14
 426,BTN,Stellar Repair Materials,27
 427,BTN,Tanning Agents,27
 428,BTN,Experimental Cultivars,20
@@ -427,8 +431,10 @@ MissionID,Class,MissionName,Score
 430,BTN,Fungi Collection,27
 431,BTN,Fiber Collection Appraisal,27
 432,BTN,EX: Precise Survey,54
+433,BTN,EX: Alchemical Refinement Materials,79
 434,BTN,EX: Southwestern Survey,86
 435,BTN,EX: Precise Lunar Nadir Survey,113
+436,BTN,EX+: Rare Material Extraction,101
 437,BTN,EX+: Supplemental Processing Materials,164
 438,BTN,Hub Vicinity Gathering I,27
 439,BTN,EX: Hub Vicinity Gathering II,93
@@ -436,13 +442,17 @@ MissionID,Class,MissionName,Score
 441,BTN,EX: High-grade Energization Materials II,93
 442,BTN,EX+: High-grade Energization Materials III,189
 443,BTN,EX: Fine-grade Water Filter Materials I,54
+444,BTN,EX+: Fine-grade Water Filter Materials II,167
 445,BTN,Fine-grade Air Filter Materials I,100
+446,BTN,EX+: Fine-grade Air Filter Materials III,193
+447,BTN,EX: Fine-grade Air Filter Materials II,154
 448,BTN,EX+: Folkloric Materials I,119
 449,BTN,EX+: Folkloric Materials II,237
 450,BTN,EX+: Folkloric Materials III,270
 451,FSH,Lunch Emergency,2
 452,FSH,Large Aquatic Specimens,2
 453,FSH,Western Water Inspection,6
+454,FSH,Aquatic Foodstuffs,4
 455,FSH,Weeping Pool Ecological Survey,4
 456,FSH,Assorted Alchemical Materials,4
 457,FSH,Big Fish,5

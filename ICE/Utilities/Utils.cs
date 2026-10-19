@@ -10,8 +10,11 @@ using FFXIVClientStructs.FFXIV.Client.Game.Object;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using ICE.Utilities.Cosmic_Helper;
+using ICE.Utilities.MechaOps;
 using SharpDX.Direct3D11;
 using System;
+using System.Collections.Generic;
+using System.Numerics;
 
 namespace ICE.Utilities;
 
@@ -31,14 +34,44 @@ public static unsafe class Utils
     public static float GatherConfigLength = 0.0f;
     public static float MissionNotesLength = 0.0f;
 
-    public static bool HasPlugin(string name) => DalamudReflector.TryGetDalamudPlugin(name, out _, false, true);
+    // Same answer as DalamudReflector.TryGetDalamudPlugin(name, ignoreCache: true) (a same-named entry that is loaded),
+    // without reflection and without writing ECommons' static plugin cache, so it is safe from any thread.
+    // Dalamud hands out a read-only snapshot list; indexing it skips the enumerator allocation.
+    public static bool HasPlugin(string name)
+    {
+        var plugins = Svc.PluginInterface.InstalledPlugins;
+        if (plugins is IReadOnlyList<IExposedPlugin> list)
+        {
+            for (var i = 0; i < list.Count; i++)
+            {
+                var p = list[i];
+                if (p.InternalName == name && p.IsLoaded)
+                    return true;
+            }
+            return false;
+        }
+
+        foreach (var p in plugins)
+            if (p.InternalName == name && p.IsLoaded)
+                return true;
+        return false;
+    }
     public static TaskManagerConfiguration TaskConfig => new(timeLimitMS: 10 * 60 * 3000, abortOnTimeout: false);
 
     public static unsafe void SetFlagForNPC(uint territoryId, float x, float y)
     {
         var map = ExcelHelper.TerritorySheet.GetRow(territoryId).Map.Value;
 
+        // 🔴 AgentMap.Instance() 是 AgentGetterGenerator 產出的兩層可空取得器
+        //    （agentModule == null ? null : GetAgentByInternalId(...)），合法回 null。
+        //    下面第一件事就是 `agent->FlagMarkerCount = 0` —— 那是**寫入**，
+        //    裸寫等於往位址 0 寫，是攔不到的 AVE。拿不到就整個不插旗。
         var agent = AgentMap.Instance();
+        if (agent == null)
+        {
+            IceLogging.Info($"AgentMap 尚未就緒，不設定 NPC 旗標（territory {territoryId}）。", "[Utils]");
+            return;
+        }
 
         Vector2 pos = MapToWorld(new Vector2(x, y), map.SizeFactor, map.OffsetX, map.OffsetY);
 
@@ -51,7 +84,13 @@ public static unsafe class Utils
     {
         var map = ExcelHelper.TerritorySheet.GetRow(territoryId).Map.Value;
 
+        // 同 SetFlagForNPC：取得器合法回 null，而下一行是寫入。
         var agent = AgentMap.Instance();
+        if (agent == null)
+        {
+            IceLogging.Info($"AgentMap 尚未就緒，不設定 NPC 旗標（territory {territoryId}）。", "[Utils]");
+            return;
+        }
 
         agent->FlagMarkerCount = 0;
         agent->SetFlagMapMarker(territoryId, map.RowId, x, y);
@@ -76,6 +115,9 @@ public static unsafe class Utils
     public static bool? TargetgameObjectTask(IGameObject? gameObject)
     {
         var x = gameObject;
+        if (x == null)
+            return false;
+
         if (Svc.Targets.Target != null && Svc.Targets.Target.BaseId == x.BaseId)
             return true;
 
@@ -93,17 +135,89 @@ public static unsafe class Utils
         return false;
     }
     internal static bool TryGetObjectByDataId(ulong dataId, out IGameObject? gameObject) => (gameObject = Svc.Objects.OrderBy(PlayerHelper.GetDistanceToPlayer).FirstOrDefault(x => x.BaseId == dataId)) != null;
+    internal static bool TryGetNpcObject(NpcData.NPCInfo npc, out IGameObject? gameObject)
+    {
+        foreach (var npcId in npc.AlternateNpcIds.Prepend(npc.NpcId))
+        {
+            if (TryGetObjectByDataId(npcId, out gameObject))
+                return true;
+        }
+
+        const float fallbackRadius = 5f;
+        var configuredIds = string.Join(", ", npc.AlternateNpcIds.Prepend(npc.NpcId));
+        var currentTarget = Svc.Targets.Target;
+        if (IsNpcNearConfiguredLocation(currentTarget, npc.NpcLocation, fallbackRadius))
+        {
+            gameObject = currentTarget;
+            IceLogging.Warning(
+                $"Configured NPC IDs [{configuredIds}] were not found; using targeted NPC " +
+                $"{gameObject.BaseId} ({gameObject.Name}) near the configured location.",
+                "[NPC Resolver]");
+            return true;
+        }
+
+        gameObject = Svc.Objects
+            .Where(x => IsNpcNearConfiguredLocation(x, npc.NpcLocation, fallbackRadius))
+            .OrderBy(x => Vector3.Distance(x.Position, npc.NpcLocation))
+            .FirstOrDefault();
+
+        if (gameObject != null)
+        {
+            IceLogging.Warning(
+                $"Configured NPC IDs [{configuredIds}] were not found; using nearby NPC " +
+                $"{gameObject.BaseId} ({gameObject.Name}) at the configured location.",
+                "[NPC Resolver]");
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsNpcNearConfiguredLocation(IGameObject? gameObject, Vector3 location, float radius)
+    {
+        if (gameObject == null || !gameObject.IsTargetable)
+            return false;
+
+        if (gameObject.ObjectKind != Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventNpc
+            && gameObject.ObjectKind != Dalamud.Game.ClientState.Objects.Enums.ObjectKind.BattleNpc)
+            return false;
+
+        return Vector3.Distance(gameObject.Position, location) <= radius;
+    }
+
     public static IGameObject? TryGetObjectNearestEventObject()
     {
         return Svc.Objects.OrderBy(PlayerHelper.GetDistanceToPlayer).FirstOrDefault(x => x.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventObj);
     }
-    public static IGameObject? TryGetObjectCollectionPoint()
+    /// <summary>
+    /// 找緊急任務（紅色警報）的繳交點。
+    /// </summary>
+    /// <param name="expectedLocation">
+    /// 這個任務的繳交點**應該**在哪（<c>GatheringUtil.CriticalLocations</c> 的原始座標）。
+    /// 不給就是舊行為：只按「離玩家最近」挑。
+    /// </param>
+    /// <param name="maxDistanceFromExpected">離 <paramref name="expectedLocation"/> 多遠以內才算數。</param>
+    public static IGameObject? TryGetObjectCollectionPoint(Vector3? expectedLocation = null, float maxDistanceFromExpected = 100f)
     {
-        return Svc.Objects.OrderBy(PlayerHelper.GetDistanceToPlayer).FirstOrDefault(x => x.BaseId == 2014616 || x.BaseId == 2014618);
+        var candidates = Svc.Objects.Where(x => x.IsTargetable && (x.BaseId == 2014616 || x.BaseId == 2014618));
+
+        if (expectedLocation is { } location)
+        {
+            return candidates
+                .Where(x => Vector3.Distance(x.Position, location) <= maxDistanceFromExpected)
+                .OrderBy(PlayerHelper.GetDistanceToPlayer)
+                .ThenBy(x => Vector3.Distance(x.Position, location))
+                .FirstOrDefault();
+        }
+
+        return candidates.OrderBy(PlayerHelper.GetDistanceToPlayer).FirstOrDefault();
     }
     public static void TargetgameObject(IGameObject? gameObject)
     {
         var x = gameObject;
+        if (x == null)
+            return;
+
         var currentTarget = Svc.Targets.Target;
         if (currentTarget != null && currentTarget.BaseId == x.BaseId)
             return;
@@ -115,6 +229,9 @@ public static unsafe class Utils
                 if (EzThrottler.Throttle($"Throttle targeting: {x.BaseId}"))
                 {
                     IceLogging.Info($"Attempting to set the target to: {x.BaseId} | {x.Name}", "[Target Game Object]");
+                    // 🔑 機甲事件錄製要分得出「人選的」與「外掛選的」——這裡是 ICE 主動指定目標
+                    //    的唯一路徑，先登記再真的設定。錄製沒開時整個方法第一行就 return。
+                    MechaEventRecorder.NoteIceAction("target", x);
                     Svc.Targets.SetTarget(x);
                 }
             }
@@ -126,6 +243,8 @@ public static unsafe class Utils
         {
             if (gameObject == null || !gameObject.IsTargetable)
                 return;
+            // ICE 自己發起的互動（機甲事件錄製要分得出人按的與外掛按的）。呼叫點全部經過這裡，所以只要記這一處。
+            MechaEventRecorder.NoteIceAction("interact", gameObject);
             var gameObjectPointer = (GameObject*)gameObject.Address;
             TargetSystem.Instance()->InteractWithObject(gameObjectPointer, false);
         }
@@ -137,7 +256,13 @@ public static unsafe class Utils
     public static unsafe void SetGatheringRing(uint territoryId, int x, int y, int radius, string? tooltip = "Node Location")
     {
         var map = ExcelHelper.TerritorySheet.GetRow(territoryId).Map.Value;
+        // 同 SetFlagForNPC：取得器合法回 null，而下面第一件事是寫 FlagMarkerCount。
         var agent = AgentMap.Instance();
+        if (agent == null)
+        {
+            IceLogging.Info($"AgentMap 尚未就緒，不畫採集圈（territory {territoryId}）。", "[Utils]");
+            return;
+        }
 
         Vector2 pos = MapToWorld(new Vector2(x, y), map.SizeFactor, map.OffsetX, map.OffsetY);
         IceLogging.Debug($"Current map: {map.RowId} {territoryId} | {map.PlaceName.Value.Name} | {pos.X} {pos.Y} | {x} {y} | {radius} | {tooltip}");
@@ -195,7 +320,23 @@ public static unsafe class Utils
 
     public static void VnavBuildInfo()
     {
+        // 🔴 BuildProgress 是 Func<float> 欄位，一定要加括號呼叫（少了括號，字串插值印出的是型別名）。
+        // vnavmesh 的約定是「載入任務沒在跑時回負數」，也就是根本沒在建置。
+        var progress = P.Navmesh.BuildProgress();
+
+        if (progress < 0)
+        {
+            // 沒有任何載入任務在跑 → 這張圖的網格既沒載入也沒在建，光等不會有結果。
+            // 觸發一次 Reload（允許讀快取，便宜）。不自動 Rebuild —— 那是強制全重建、很貴。
+            if (EzThrottler.Throttle("Vnavmesh auto reload", 10000))
+            {
+                IceLogging.Info("導航網格未載入、且沒有任何建置任務在跑，觸發一次 Reload", "[Vnavmesh]");
+                P.Navmesh.Reload();
+            }
+            return;
+        }
+
         if (EzThrottler.Throttle("Vnavmesh throttle message", 1000))
-            IceLogging.Debug($"Navmesh isn't ready. % built is at: {P.Navmesh.BuildProgress}");
+            IceLogging.Info($"導航網格建置中：{progress:P0}", "[Vnavmesh]");
     }
 }

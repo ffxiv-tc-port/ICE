@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using ECommons.GameHelpers;
 using FFXIVClientStructs.FFXIV.Client.Game.WKS;
 using ICE.Utilities.Cosmic_Helper;
@@ -8,7 +9,20 @@ namespace ICE.Utilities;
 
 public static partial class CosmicHelper
 {
-    public static CosmicInfo CurrentMissionInfo => SheetMissionDict[CurrentLunarMission];
+    // 🔴 刻意沒有直接索引的 CurrentMissionInfo 屬性：CurrentLunarMission 在「沒有進行中的任務」時回 0
+    //    （遊戲端自己取消任務就會，例：被機甲行動抽中當駕駛員直接傳送走），而 SheetMissionDict 沒有 key 0。
+    //    也不回 null：CosmicInfo 是 class，回 null 只是把 KeyNotFoundException 換成 NullReferenceException，
+    //    呼叫端一樣沒有處理（任務裡丟例外 → 逾時 → 佇列被中止）。
+
+    /// <summary>
+    /// 取得目前進行中的任務資料。<b>任務隨時可能不存在</b>（還沒接、遊戲端自己取消了、
+    /// 或是這個 row 不在 SheetMissionDict 裡），所以只有 Try 版本，沒有直接索引的屬性。
+    /// </summary>
+    public static bool TryGetCurrentMissionInfo([MaybeNullWhen(false)] out CosmicInfo info)
+        => SheetMissionDict.TryGetValue(CurrentLunarMission, out info);
+
+    /// <summary>目前有沒有一個「查得到資料」的進行中任務。</summary>
+    public static bool HasCurrentMission => SheetMissionDict.ContainsKey(CurrentLunarMission);
 
     /// <summary>
     /// Gives the current mission that is active
@@ -37,8 +51,31 @@ public static partial class CosmicHelper
             }
         }
     }
-    public static unsafe uint? CurrentBait => WKSManager.Instance()->FishingBait;
-    public static unsafe uint CurrentLunarDevelopment => ExcelHelper.DevGrade.GetRow(WKSManager.Instance()->DevGrade).Unknown6;
+    /// <summary>目前掛著的餌。<c>null</c> ＝這一輪讀不到 <c>WKSManager</c>（不在宇宙探索內容裡）。</summary>
+    /// <remarks>
+    /// 🔴 <c>WKSManager</c> 的 [StaticAddress] 槽位在宇宙探索內容以外是 null，直接解參考＝
+    ///    攔不到的 AccessViolationException。判空理由同 <see cref="GetCosmicClassScores"/>。
+    /// </remarks>
+    public static unsafe uint? CurrentBait
+    {
+        get
+        {
+            var manager = WKSManager.Instance();
+            return manager == null ? null : manager->FishingBait;
+        }
+    }
+
+    /// <summary>目前的月面開發等級。讀不到 <c>WKSManager</c> 時回 0。</summary>
+    /// <remarks>判空理由同 <see cref="CurrentBait"/>。目前全 repo 沒有呼叫端，補守衛是為了
+    /// 避免下一個接上它的人中獎。</remarks>
+    public static unsafe uint CurrentLunarDevelopment
+    {
+        get
+        {
+            var manager = WKSManager.Instance();
+            return manager == null ? 0u : ExcelHelper.DevGrade.GetRow(manager->DevGrade).Unknown6;
+        }
+    }
 
     public static Dictionary<int, string> ExpDictionary = new()
     {
@@ -72,7 +109,11 @@ public static partial class CosmicHelper
     public static void UpdateStateFlags()
     {
         // just a shorthand for me to be able to grab all of it, while also just snapshotting the mission we're currently running
-        var missionInfo = CurrentMissionInfo; 
+        // ⚠️ 這個方法目前全 repo 零呼叫者（上游留下來的），但照樣守：
+        //    任務隨時可能不存在。
+        if (!TryGetCurrentMissionInfo(out var missionInfo))
+            return;
+
         if (missionInfo.Attributes.HasFlag(MissionAttributes.Critical))
         {
             // TODO:
@@ -89,8 +130,14 @@ public static partial class CosmicHelper
         int classScore = 0;
         int cappedClassScore = 0;
         int totalScores = 0;
+
+        // 🔴 判空理由同 CosmicHandler.GetCosmicClassScores：WKSManager 的 [StaticAddress] 槽位
+        //    在宇宙探索內容以外是 null，直接解參考是攔不到的 AccessViolationException。
+        //    刻意只擋「讀原生記憶體」那兩段，底下決定 classId 的邏輯照跑（它只看
+        //    C.SelectedJob / Player.JobId / SheetMissionDict，跟原生指標無關）——
+        //    這樣呼叫端就算讀不到分數，拿到的職業 ID 仍然是對的，畫面不會跳去別的職業。
         var wksManager = WKSManager.Instance();
-        var currentMissionId = wksManager->CurrentMissionUnitRowId;
+        uint currentMissionId = wksManager != null ? wksManager->CurrentMissionUnitRowId : 0u;
 
         uint classId;
 
@@ -117,7 +164,7 @@ public static partial class CosmicHelper
                 classId = C.SelectedJob;
         }
 
-        if (classId is >= 8 and <= 18)
+        if (wksManager != null && classId is >= 8 and <= 18)
         {
             var scores = wksManager->Scores;
 

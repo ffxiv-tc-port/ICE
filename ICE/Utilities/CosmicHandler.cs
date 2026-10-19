@@ -36,18 +36,23 @@ namespace ICE.Utilities
 
         internal unsafe static bool IsMissionTimedOut()
         {
-            if (AddonHelper.GetAtkTextNode("WKSMissionInfomation", 23)->IsVisible())
-                return true;
-            else
-                return false;
+            // GetAtkTextNode 取不到節點會回 null，直接解參考就是 AVE。
+            // 取不到時一律回 false(視為「未逾時」)：寧可本次不動作，
+            // 也不要把「不知道」當成「已確認逾時」。
+            var timeoutNode = AddonHelper.GetAtkTextNode("WKSMissionInfomation", 23);
+            return timeoutNode != null && timeoutNode->IsVisible();
         }
         internal unsafe static (int classScore, int cappedClassScore, int totalScores, uint classId) GetCosmicClassScores()
         {
             int classScore = 0;
             int cappedClassScore = 0;
             int totalScores = 0;
+
+            // 🔴 WKSManager 是 [StaticAddress]：槽位裡放的那個指標在宇宙探索內容以外就是 null，直接 -> 解參考＝
+            //    攔不到的 AccessViolationException。
+            //    讀不到就回全 0 —— 呼叫端拿到的分數是「還沒賺到」，不會誤判成已達標。
             var wksManager = WKSManager.Instance();
-            var currentMissionId = wksManager->CurrentMissionUnitRowId;
+            uint currentMissionId = wksManager != null ? wksManager->CurrentMissionUnitRowId : 0u;
 
             uint classId;
             /*
@@ -57,9 +62,9 @@ namespace ICE.Utilities
                 classId = missionInfo.JobId;
             else
             */
-            classId = Player.ClassJob.RowId;
+            classId = Player.JobId;
 
-            if (classId is >= 8 and <= 18)
+            if (wksManager != null && classId is >= 8 and <= 18)
             {
                 var scores = wksManager->Scores;
 

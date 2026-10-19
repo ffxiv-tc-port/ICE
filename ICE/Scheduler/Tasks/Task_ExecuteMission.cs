@@ -24,9 +24,13 @@ namespace ICE.Scheduler.Tasks
             if (CosmicHelper.CurrentLunarMission != 0)
             {
                 var missionId = CosmicHelper.CurrentLunarMission;
-                P.MissionTimer.StartMission(missionId);
 
-                var mission = CosmicHelper.SheetMissionDict[missionId];
+                // 🔴「!= 0」不是字典守衛：SheetMissionDict 的鍵集合是「Name 不為空的 row」，
+                //    「非 0」跟「在字典裡」是兩件不同的事。
+                if (SchedulerMain.CurrentMissionUnavailable("[Task: Execute Mission]", out var mission))
+                    return true;
+
+                P.MissionTimer.StartMission(missionId);
                 bool fishingMission = mission.Jobs.Contains(18);
                 bool gatherMission = mission.Jobs.Contains(16) || mission.Jobs.Contains(17);
                 bool craftMission = mission.Jobs.Overlaps(CosmicHelper.CrafterJobList);
@@ -34,8 +38,22 @@ namespace ICE.Scheduler.Tasks
                 C.MissionConfig.TryGetValue(missionId, out var config);
                 bool dualClass = (gatherMission && craftMission) || (fishingMission && craftMission);
 
-                if (C.OnlyGrabMission || (config != null && config.ManualMode) || UnsupportedMissions.Ids.Contains(missionId))
+                var unsupported = MissionSupport.IsUnsupported(missionId, out var unsupportedReason);
+                if (C.OnlyGrabMission || (config != null && config.ManualMode) || unsupported)
                 {
+                    if (unsupported)
+                    {
+                        // 「不支援」統一走 MissionSupport.Notify：訊息文字與 PlayerHandlers 的
+                        // 接任務偵測、Task_CheckState 完全一致，靠 ChatInfo 以全文為鍵的節流去重。
+                        MissionSupport.Notify(missionId, unsupportedReason);
+                    }
+                    else
+                    {
+                        var reason = C.OnlyGrabMission
+                            ? "你開了「只接任務」(Only Grab Mission)"
+                            : "這個任務的設定是手動模式 (Manual Mode)";
+                        IceLogging.ChatInfo($"任務 {missionId}：{reason}，所以切到手動模式，接下來要自己操作。", "[ICE]");
+                    }
                     SchedulerMain.State = IceState.ManualMode;
                 }
                 else if (dualClass)
@@ -44,7 +62,13 @@ namespace ICE.Scheduler.Tasks
                     SchedulerMain.State = IceState.DualClass;
                     if (fishingMission)
                     {
-                        if (config.Use_BuildinPreset)
+                        // config 是上面 TryGetValue 拿的，可能是 null；例外發生在任務裡只會讓佇列中止，
+                        // 外面看起來一樣是「不動」。
+                        if (config == null)
+                        {
+                            IceLogging.Info($"任務 {missionId} 沒有對應的 MissionConfig，無法決定要用內建還是自訂的 AutoHook preset。", "[Task: Execute Mission]");
+                        }
+                        else if (config.Use_BuildinPreset)
                         {
                             P.AutoHook.DeleteAllAnonymousPresets();
                             FishingTask(missionId);
@@ -54,7 +78,13 @@ namespace ICE.Scheduler.Tasks
                 else if (fishingMission)
                 {
                     // Check exist twice, one here is to actually enable the fishing profile that is selected.
-                    var missionConfig = C.MissionConfig[missionId];
+                    if (!C.MissionConfig.TryGetValue(missionId, out var missionConfig))
+                    {
+                        IceLogging.ChatError($"任務 {missionId} 沒有對應的 MissionConfig，釣魚流程無法啟動。", "[ICE]");
+                        SchedulerMain.State = IceState.ManualMode;
+                        return true;
+                    }
+
                     if (missionConfig.Use_BuildinPreset)
                     {
                         // Using the build in presets that are included in the plugin.
@@ -64,11 +94,12 @@ namespace ICE.Scheduler.Tasks
                     else
                     {
                         string presetName = missionConfig.AutoHookPresetName;
+                        IceLogging.Info($"任務 {missionId} 使用自訂的 AutoHook preset：「{presetName}」。", "[Task: Execute Mission]");
                         P.AutoHook.SetPreset(presetName);
                     }
 
                     SchedulerMain.State = IceState.Fish;
-                    IceLogging.Debug("Mission is a fishing mission, so going to the fishing task");
+                    IceLogging.Info($"任務 {missionId} 是釣魚任務，切到釣魚流程（使用內建 preset: {missionConfig.Use_BuildinPreset}）。", "[Task: Execute Mission]");
                 }
                 else if (gatherMission)
                 {
@@ -113,13 +144,62 @@ namespace ICE.Scheduler.Tasks
                 return true;
             }
 
-            var presetList = GatheringUtil.FishingPreset[missionId];
+            // 直接索引在任務不在表裡時會丟 KeyNotFoundException；例外發生在任務內只會讓佇列中止，
+            // 外面看起來就是「不動」而且沒有訊息。
+            if (!GatheringUtil.FishingPreset.TryGetValue(missionId, out var presetList))
+            {
+                IceLogging.ChatError($"任務 {missionId} 不在內建的釣魚 preset 表裡，AutoHook 不會被設定，釣魚無法自動進行。", "[ICE]");
+                return;
+            }
+
             var presets = presetList.FishingPreset.ToList();
 
             if (presets.Count == 0)
+            {
+                // 黑名單裡那 16 個釣魚任務在 FishingPresets.cs 就是 `new FishingTools { }` 的空殼，
+                // 上游的註解直接寫「Need Info on this one」。走到這裡代表這個任務的資料還沒有人補。
+                IceLogging.ChatError($"任務 {missionId} 的內建釣魚 preset 是空的（上游還沒補這筆資料），AutoHook 不會被設定，釣魚無法自動進行。", "[ICE]");
                 return;
+            }
 
-            IceLogging.Debug($"Current Fish Preset Count for [{missionId}]: {presets.Count}");
+            IceLogging.Info($"任務 {missionId} 匯入 {presets.Count} 筆內建 AutoHook preset。", "[Task: Execute Mission]");
+
+            // 🔴 整包資料夾（AHFOLDER_／AHFOLDER2_）走的是完全不同的匯入路徑，**不能**跟單筆混著送。
+            //    資料夾裡的多筆 preset 是一台狀態機（彼此用 PresetToSwap 依名稱互指），
+            //    逐筆丟給 CreateAndSelectAnonymousPreset 的話每一筆都會重設 SelectedPreset，
+            //    結果是「只有最後一筆生效」。
+            //    正確語意是「整包裝進去、只選進入點」，由 AutoHook 自己換。
+            if (presets[0].StartsWith("AHFOLDER", StringComparison.Ordinal))
+            {
+                if (presets.Count > 1)
+                {
+                    IceLogging.Info(
+                        $"任務 {missionId} 的第一筆是整包資料夾匯出，其餘 {presets.Count - 1} 筆會被忽略"
+                        + "（資料夾本身就已經含有全部階段）。", "[Task: Execute Mission]");
+                }
+
+                if (P.AutoHook.TryImportFolder(presets[0]) == 0)
+                {
+                    IceLogging.ChatError(
+                        $"任務 {missionId} 需要 AutoHook 的整包資料夾匯入功能，但匯入沒有成功，釣魚無法自動進行。"
+                        + "請確認 AutoHook 已更新到與這版 ICE 同一波出貨的版本。", "[ICE]");
+                }
+
+                return;
+            }
+
+            // 🔴 保底診斷：AH6_ 是較新的 AutoHook 匯出格式。AutoHook 若還是舊版，DecompressString 會對不認得的前綴
+            //    丟例外，而 ICE 這端的 EzIPC.Init 帶的是 SafeWrapper.AnyException、CreateAndSelectAnonymousPreset 又是
+            //    沒有回傳值的 Action ⇒「preset 完全沒進去、釣魚一直不動」，而呼叫端觀測不到成敗。
+            //    所以在這裡先講清楚這一筆需要什麼版本，讓 log 自己說得出因果。
+            var ah6Count = presets.Count(p => p.StartsWith("AH6_", StringComparison.Ordinal));
+            if (ah6Count > 0)
+            {
+                IceLogging.Info(
+                    $"任務 {missionId} 的 {ah6Count} 筆 preset 是 AH6_ 格式，需要同一波出貨的 AutoHook 才吃得下。" +
+                    "若接下來釣魚沒有動作（餌沒換、竿沒下），請先確認 AutoHook 已更新到最新版 —— " +
+                    "舊版會把這個匯入靜默丟掉，不會有錯誤訊息。", "[Task: Execute Mission]");
+            }
 
             // Import first preset immediately
             P.AutoHook.CreateAndSelectAnonymousPreset(presets[0]);

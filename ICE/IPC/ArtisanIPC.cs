@@ -16,11 +16,34 @@ namespace ICE.IPC
         [EzIPC] public Func<bool> GetStopRequest;
         [EzIPC] public Action<bool> SetStopRequest;
         [EzIPC] public Action<ushort, int> CraftItem;
-        [EzIPC] public Action<ushort, uint, uint, uint, uint> AssignRecipie;
 
-        public void AssignArtisanRecipe(ushort recipeId, uint reqFood, uint reqPotion = 0, uint reqManual = 0, uint reqSquadronManual = 0)
-        {
-            P.Artisan.AssignRecipie(recipeId, reqFood, reqPotion, reqManual, reqSquadronManual);
-        }
+        // 臨時求解器（宇宙製作用）。Artisan 端的臨時設定活在它自己的記憶體裡、
+        // 不寫進使用者的設定檔，所以 ICE 停止／任務結束／卸載時一定要還回去。
+        // 🔴 舊版 Artisan 沒有前兩個端點：SafeWrapper.AnyException 會吞掉
+        //    IpcNotReadyError 並回傳 default（string[] -> null、bool -> false），
+        //    呼叫端 CosmicSolverOverride 就是靠這個分辨「端點不在」與「求解器不可用」。
+        [EzIPC] public Func<uint, string[]> GetAvailableSolverTypes;
+        [EzIPC] public Func<uint, string, bool> SetTemporarySolverByType;
+        [EzIPC] public Action<uint> ClearTemporaryRecipeSettings;
+
+        /// <summary>Artisan 專家求解器的<b>定義類別</b>全名。</summary>
+        /// <remarks>
+        /// 🔴 這是 <c>ISolverDefinition</c> 的實作類別，不是 <c>Solver</c> 的實作類別 ——
+        /// Artisan 的 <c>RecipeConfig.SolverType</c> 存的就是 <c>Desc.Def.GetType().FullName</c>
+        /// （見 Artisan <c>IPC/IPC.cs</c> 的 <c>SetTemporarySolverCore</c>）。
+        /// </remarks>
+        public const string ExpertSolverTypeName = "Artisan.CraftingLogic.Solvers.ExpertSolverDefinition";
+
+        /// <summary>Artisan Raphael 求解器的<b>定義類別</b>全名。</summary>
+        /// <remarks>
+        /// ⚠️ 類別名的 <c>Defintion</c> 是<b>上游原本就有的拼字錯誤</b>，不要「訂正」成
+        /// <c>Definition</c> —— 這個字串要跟 <c>GetType().FullName</c> 逐字相同，
+        /// 改了就永遠對不上，而失敗形式只是「照原樣製作」＋一行記錄，不會報錯。
+        /// </remarks>
+        public const string RaphaelSolverTypeName = "Artisan.CraftingLogic.Solvers.RaphaelSolverDefintion";
+
+        // 刻意不宣告 AssignRecipie：Artisan（Artisan/IPC/IPC.cs）從來沒有註冊過這個端點，加上這裡帶的是
+        // SafeWrapper.AnyException，呼叫下去只會被吞掉、回傳 default，連一行 log 都不會有。
+        // Artisan 若日後真的加了這個 IPC，再依實際簽名重新宣告即可。
     }
 }

@@ -28,7 +28,8 @@ namespace ICE.Scheduler.Handlers
             {
                 CorrectFirstWeather = weathers[0].Name == currWeather.Name;
 
-                if (weathers[1].Time - DateTime.UtcNow < TimeSpan.Zero) NeedToRefreshBecauseRedAlert = true;
+                // 預報在 24 期內天氣都沒變時 weathers 只有一筆，不能直接讀 [1]
+                if (weathers.Count > 1 && weathers[1].Time - DateTime.UtcNow < TimeSpan.Zero) NeedToRefreshBecauseRedAlert = true;
             }
 
             //Only allow refresh if territory changed
@@ -64,7 +65,8 @@ namespace ICE.Scheduler.Handlers
         internal static unsafe (string, uint, string, uint, string) GetNextWeather()
         {
             if (!PlayerHelper.IsInCosmicZone()) return default;
-            if (weathers.Count == 0) return default;
+            // 只有一筆（預報期內天氣不變）時沒有「下一個天氣」可回
+            if (weathers.Count < 2) return default;
 
             var currentWeather = weathers[0];
             var nextWeather = weathers[1];

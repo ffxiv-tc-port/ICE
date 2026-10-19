@@ -8,11 +8,22 @@ namespace ICE.Scheduler.Tasks
 {
     internal class Task_NavmeshMove
     {
+        /// <summary>ICE 導航期間要求 vnavmesh 使用的路徑容許值。刻意＝vnavmesh 自己的預設值。</summary>
+        /// <remarks>
+        /// ⚠️ 這個值<b>不是</b>多餘的：別的外掛（例：AutoDuty 拿不到租約時）會把 vnavmesh 的同一個全域欄位
+        /// 改成別的數字，所以 ICE 開路前重設它是有作用的。
+        /// </remarks>
+        private const float NavigationTolerance = 0.25f;
+
         public static bool? Task_NavTo(Vector3 pos, bool waitForBusy = true, float distance = 2.0f, bool stayMounted = false)
         {
             bool usingCosmoliner = Svc.Condition[ConditionFlag.Unknown101];
             bool mounted = Player.Mounted;
-            bool inMission = CosmicHelper.CurrentLunarMission == 0;
+            // 🔴 CurrentLunarMission **0 代表沒有任務**（SchedulerMain 與 Task_AbandonMission 都拿 `== 0` 當「任務已被取消」的判準），
+            //    所以「任務進行中」是 `!= 0`；寫反的話底下 UseMountInMission／UseMountOutsideMission 兩個設定的行為
+            //    會互相對調，而且沒有任何錯誤訊息。
+            //    ⚠️ 同一份判定在下面的 NavToDestination 還有一份，兩處必須一起改。
+            bool inMission = CosmicHelper.CurrentLunarMission != 0;
             float minMountDistance = C.MountRadius;
             float dismountDistance = C.DismountRadius;
 
@@ -110,6 +121,9 @@ namespace ICE.Scheduler.Tasks
                     {
                         IceLogging.Debug("We've met the distance threshold, continuing on");
                         ResetInfo();
+                        // 導航結束：把容許值租約還回去，vnavmesh 立刻恢復使用者自己的設定。
+                        // 📌 沒持有租約時是無操作；就算這一步沒被走到，租約也會自己逾時還原。
+                        P.Navmesh.ReleaseToleranceLease("已抵達目的地");
                         return true;
                     }
                 }
@@ -117,8 +131,11 @@ namespace ICE.Scheduler.Tasks
                 {
                     if (EzThrottler.Throttle("Telling navmesh to start"))
                     {
-                        P.Navmesh.SetTolerance(0.25f);
-                        IceLogging.Debug("We're setting the tolerance to 0.25f here");
+                        // 🔴 走租約（ApplyTolerance）而不是直接 SetTolerance：後者是對 vnavmesh **全域**欄位的單向寫入，
+                        //    沒有任何人會還原。租約在 ICE 結束導航、被卸載或當掉時由 vnavmesh 自己還原成使用者的值；
+                        //    舊版 vnavmesh 沒有租約端點時會自動退回直接寫入。
+                        P.Navmesh.ApplyTolerance(NavigationTolerance);
+                        IceLogging.Debug($"We're setting the tolerance to {NavigationTolerance}f here");
                         IceLogging.DestinationLogs.Log(pos);
                         P.Navmesh.PathfindAndMoveTo(pos, false);
                     }
@@ -132,7 +149,8 @@ namespace ICE.Scheduler.Tasks
         {
             bool usingCosmoliner = Svc.Condition[ConditionFlag.Unknown101];
             bool mounted = Player.Mounted;
-            bool inMission = CosmicHelper.CurrentLunarMission == 0;
+            // 與 Task_NavTo 同一份判定（`!= 0` 才是任務進行中），兩處必須一起改。
+            bool inMission = CosmicHelper.CurrentLunarMission != 0;
             float minMountDistance = C.MountRadius;
             float dismountDistance = C.DismountRadius;
 

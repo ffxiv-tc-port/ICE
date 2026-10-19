@@ -25,8 +25,10 @@ public static partial class ImGui_Tools
     // This is just a simple way of keeping track of all of them, so I can easily reference what state they're in
     public static Dictionary<string, bool> CategoryStates = new();
 
-    // My Custom Header, Uses FontAwesomeIcon and a 
-    public static bool DrawCategoryHeader_AutoSize(string label, FontAwesomeIcon? icon = null, IDalamudTextureWrap? imageTexture = null)
+    // My Custom Header, Uses FontAwesomeIcon and a
+    // 📌 CategoryStates 只活在記憶體、不寫進設定檔，所以換 key 沒有遷移問題，
+    //    最多是當次 session 的展開狀態回到預設（收合）。
+    public static bool DrawCategoryHeader_AutoSize(string label, FontAwesomeIcon? icon = null, IDalamudTextureWrap? imageTexture = null, string? id = null)
     {
         float scale = ImGuiHelpers.GlobalScale;
 
@@ -40,7 +42,7 @@ public static partial class ImGui_Tools
         // A: If it doesn't already exist, add it and just make it false (This makes it to where it's not expanded by default)
         //    - Could absolutely change that to true if I want to make it shown on inital creation
         // B: Returns the state in a form to where if that's true, then I could display the elements below it properly
-        string categoryId = label;
+        string categoryId = id ?? label;
         if (!CategoryStates.ContainsKey(categoryId))
             CategoryStates[categoryId] = false;
 
@@ -138,6 +140,20 @@ public static partial class ImGui_Tools
         return isExpanded;
     }
 
+    /// <param name="label">已在地化的標題文字。</param>
+    /// <param name="defaultOpen">
+    /// ⚠️ 使用者手動開合過之後，ImGui 會記住他的選擇，這個參數就不再生效。
+    /// </param>
+    public static bool PageSection(string label, string id, bool defaultOpen = false)
+    {
+        return ImGui.CollapsingHeader(label + "###" + id,
+            defaultOpen ? ImGuiTreeNodeFlags.DefaultOpen : ImGuiTreeNodeFlags.None);
+    }
+
+    // 🔴 死碼：零呼叫端（靜態掃描；本 repo 無反射式 UI 探索）。
+    //    實際在用的是上面的 DrawCategoryHeader_AutoSize。兩者共用同一個 CategoryStates 字典，
+    //    所以若哪天要啟用它，label 撞名會和既有標題共用展開狀態。
+    //    保留不刪（使用者裁決：死碼只要確認真的死，不用刪）。
     public static bool DrawCategoryHeader(string label, FontAwesomeIcon? icon = null)
     {
         // Default coloring here
@@ -203,6 +219,34 @@ public static partial class ImGui_Tools
     }
 
     /// <summary>
+    /// 選中時把標籤上的計數括號從 <c>[12]</c> 換成 <c>&lt;12&gt;</c>。
+    /// 這是刻意不依賴顏色的第二條辨識管道：一排長得一樣的篩選按鈕裡，即使使用者的
+    /// 配色主題讓底色差異看不出來（Dalamud 預設主題就是這種情況），括號形狀仍然分得出
+    /// 哪一個是開著的。
+    /// 找不到括號時（例如某個語言的翻譯把括號拿掉了）退回「整個標籤包角括號」，
+    /// 確保任何翻譯下都還是有可見差異，而不是靜默地退回沒有標示。
+    /// </summary>
+    private static string ApplySelectionBrackets(string label, bool selected)
+    {
+        if (!selected || string.IsNullOrEmpty(label))
+            return label;
+
+        // 計數永遠在標籤結尾，所以兩邊都從後面找 —— 用 IndexOf 找左括號的話，
+        // 名稱本身含中括號的翻譯（例如「[A] 階 [12]」）會被配成錯的一對。
+        var open = label.LastIndexOf('[');
+        var close = label.LastIndexOf(']');
+        if (open >= 0 && close > open)
+        {
+            var chars = label.ToCharArray();
+            chars[open] = '<';
+            chars[close] = '>';
+            return new string(chars);
+        }
+
+        return $"<{label}>";
+    }
+
+    /// <summary>
     /// I realize that these are probably more over the top for a simple button than needs to be. But TBH this kind of does 2 things for me: <br></br>
     /// 1: Lets me use custom coloring like the tabs would. Tabs absolutely hate having anything in that selected tab change. (Ex. Changing the active missions currently enabled immediately kicks you off that tab)
     /// 2: Lets me create custom buttons in any form, and also lets me show the active state of them all. PLUS. Uses the expanded headers so works out for the showing of mission headers
@@ -229,8 +273,20 @@ public static partial class ImGui_Tools
         var drawList = ImGui.GetWindowDrawList();
         var cursorPos = ImGui.GetCursorScreenPos();
 
+        // If it doesn't already exist, then creating an entry in the category state
+        // (狀態要在算文字寬度之前先讀出來，因為選中與否會改變標籤上的括號)
+        if (!CategoryStates.ContainsKey(categoryId))
+            CategoryStates[categoryId] = false;
+
+        bool isExpanded = CategoryStates[categoryId];
+
         // Calculate text size
-        var textSize = ImGui.CalcTextSize(label);
+        var drawnLabel = ApplySelectionBrackets(label, isExpanded);
+        var textSize = ImGui.CalcTextSize(drawnLabel);
+
+        // 寬度取「選中」與「未選中」兩種寫法的較大者，按鈕才不會在點下去的瞬間左右跳動
+        // （這一排是水平捲動的，跳動會讓後面的按鈕整排位移）
+        float labelWidth = Math.Max(textSize.X, ImGui.CalcTextSize(ApplySelectionBrackets(label, !isExpanded)).X);
 
         // Calculate icon width if present
         float iconWidth = 0;
@@ -240,14 +296,9 @@ public static partial class ImGui_Tools
         }
 
         // Calculate button dimensions based on content
-        float contentWidth = horizontalPadding * 2 + iconWidth + textSize.X;
+        float contentWidth = horizontalPadding * 2 + iconWidth + labelWidth;
         float contentHeight = verticalPadding * 2 + textSize.Y;
 
-        // If it doesn't already exist, then creating an entry in the category state
-        if (!CategoryStates.ContainsKey(categoryId))
-            CategoryStates[categoryId] = false;
-
-        bool isExpanded = CategoryStates[categoryId];
         bool isHovered = ImGui.IsMouseHoveringRect(cursorPos, new Vector2(cursorPos.X + contentWidth, cursorPos.Y + contentHeight))
                       && ImGui.IsWindowHovered(ImGuiHoveredFlags.AllowWhenBlockedByPopup | ImGuiHoveredFlags.ChildWindows);
         bool isClicked = isHovered && ImGui.IsMouseClicked(ImGuiMouseButton.Left);
@@ -256,16 +307,26 @@ public static partial class ImGui_Tools
         {
             CategoryStates[categoryId] = !CategoryStates[categoryId];
             isExpanded = CategoryStates[categoryId];
+            drawnLabel = ApplySelectionBrackets(label, isExpanded);
         }
 
         // Color changing! Based on the various states
+        // ⚠️ 選中色用 ButtonActive 而不是 TabActive：Dalamud 預設主題裡 TabActive 與 Button 的
+        // 相對亮度只差約 2%，肉眼分不出選中與否；ButtonActive 是框架標準的「按下狀態」色。
         if (isExpanded)
-            headerColor = ImGui.GetColorU32(ImGuiCol.TabActive);
+            headerColor = ImGui.GetColorU32(ImGuiCol.ButtonActive);
         if (isHovered)
             headerColor = ImGui.GetColorU32(ImGuiCol.HeaderHovered);
 
         // Draw background rectangle with rounded corners (scaled)
-        drawList.AddRectFilled(cursorPos, new Vector2(cursorPos.X + contentWidth, cursorPos.Y + contentHeight), headerColor, 5.0f * scale);
+        var contentMax = new Vector2(cursorPos.X + contentWidth, cursorPos.Y + contentHeight);
+        drawList.AddRectFilled(cursorPos, contentMax, headerColor, 5.0f * scale);
+
+        // 選中的再加一圈文字色外框。外框不依賴「某兩個主題色剛好不一樣」這個前提
+        // ——文字色一定跟底色有對比（否則標籤本身就看不見了），所以任何配色主題下都成立。
+        // 也因為 hover 會覆蓋底色，外框是滑鼠移上去時唯一還留著的選中標示。
+        if (isExpanded)
+            drawList.AddRect(cursorPos, contentMax, textColor, 5.0f * scale, 1.5f * scale);
 
         // Position cursor with padding
         ImGui.SetCursorScreenPos(new Vector2(cursorPos.X + horizontalPadding, cursorPos.Y + verticalPadding));
@@ -277,7 +338,7 @@ public static partial class ImGui_Tools
             ImGui.SameLine(0, iconTextSpacing);
         }
 
-        ImGui.Text(label);
+        ImGui.Text(drawnLabel);
 
         // Create an invisible button to properly reserve space and handle layout
         ImGui.SetCursorScreenPos(cursorPos);

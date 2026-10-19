@@ -11,12 +11,12 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
     {
         public static void Draw()
         {
-            ImGui.Checkbox("Stop after current mission", ref Mission_Settings.StopAfterCurrent);
+            ImGui.Checkbox("Stop after current mission".Loc() + "###ICEStopWhenStopAfterCurrent", ref Mission_Settings.StopAfterCurrent);
 
             #region CosmoCredits
 
             bool stopCosmic = C.StopOnceHitCosmoCredits;
-            if (ImGui.Checkbox($"Stop at Cosmic Credits", ref stopCosmic))
+            if (ImGui.Checkbox("Stop at Cosmic Credits".Loc() + "###ICEStopAtCosmicCredits", ref stopCosmic))
             {
                 C.StopOnceHitCosmoCredits = stopCosmic;
                 C.Save();
@@ -41,7 +41,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             #region Planet Credits
 
             bool stopLunar = C.StopOnceHitLunarCredits;
-            if (ImGui.Checkbox($"Stop at Planetary Credit Amount", ref stopLunar))
+            if (ImGui.Checkbox("Stop at Planetary Credit Amount".Loc() + "###ICEStopAtPlanetaryCredits", ref stopLunar))
             {
                 C.StopOnceHitLunarCredits = stopLunar;
                 C.Save();
@@ -62,7 +62,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             #region Cosmic Score
 
             bool stopScore = C.StopOnceHitCosmicScore;
-            if (ImGui.Checkbox($"Stop at Cosmic Score", ref stopScore))
+            if (ImGui.Checkbox("Stop at Cosmic Score".Loc() + "###ICEStopAtCosmicScore", ref stopScore))
             {
                 C.StopOnceHitCosmicScore = stopScore;
                 C.BuyItems = false;
@@ -84,7 +84,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             #region Level
 
             bool stopWhenLevel = C.StopWhenLevel;
-            if (ImGui.Checkbox($"Stop at Level", ref stopWhenLevel))
+            if (ImGui.Checkbox("Stop at Level".Loc() + "###ICEStopAtLevel", ref stopWhenLevel))
             {
                 C.StopWhenLevel = stopWhenLevel;
                 C.Save();
@@ -105,7 +105,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             #region Relic Completed
 
             bool relicStop = C.StopOnceRelicFinished;
-            if (ImGui.Checkbox($"Stop @ Relic Complete", ref relicStop))
+            if (ImGui.Checkbox("Stop @ Relic Complete".Loc() + "###ICEStopAtRelicComplete", ref relicStop))
             {
                 C.StopOnceRelicFinished = relicStop;
                 C.Save();
@@ -113,10 +113,25 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
             #endregion
 
+            #region Standard Missions Golded
+
+            bool stopStandardGold = C.StopOnceStandardMissionsGolded;
+            if (ImGui.Checkbox("Stop when all standard missions golded".Loc() + "###ICEStopWhenStandardMissionsGolded", ref stopStandardGold))
+            {
+                C.StopOnceStandardMissionsGolded = stopStandardGold;
+                C.Save();
+            }
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip("Stops once every standard mission for the currently selected job in the current zone has a gold rating.\nCritical and provisional (timed/weather/sequential) missions are not counted.".Loc());
+            }
+
+            #endregion
+
             #region Sound Alert
 
             bool playSoundAlert = C.PlaySoundAlert;
-            if (ImGui.Checkbox("Play Sound Alert on Stop", ref playSoundAlert))
+            if (ImGui.Checkbox("Play Sound Alert on Stop".Loc() + "###ICEPlaySoundAlertOnStop", ref playSoundAlert))
             {
                 C.PlaySoundAlert = playSoundAlert;
                 C.Save();
@@ -124,17 +139,45 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             if (playSoundAlert)
             {
                 var soundVolume = C.SoundVolume;
-                ImGui.Text("Sound Volume");
+                ImGui.Text("Sound Volume".Loc());
                 ImGui.SetNextItemWidth(200);
                 if (ImGui.SliderFloat("##Sound Volume", ref soundVolume, 0f, 1f, "%.2f"))
                 {
                     C.SoundVolume = soundVolume;
                     C.SaveDebounced();
                 }
-                if (ImGui.Button("Test Sound Alert"))
+                if (ImGui.Button("Test Sound Alert".Loc() + "###ICETestSoundAlert"))
                 {
                     _ = SoundPlayer.PlaySoundAsync();
                 }
+            }
+
+            #endregion
+
+            #region Tataru Praise
+
+            // 📌 純通知：對方沒安裝就完全靜默（IPC 擲 IpcNotReadyError 被 TataruPraiseIPC 接掉），
+            //    也永遠不會影響排程。一輪自動化最多說一句，去重在 TataruPraiseIPC 那一側。
+            bool praiseOnStop = C.PraiseOnAutomationStopped;
+            if (ImGui.Checkbox("Have Tataru say a line when ICE stops (requires TataruPraise)".Loc() + "###ICEPraiseOnAutomationStopped", ref praiseOnStop))
+            {
+                C.PraiseOnAutomationStopped = praiseOnStop;
+                C.Save();
+            }
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip("Said once per run, when ICE stops because one of the stop conditions above was met, or because you chose to stop after the current mission.\nUses TataruPraise's \"宇宙停止\" category. That category is new, so its voice lines have not been synthesised yet - nothing is said until you synthesise them once in TataruPraise.\nDoes nothing at all when TataruPraise is not installed, and never affects scheduling.".Loc());
+            }
+
+            bool praiseOnStuck = C.PraiseOnAutomationStuck;
+            if (ImGui.Checkbox("Have Tataru call for help when ICE gets stuck (requires TataruPraise)".Loc() + "###ICEPraiseOnAutomationStuck", ref praiseOnStuck))
+            {
+                C.PraiseOnAutomationStuck = praiseOnStuck;
+                C.Save();
+            }
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip("Said once per run, but only when ICE had to stop for a reason you did not ask for: it kept rerolling and still found no mission, or the current job has no runnable mission in this zone.\nUses TataruPraise's existing \"需要幫忙\" category, so this one works right away.\nDoes nothing at all when TataruPraise is not installed, and never affects scheduling.".Loc());
             }
 
             #endregion

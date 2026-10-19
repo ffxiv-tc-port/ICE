@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using YamlDotNet.Core.Tokens;
 using static ECommons.UIHelpers.AddonMasterImplementations.AddonMaster;
 using static ICE.Utilities.CosmicHelper;
+using ICE.IPC;
 
 namespace ICE.Scheduler.Tasks
 {
@@ -38,8 +39,8 @@ namespace ICE.Scheduler.Tasks
                 if (C.StopWhenLevel && Player.Level >= C.TargetLevel)
                 {
                     SchedulerMain.State = IceState.Idle;
-                    IceLogging.ChatInfo("Stop At Player Level is enabled. \n" +
-                                       $"Your current level is: {Player.Level} and Goal: {C.TargetLevel}", "[I.C.E.]");
+                    TataruPraiseIPC.NotifyStopped("等級達到設定的上限");
+                    IceLogging.ChatInfo("Stop At Player Level is enabled. \nYour current level is: ?? and Goal: ??".Loc(Player.Level, C.TargetLevel), "[I.C.E.]");
                     if (C.PlaySoundAlert)
                     {
                         _ = SoundPlayer.PlaySoundAsync();
@@ -53,9 +54,9 @@ namespace ICE.Scheduler.Tasks
 
                     if (scores.classScore >= C.CosmicScoreCap)
                     {
-                        IceLogging.ChatInfo("Stop At Cosmic Score is enabled. \n" +
-                                           $"Your current level is: {scores.classScore} and Goal: {C.CosmicScoreCap}", "[I.C.E.]");
+                        IceLogging.ChatInfo("Stop At Cosmic Score is enabled. \nYour current level is: ?? and Goal: ??".Loc(scores.classScore, C.CosmicScoreCap), "[I.C.E.]");
                         SchedulerMain.State = IceState.Idle;
+                        TataruPraiseIPC.NotifyStopped("宇宙評分達到設定的上限");
                         if (C.PlaySoundAlert)
                         {
                             _ = SoundPlayer.PlaySoundAsync();
@@ -65,30 +66,32 @@ namespace ICE.Scheduler.Tasks
                 }
                 if (C.StopOnceHitLunarCredits)
                 {
-                    uint[] currencies = [45691, 48146, 48147, 48148];
-                    var manager = WKSManager.Instance();
-                    var zoneId = *((byte*)manager + 0x5D);
-                    var itemId = currencies[zoneId];
-
-                    PlayerHelper.GetItemCount(itemId, out var credits);
-                    if (credits >= C.LunarCreditsCap)
+                    // 🔴 一定要走 Task_Gamba.TryGetCosmoCreditItemId：不在已知的宇宙探索區時回 false。
+                    //    讀不到就**跳過這一項檢查繼續往下**（不是 return）——後面還有別的停手條件要判，
+                    //    而「停手門檻讀不到」本身不該觸發停手。
+                    if (Task_Gamba.TryGetCosmoCreditItemId(out var itemId))
                     {
-                        IceLogging.ChatInfo($"You've either hit the Lunar Credit threshold, or gone above it.\n" +
-                                            $"Stopping I.C.E.", "[I.C.E.]");
-                        SchedulerMain.State = IceState.Idle;
-                        if (C.PlaySoundAlert)
+                        PlayerHelper.GetItemCount(itemId, out var credits);
+                        if (credits >= C.LunarCreditsCap)
                         {
-                            _ = SoundPlayer.PlaySoundAsync();
+                            IceLogging.ChatInfo("You've either hit the Lunar Credit threshold, or gone above it.\nStopping I.C.E.".Loc(), "[I.C.E.]");
+                            SchedulerMain.State = IceState.Idle;
+                            TataruPraiseIPC.NotifyStopped("月靈點達到設定的上限");
+                            if (C.PlaySoundAlert)
+                            {
+                                _ = SoundPlayer.PlaySoundAsync();
+                            }
+                            return true;
                         }
-                        return true;
                     }
                 }
                 if (C.StopOnceHitCosmoCredits && !C.BuyItems)
                 {
                     if (GenericHelpers.TryGetAddonMaster<WKSHud>("WKSHud", out var hud) && hud.IsAddonReady && (hud.CosmoCredit >= C.CosmoCreditsCap))
                     {
-                        IceLogging.ChatInfo($"Stopping the plugin as you have {hud.CosmoCredit} Cosmocredits.", "[I.C.E.]");
+                        IceLogging.ChatInfo("Stopping the plugin as you have ?? Cosmocredits.".Loc(hud.CosmoCredit), "[I.C.E.]");
                         SchedulerMain.State = IceState.Idle;
+                        TataruPraiseIPC.NotifyStopped("宇宙點達到設定的上限");
                         if (C.PlaySoundAlert)
                         {
                             _ = SoundPlayer.PlaySoundAsync();
@@ -112,6 +115,7 @@ namespace ICE.Scheduler.Tasks
 
                         IceLogging.Info("You have met all necessary relic xp, and you have \"Stop on Relic Completion\" enabled, so stopping for now");
                         SchedulerMain.State = IceState.Idle;
+                        TataruPraiseIPC.NotifyStopped("靈器經驗值已經全滿");
                         if (C.PlaySoundAlert)
                         {
                             _ = SoundPlayer.PlaySoundAsync();
@@ -136,6 +140,7 @@ namespace ICE.Scheduler.Tasks
                         {
                             IceLogging.Info("You have met all necessary relic xp, and you have \"Stop on Relic Completion\" enabled, so stopping for now");
                             SchedulerMain.State = IceState.Idle;
+                            TataruPraiseIPC.NotifyStopped("靈器已經做到最終階段");
                             if (C.PlaySoundAlert)
                             {
                                 _ = SoundPlayer.PlaySoundAsync();
@@ -143,6 +148,10 @@ namespace ICE.Scheduler.Tasks
                             return true;
                         }
                     }
+                }
+                if (TryStopWhenStandardMissionsGolded())
+                {
+                    return true;
                 }
                 if (currentMissionId != 0)
                 {
@@ -162,22 +171,46 @@ namespace ICE.Scheduler.Tasks
                         {
                             IceLogging.Debug($"Mission isn't timed out... checking other states");
                             UpdateMissionState(currentMissionId);
-                            C.MissionConfig.TryGetValue(currentMissionId, out var config);
+
+                            // MissionSettings 是 class，查不到時 config 是 null —— TryGetValue 的回傳值一定要看。
+                            if (!C.MissionConfig.TryGetValue(currentMissionId, out var config))
+                            {
+                                IceLogging.ChatError($"任務 {currentMissionId} 在設定檔裡沒有對應的設定，" +
+                                                     "無法判斷要走哪一種流程，回到領任務狀態。", "[ICE]");
+                                SchedulerMain.State = IceState.GrabMission;
+                                P.TaskManager.Tasks.Clear();
+                                return true;
+                            }
 
                             var s = SchedulerMain.MissionState;
                             bool dualMission = (s.HasFlag(MissionAttributes.Craft) && (s.HasFlag(MissionAttributes.Gather) || s.HasFlag(MissionAttributes.Fish)));
                             // In the middle of a dual mission. 
                             // First, checking to see if you're in the middle of a gathering or crafting action
-                            if (C.OnlyGrabMission || config.ManualMode || UnsupportedMissions.Ids.Contains(currentMissionId))
+                            var unsupported = MissionSupport.IsUnsupported(currentMissionId, out var unsupportedReason);
+                            if (C.OnlyGrabMission || config.ManualMode || unsupported)
                             {
                                 // TODO: Remove this once properly coded
-                                if (s.HasFlag(MissionAttributes.Fish))
+                                // 這條分支就是「接了任務之後外掛完全不動」的最常見原因，所以除了 log 也印到聊天視窗。
+                                if (unsupported)
                                 {
-                                    IceLogging.Info("Currently not built in/supported yet. Swapping to manual mode");
+                                    // 「不支援」走統一告知點：文字跟 PlayerHandlers 的接任務偵測完全相同，
+                                    // 靠 ChatInfo 以訊息全文為鍵的節流自動去重，使用者只會看到一次。
+                                    MissionSupport.Notify(currentMissionId, unsupportedReason);
                                 }
                                 else
                                 {
-                                    IceLogging.Info($"You have either manual mode enabled, or you have OnlyGrabMission enabled. Swapping to manual mode state");
+                                    var reason = C.OnlyGrabMission
+                                        ? "你開了「只接任務」(Only Grab Mission)"
+                                        : "這個任務的設定是手動模式 (Manual Mode)";
+
+                                    if (s.HasFlag(MissionAttributes.Fish))
+                                    {
+                                        IceLogging.ChatInfo($"任務 {currentMissionId}：{reason}，所以切到手動模式，釣魚不會自動進行。", "[ICE]");
+                                    }
+                                    else
+                                    {
+                                        IceLogging.ChatInfo($"任務 {currentMissionId}：{reason}，所以切到手動模式。", "[ICE]");
+                                    }
                                 }
                                 SchedulerMain.State = IceState.ManualMode;
                             }
@@ -230,19 +263,16 @@ namespace ICE.Scheduler.Tasks
                     var currentJob = Player.JobId;
 
                     bool repairVendor = C.RepairAtVendor && PlayerHelper.NeedsRepair(C.RepairPercent);
-                    bool selfRepairCraft = C.SelfRepairCrafter && PlayerHelper.NeedsRepair(C.RepairPercent) && CosmicHelper.CrafterJobList.Contains(currentJob);
-                    bool selfRepairGather = C.SelfRepairGather && PlayerHelper.NeedsRepair(C.RepairPercent) && CosmicHelper.GatheringJobList.Contains(currentJob);
+                    bool selfRepairCraft = C.SelfRepairCrafter && !Task_Repair.SelfRepairGaveUp && PlayerHelper.NeedsRepair(C.RepairPercent) && CosmicHelper.CrafterJobList.Contains(currentJob);
+                    bool selfRepairGather = C.SelfRepairGather && !Task_Repair.SelfRepairGaveUp && PlayerHelper.NeedsRepair(C.RepairPercent) && CosmicHelper.GatheringJobList.Contains(currentJob);
                     bool extractSpiritbond = C.SelfSpiritbondGather && Task_Spiritbond.IsSpiritbondReadyAny();
                     PlayerHelper.GetItemCount(45690, out var cosmoCreditAmount);
                     bool canBuyItems = C.BuyItems && Task_BuyCosmoItems.CanPurchaseAnyItem() && cosmoCreditAmount >= C.CosmoBuyAtAmount;
                     bool canGamba = false;
 
-                    uint[] currencies = [45691, 48146, 48147, 48148];
-                    var manager = WKSManager.Instance();
-                    var zoneId = *((byte*)manager + 0x5D);
-                    var itemId = currencies[zoneId];
-
-                    if (C.GambaBetweenRuns)
+                    // 🔴 同上面 StopOnceHitLunarCredits 那段：走 Task_Gamba 的共用版本，而且只在開了 GambaBetweenRuns 時才查。
+                    //    讀不到就讓 canGamba 維持 false ——「不知道」不該變成「去賭」。
+                    if (C.GambaBetweenRuns && Task_Gamba.TryGetCosmoCreditItemId(out var itemId))
                     {
                         if (PlayerHelper.GetItemCount(itemId, out var lunarCredits))
                         {
@@ -288,13 +318,74 @@ namespace ICE.Scheduler.Tasks
             }
         }
 
+        // 「本區、目前所選職業的普通任務全部金評就停」（只有停手邏輯，不含 Cosmic Agenda）。
+        //   ① 金評旗標走 MissionStatusHelper.GetStatus（CustomCs.cs 的原生 IsMissionGolded）。
+        //   ② 只有在宇宙探索區內才判——區外 WKSManager 為 null，且「本區任務」的概念不成立。
+        //   ③ total == 0 一律不停（資料還沒載入或條件不成立；「不知道」不該觸發停手）。
+        private static unsafe bool TryStopWhenStandardMissionsGolded()
+        {
+            if (!C.StopOnceStandardMissionsGolded || !PlayerHelper.IsInCosmicZone())
+            {
+                return false;
+            }
+
+            int golded = 0;
+            int total = 0;
+
+            foreach (var mission in CosmicHelper.SheetMissionDict)
+            {
+                var info = mission.Value;
+                if (info.TerritoryId != Player.Territory || !info.Jobs.Contains(C.SelectedJob))
+                {
+                    continue;
+                }
+
+                var attributes = info.Attributes;
+                if (attributes.HasFlag(MissionAttributes.Critical)
+                    || attributes.HasFlag(MissionAttributes.ProvisionalTimed)
+                    || attributes.HasFlag(MissionAttributes.ProvisionalWeather)
+                    || attributes.HasFlag(MissionAttributes.ProvisionalSequential))
+                {
+                    continue;
+                }
+
+                total++;
+                if (MissionStatusHelper.GetStatus(mission.Key).Gold)
+                {
+                    golded++;
+                }
+            }
+
+            if (total == 0 || golded != total)
+            {
+                return false;
+            }
+
+            IceLogging.ChatInfo("All standard missions have been graded gold (??/??). Stopping I.C.E.".Loc(golded, total), "[I.C.E.]");
+            SchedulerMain.State = IceState.Idle;
+            TataruPraiseIPC.NotifyStopped("這個職業在這個區域的標準任務全部拿到金評");
+            P.TaskManager.Tasks.Clear();
+            if (C.PlaySoundAlert)
+            {
+                _ = SoundPlayer.PlaySoundAsync();
+            }
+
+            return true;
+        }
+
         private static void UpdateMissionState(uint missionId)
         {
             // Clearing the current mission modifiers.
             SchedulerMain.MissionState = MissionAttributes.None;
 
             // Grabbing the mission info from the dictionary entry
-            var missionDictInfo = CosmicHelper.SheetMissionDict[missionId];
+            // SheetMissionDict 只有「Name 不為空的 row」（沒有 0），一定要 TryGetValue。
+            // 查不到就維持在上面剛清乾淨的 None —— 呼叫端本來就是依 MissionState 分支的。
+            if (!CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var missionDictInfo))
+            {
+                IceLogging.Info($"任務 {missionId} 不在任務表裡，MissionState 維持 None。", "[Task: Check State]");
+                return;
+            }
 
             // Updating the Mission state to be the same as the current mission that's fired.
             SchedulerMain.MissionState = missionDictInfo.Attributes;

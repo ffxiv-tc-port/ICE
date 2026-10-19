@@ -20,12 +20,12 @@ namespace ICE.Ui.MainUi.HelpFolder
                 if (!headerChild.Success) return; // Ensures that it was loaded properly before continuing.
                 if (ImGui.BeginTabBar("Ice Log Tabs"))
                 {
-                    if (ImGui.BeginTabItem("Main Logs"))
+                    if (ImGui.BeginTabItem("Main Logs".Loc() + "###ICELogsMain"))
                     {
                         LogHelperViewer();
                         ImGui.EndTabItem();
                     }
-                    if (ImGui.BeginTabItem("Destination Logs"))
+                    if (ImGui.BeginTabItem("Destination Logs".Loc() + "###ICELogsDestination"))
                     {
                         DestinationLogViewer();
                         ImGui.EndTabItem();
@@ -38,24 +38,65 @@ namespace ICE.Ui.MainUi.HelpFolder
 
         public static void Draw_Debug()
         {
-            if (ImGui.Button("Copy logs to clipboard"))
+            if (ImGui.Button("Copy logs to clipboard".Loc() + "###ICECopyLogsToClipboard"))
             {
                 LogSystem.CopyToClipboard();
             }
             LogHelperViewer();
         }
 
+        /// <summary>
+        /// 日誌<b>寫入端</b>門檻的選單。放在日誌檢視器上，因為這裡就是這個設定唯一看得到效果的地方。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 只提供 Verbose／Debug／Info 三個選項，因為 <c>IceLogging.MinimumLevel</c> 的 setter
+        /// 就把值夾在 Info 以下 —— Information 以上是回報診斷用的管道，不開放關掉。
+        /// UI 少列幾個選項只是順帶；真正的保證在 setter，不在這裡。
+        /// </remarks>
+        private static void DrawMinimumLevelCombo()
+        {
+            // 等級名稱刻意用列舉原名（跟下面表格的「等級」欄逐字一致），不另外翻譯，
+            // 免得同一個值在同一個視窗裡出現兩種寫法。
+            var levels = new[] { LogLevel.Verbose, LogLevel.Debug, LogLevel.Info };
+            var current = IceLogging.MinimumLevel;
+
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(120);
+            if (ImGui.BeginCombo("Minimum log level".Loc() + "###ICELogMinimumLevel", current.ToString()))
+            {
+                foreach (var level in levels)
+                {
+                    if (ImGui.Selectable(level.ToString(), level == current))
+                    {
+                        IceLogging.MinimumLevel = level;
+                        // 存回設定檔時寫夾擠**之後**的值，免得設定檔留著一個永遠套不上的數字。
+                        C.LogMinimumLevel = IceLogging.MinimumLevel;
+                        C.Save();
+                    }
+                }
+                ImGui.EndCombo();
+            }
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip(
+                    "Entries below this level are not written at all: no string is built and nothing enters the 3000-entry buffer.\nInformation and above can never be filtered out - that is the channel used for asking you to report diagnostics."
+                    .Loc());
+            }
+        }
+
         private static void LogHelperViewer()
         {
             // Search input
             ImGui.SetNextItemWidth(300);
-            ImGui.InputTextWithHint("##LogSearch", "Search logs...", ref searchFilter, 256);
+            ImGui.InputTextWithHint("##LogSearch", "Search logs...".Loc(), ref searchFilter, 256);
 
             ImGui.SameLine();
-            if (ImGui.Button("Clear"))
+            if (ImGui.Button("Clear".Loc() + "###ICEClearLogSearch"))
             {
                 searchFilter = string.Empty;
             }
+
+            DrawMinimumLevelCombo();
 
             ImGui.Spacing();
 
@@ -66,10 +107,10 @@ namespace ICE.Ui.MainUi.HelpFolder
 
             if (ImGui.BeginTable("LogTable", 4, flags))
             {
-                ImGui.TableSetupColumn("Time");
-                ImGui.TableSetupColumn("Level");
-                ImGui.TableSetupColumn("Category");
-                ImGui.TableSetupColumn("Message");
+                ImGui.TableSetupColumn("Time".Loc());
+                ImGui.TableSetupColumn("Level".Loc());
+                ImGui.TableSetupColumn("Category".Loc());
+                ImGui.TableSetupColumn("Message".Loc());
                 ImGui.TableHeadersRow();
 
                 // Filter logs based on search input
@@ -122,10 +163,10 @@ namespace ICE.Ui.MainUi.HelpFolder
 
             if (ImGui.BeginTable("Destination Log Viewer", 5, flags))
             {
-                ImGui.TableSetupColumn("Timestamp");
-                ImGui.TableSetupColumn("Start");
-                ImGui.TableSetupColumn("Destination");
-                ImGui.TableSetupColumn("Distance");
+                ImGui.TableSetupColumn("Timestamp".Loc());
+                ImGui.TableSetupColumn("Start".Loc());
+                ImGui.TableSetupColumn("Destination".Loc());
+                ImGui.TableSetupColumn("Distance".Loc());
 
                 ImGui.TableHeadersRow();
 
@@ -151,13 +192,13 @@ namespace ICE.Ui.MainUi.HelpFolder
                     Table_VertCenterText($"{log.Distance}");
 
                     ImGui.TableNextColumn();
-                    if (ImGui.Button("Copy Info"))
+                    if (ImGui.Button("Copy Info".Loc() + "###ICECopyDestinationInfo"))
                     {
                         var clipboardText = new StringBuilder();
                         clipboardText.AppendLine($"Start: X: {log.PlayerStart.X:N2}, Y: {log.PlayerStart.Y:N2}, Z: {log.PlayerStart.Z:N2}");
                         clipboardText.Append($"End: X: {log.PlayerDestination.X:N2}, Y: {log.PlayerDestination.Y:N2}, Z: {log.PlayerDestination.Z:N2}");
                         ImGui.SetClipboardText($"{clipboardText}");
-                        Notify.Success("Log copied to clipbard");
+                        Notify.Success("Log copied to clipbard".Loc());
                     }
                     ImGui.PopID();
 

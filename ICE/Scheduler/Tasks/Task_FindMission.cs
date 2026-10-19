@@ -1,5 +1,7 @@
 ﻿using Dalamud.Game.ClientState.Conditions;
 using ECommons.GameHelpers;
+using ICE.Sounds;
+using ICE.Ui.MainUi.ModeSelect;
 using FFXIVClientStructs.FFXIV.Client.Game.WKS;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using ICE.Utilities.Cosmic;
@@ -10,6 +12,7 @@ using System.Collections.Generic;
 using static ECommons.UIHelpers.AddonMasterImplementations.AddonMaster;
 using static FFXIVClientStructs.FFXIV.Client.UI.Agent.AgentWKSMission;
 using static ICE.Utilities.CosmicHelper;
+using ICE.IPC;
 
 namespace ICE.Scheduler.Tasks
 {
@@ -46,6 +49,19 @@ namespace ICE.Scheduler.Tasks
         private static int timeoutAmount = 0;
         private static int maxTimeout = 10;
 
+        /// <summary>
+        /// 排程器已經挑好、正要去領的任務 ID（尚未接下來）。0 = 目前沒有選定目標。
+        /// <para>
+        /// 疊加層在「目前任務：無」時用這個顯示「正要去領哪一個」。設定點一律是實際把
+        /// 領取任務堆進佇列的地方，所以它代表的是<b>已決定</b>而不是<b>已接受</b>。
+        /// 重擲（reroll/abandon）不會設定這個值 —— 那是要丟掉的任務，不是目標。
+        /// </para>
+        /// </summary>
+        public static uint TargetMissionId { get; private set; }
+
+        /// <summary>清掉選定目標。每輪重新找任務、以及任務真的接下來之後都要呼叫，避免顯示過期資訊。</summary>
+        public static void ClearTargetMission() => TargetMissionId = 0;
+
         public static void Enqueue()
         {
             IceLogging.Info("Starting the find mission queue", "[Task Find Mission]");
@@ -54,6 +70,15 @@ namespace ICE.Scheduler.Tasks
             P.TaskManager.Enqueue(RefreshSelectedMissions, "Refreshing the list of viable missions");
             if (C.XPRelicGrind)
             {
+                // 宇宙工具經驗模式：預設只掃「一般任務」分頁（上游行為）。
+                // 兩個開關可以額外把緊急／臨時（連續・時間・天氣）分頁也納入挑選，
+                // 順序刻意跟標準模式一致：緊急 -> 臨時 -> 一般。
+                // OpenTab 一開頭就會在「任務已接下」時直接返回，所以前面的分頁一旦選到，
+                // 後面的分頁就不會再動作。
+                if (C.XPRelicIncludeCritical)
+                    P.TaskManager.Enqueue(() => OpenTab("ExpCheckCritical"), "Opening Critical tab for relic grind");
+                if (C.XPRelicIncludeProvisional)
+                    P.TaskManager.Enqueue(() => OpenTab("ExpCheckProvisional"), "Opening Provisional tab for relic grind");
                 P.TaskManager.Enqueue(() => OpenTab("ExpCheck"), "Opening Standard tab for relic grind");
             }
             else if (C.GrindProvisionals)
@@ -110,6 +135,8 @@ namespace ICE.Scheduler.Tasks
         }
         public static bool? RefreshSelectedMissions()
         {
+            // 新的一輪挑選開始，把上一輪殘留的目標清掉，免得疊加層顯示過期資訊。
+            ClearTargetMission();
             CriticalMissions.Clear();
             WeatherMissions.Clear();
             TimedMissions.Clear();
@@ -123,6 +150,10 @@ namespace ICE.Scheduler.Tasks
             BasicMissionCount = 0;
 
             uint currentJobId = Player.JobId;
+
+            // 這一輪因為「ICE 跑不動」而被排除的任務。⚠️ 不能靜默跳過 —— 使用者啟用了它卻
+            // 永遠不會被接，沒有訊息的話看起來就像外掛壞了。
+            var skippedUnsupported = new List<(uint Id, MissionSupport.UnsupportedReason Reason)>();
 
             foreach (var mission in C.MissionConfig)
             {
@@ -147,6 +178,17 @@ namespace ICE.Scheduler.Tasks
                     // Territory Check, cause people seem to also be forgetting this
                     if (missionInfo.TerritoryId != Player.Territory)
                         continue;
+
+                    // ICE 跑不動的任務在這裡就排除掉，不要挑進候選池。
+                    // 🔑 這是「自動選任務要跳過」的**唯一**攔截點：緊急／臨時／一般三個分頁挑的都是下面這幾個 HashSet，
+                    //    擋在建池階段就等於三條路一起擋住。
+                    // ⚠️ 刻意放在「已啟用 + 職業對 + 區域對」之後：只有使用者真的想跑的任務
+                    //    才值得回報，否則每輪都會列出一整排跟他無關的任務。
+                    if (MissionSupport.IsUnsupported(missionId, out var unsupportedReason))
+                    {
+                        skippedUnsupported.Add((missionId, unsupportedReason));
+                        continue;
+                    }
 
                     // Alright, mission was double checked to make sure it was enabled
                     // And also checked to make sure that the current job is on the mission, time to actually add it to the mission info
@@ -215,7 +257,49 @@ namespace ICE.Scheduler.Tasks
                 $"Total Special Missions: {SpecialMissionCount} \n" +
                 $"Total Basic Missions: {BasicMissionCount} \n");
 
+            ReportSkippedUnsupported(skippedUnsupported);
+
             return true;
+        }
+
+        private static string lastSkippedSignature = string.Empty;
+
+        /// <summary>
+        /// 把這一輪被「不支援」擋掉的任務講出來。
+        /// </summary>
+        /// <remarks>
+        /// ⚠️ 要使用者回報的診斷。
+        /// ⚠️ 節流：<c>RefreshSelectedMissions</c> 每一輪找任務都會跑，不節流會把記錄檔洗掉。
+        /// </remarks>
+        private static void ReportSkippedUnsupported(List<(uint Id, MissionSupport.UnsupportedReason Reason)> skipped)
+        {
+            if (skipped.Count == 0)
+            {
+                lastSkippedSignature = string.Empty;
+                return;
+            }
+
+            var signature = string.Join(",", skipped.Select(x => $"{x.Id}:{x.Reason}"));
+            var changed = signature != lastSkippedSignature;
+            lastSkippedSignature = signature;
+
+            var detail = string.Join("、", skipped.Select(x =>
+                $"[{x.Id}]{(CosmicHelper.SheetMissionDict.TryGetValue(x.Id, out var e) ? e.Name : "?")}({x.Reason})"));
+
+            // ⚠️ 兩個 Throttle 都要無條件呼叫（不要短路），否則名單一變就跳過計時器，
+            //    下一輪沒變的時候會立刻又放行一次。
+            var logDue = EzThrottler.Throttle("ICE: unsupported mission skip log", 60000);
+            var chatDue = EzThrottler.Throttle("ICE: unsupported mission skip chat", 300000);
+
+            if (changed || logDue)
+                IceLogging.Info($"自動選任務跳過了 {skipped.Count} 個 ICE 跑不動的任務：{detail}。" +
+                                "它們仍然可以手動接、手動完成。", "[FindMission: 未支援]");
+
+            if (changed || chatDue)
+                IceLogging.ChatInfo(
+                    "Auto mission select skipped ?? enabled mission(s) ICE cannot run: ??"
+                        .Loc(skipped.Count, string.Join("、", skipped.Select(x => $"[{x.Id}]"))),
+                    "[ICE]");
         }
         public static bool? TabTasksCheck()
         {
@@ -225,8 +309,16 @@ namespace ICE.Scheduler.Tasks
 
             if (!(hasCritical || hasSpecial || hasBasic))
             {
-                IceLogging.Debug("You have... no active missions and you're not on relic grinding mode. Disabling this for now");
+                // ⚠️ 這裡會直接把外掛停掉，所以用 Information + 聊天視窗（要使用者回報的診斷）：
+                //    排除不支援任務之後這條路徑更容易走到（整批啟用的任務可能全被跳過）。
+                IceLogging.ChatInfo(
+                    "No runnable mission is enabled for the current job in this zone, so ICE is stopping. (Relic XP mode is off.)".Loc()
+                    + (lastSkippedSignature.Length > 0
+                        ? " " + "Some enabled missions were skipped because ICE cannot run them - see the message above.".Loc()
+                        : string.Empty),
+                    "[ICE]");
                 SchedulerMain.State = IceState.Idle;
+                TataruPraiseIPC.NotifyNeedsHelp("這個職業在這個區域沒有可跑的任務");
                 SchedulerMain.DisablePlugin();
             }
 
@@ -282,6 +374,26 @@ namespace ICE.Scheduler.Tasks
                             (
                                 new(() => FrameDelay(16), "Delaying 8 frames for the tab"),
                                 new(() => CheckExp(), "Checking Exp Missions")
+                            );
+                            break;
+                        }
+                    case "ExpCheckCritical":
+                        {
+                            x.CriticalMissions();
+                            P.TaskManager.InsertMulti
+                            (
+                                new(() => FrameDelay(16), "Delaying 8 frames for the tab"),
+                                new(() => CheckExp(isFallbackTab: false, requireCurrentJob: true), "Checking Exp Missions [Critical]")
+                            );
+                            break;
+                        }
+                    case "ExpCheckProvisional":
+                        {
+                            x.ProvisionalMissions();
+                            P.TaskManager.InsertMulti
+                            (
+                                new(() => FrameDelay(16), "Delaying 8 frames for the tab"),
+                                new(() => CheckExp(isFallbackTab: false, requireCurrentJob: true), "Checking Exp Missions [Provisional]")
                             );
                             break;
                         }
@@ -396,13 +508,36 @@ namespace ICE.Scheduler.Tasks
 
             return false;
         }
+        /// <summary>
+        /// 標準任務的階級挑選順序（使用者可在「任務優先度」拖曳調整）。
+        /// ⚠️ 一定要把設定裡缺少的階級補在後面：舊設定檔、手動編輯、或日後新增階級時，
+        ///    少掉的那一階會永遠不被挑到 —— 而且是靜默的，看起來就像「沒有可接任務」。
+        /// </summary>
+        private static readonly string[] DefaultRankOrder = ["ExA", "A", "B", "C", "D"];
+
+        private static IEnumerable<string> RankOrder()
+        {
+            var configured = C.RankPrio ?? [];
+            var seen = new HashSet<string>();
+
+            foreach (var rank in configured)
+            {
+                if (DefaultRankOrder.Contains(rank) && seen.Add(rank))
+                    yield return rank;
+            }
+
+            foreach (var rank in DefaultRankOrder)
+            {
+                if (seen.Add(rank))
+                    yield return rank;
+            }
+        }
+
         public static bool? CheckStandard()
         {
             if (GenericHelpers.TryGetAddonMaster<WKSMission>("WKSMission", out var x) && x.IsAddonReady)
             {
-                List<string> RankPriority = new() { "ExA", "A", "B", "C", "D" };
-
-                foreach (var rankType in RankPriority)
+                foreach (var rankType in RankOrder())
                 {
                     // Get the appropriate HashSet for this rank
                     HashSet<uint> missionHashSet = rankType switch
@@ -420,7 +555,80 @@ namespace ICE.Scheduler.Tasks
                         continue;
 
                     // Look for missions of this rank type
-                    foreach (var mission in x.StellerMissions.Where(m => missionHashSet.Contains(m.MissionId)))
+                    var candidates = x.StellerMissions.Where(m => missionHashSet.Contains(m.MissionId)).ToList();
+
+                    // 「依表格排序方式挑任務」：沿用「表格設定 → 排序方式」那個下拉選單的順序
+                    // （經驗 I～V／宇宙點數／月面點數／地圖位置／職業分數…），與表格顯示共用同一份邏輯。
+                    if (C.UseTableSortForMissionOrder && candidates.Count > 1)
+                        candidates = modeSelect_TableInfo.SortByTableOption(candidates, m => m.MissionId).ToList();
+
+                    // 「沒金星的優先」：同一階級之內，把還沒拿到金星的任務排前面（補完成度用）。
+                    // 放在表格排序「之後」：OrderBy 是穩定排序，所以未金星優先，同組之內維持表格順序。
+                    // ⚠️ 先在 unsafe 區塊把「是否已金星」算成純量再排序，不要把原生指標放進 OrderBy 的 lambda。
+                    // ⚠️ WKSManager.Instance() 可能是 null（還沒進入宇宙探索內容），此時不排序，行為與關閉此選項完全相同。
+                    if (C.PrioritizeUngoldedMissions && candidates.Count > 1)
+                    {
+                        Dictionary<uint, int> goldRank = new();
+                        unsafe
+                        {
+                            var mgr = WKSManager.Instance();
+                            if (mgr != null)
+                            {
+                                foreach (var m in candidates)
+                                    goldRank[m.MissionId] = mgr->IsMissionGolded(m.MissionId) ? 1 : 0;
+                            }
+                        }
+
+                        if (goldRank.Count > 0)
+                        {
+                            // OrderBy 是穩定排序，所以同組之內維持原本順序，只是把已金星的往後推。
+                            candidates = candidates.OrderBy(m => goldRank.GetValueOrDefault(m.MissionId)).ToList();
+                            IceLogging.Debug(
+                                $"沒金星優先：{goldRank.Count(kv => kv.Value == 0)}/{goldRank.Count} 個尚未金星，已排到前面",
+                                "[FindMission: CheckStandard]");
+                        }
+                    }
+
+                    // 「最低金星率」門檻：把金星率不達標的任務排到同階級隊尾。
+                    // 🔴 是「降級」不是「過濾」—— 移除會把候選池掏空，讓 CheckReroll 連續重骰（見 MissionConfigs.MaxConsecutiveRerolls）。
+                    // ⚠️ 只在「依表格排序方式挑任務」開著時生效，門檻 0 = 關閉（預設）。
+                    // ⚠️ 放在最後一個排序步驟，所以它蓋過上面的「沒金星優先」：試了夠多次都沒金星的任務不該再優先塞給使用者。
+                    if (C.UseTableSortForMissionOrder && C.MinGoldRatePercentForPicking > 0 && candidates.Count > 1)
+                    {
+                        int GoldRateRank(uint missionId)
+                        {
+                            if (!C.MissionConfig.TryGetValue(missionId, out var cfg)) return 0;
+                            var attempts = cfg.TotalCompletions + cfg.FailedCounters;
+                            // 樣本不足一律視為達標，否則第一次失敗就把任務永久打入冷宮，
+                            // 連累積數據的機會都沒有。
+                            // ⚠️ 一定要寫 global:: —— 在 ICE.Scheduler.Tasks 這個命名空間裡，
+                            //    裸寫的 ICE 會先綁到 ICE.ICE 這個類別（global using static 帶進來的），
+                            //    再取 .Config 就變成存取它的非公開成員，編譯錯誤看起來像「保護層級」問題。
+                            if (attempts < global::ICE.Config.MissionConfigs.MinGoldRateSampleSize) return 0;
+                            var rate = 100.0 * cfg.GoldCompletions / attempts;
+                            return rate < C.MinGoldRatePercentForPicking ? 1 : 0;
+                        }
+
+                        var demoted = candidates.Count(m => GoldRateRank(m.MissionId) == 1);
+                        if (demoted > 0 && demoted < candidates.Count)
+                        {
+                            // OrderBy 是穩定排序：達標的維持原順序，不達標的整批推到後面。
+                            candidates = candidates.OrderBy(m => GoldRateRank(m.MissionId)).ToList();
+                            IceLogging.Info(
+                                $"最低金星率 {C.MinGoldRatePercentForPicking}%：{demoted}/{candidates.Count} 個任務金星率不足，已排到隊尾（未移除）",
+                                "[FindMission: CheckStandard]");
+                        }
+                        else if (demoted > 0)
+                        {
+                            // 全部都不達標：重排等於沒排，但使用者需要知道門檻正在空轉，
+                            // 否則會以為門檻沒生效。
+                            IceLogging.Info(
+                                $"最低金星率 {C.MinGoldRatePercentForPicking}%：本階級 {demoted} 個候選全部不達標，維持原順序",
+                                "[FindMission: CheckStandard]");
+                        }
+                    }
+
+                    foreach (var mission in candidates)
                     {
                         mission.Select();
                         InsertGrabMission(mission.MissionId);
@@ -438,11 +646,19 @@ namespace ICE.Scheduler.Tasks
 
             return false;
         }
-        private static unsafe bool? CheckExp()
+        /// <param name="isFallbackTab">
+        /// 這個分頁是不是「最後一道防線」。只有一般任務分頁是 true —— 挑不到東西時才由它負責
+        /// 走重擲流程／停止外掛。緊急與臨時分頁挑不到是正常的（那兩種任務本來就不常有），
+        /// 挑不到就安靜地把控制權交給下一個分頁。
+        /// </param>
+        /// <param name="requireCurrentJob">
+        /// 一般任務分頁本來就已依職業分頁，所以維持 false 以免動到既有行為。
+        /// </param>
+        private static unsafe bool? CheckExp(bool isFallbackTab = true, bool requireCurrentJob = false)
         {
             if (GenericHelpers.TryGetAddonMaster<WKSMission>("WKSMission", out var x) && x.IsAddonReady)
             {
-                var bestIndex = FindBestRelicMission();
+                var bestIndex = FindBestRelicMission(requireCurrentJob);
 
                 if (bestIndex > 0)
                 {
@@ -455,6 +671,19 @@ namespace ICE.Scheduler.Tasks
                         InsertGrabMission(selectedMission.MissionId);
                         return true;
                     }
+
+                    // 挑到了 ID 卻在清單裡找不到（分頁在這幾幀之間被換掉之類）。
+                    // 額外分頁不能卡在這裡重試，直接交給下一個分頁。
+                    if (!isFallbackTab)
+                    {
+                        IceLogging.Debug($"選到的任務 {bestIndex} 不在目前清單裡，交給下一個分頁", "[Xp Grind]");
+                        return true;
+                    }
+                }
+                else if (!isFallbackTab)
+                {
+                    IceLogging.Debug("這個分頁沒有適合的宇宙工具經驗任務，交給下一個分頁", "[Xp Grind]");
+                    return true;
                 }
                 else
                 {
@@ -470,7 +699,10 @@ namespace ICE.Scheduler.Tasks
                     {
                         IceLogging.Debug($"Only relic grind was enabled. Continuing to re-roll mission now");
                         HashSet<uint> EnabledMissions = new();
-                        foreach (var mission in C.MissionConfig.Where(x => x.Value.Enabled && SheetMissionDict[x.Key].Jobs.Contains(Player.JobId)))
+                        // 🔴 迭代的是 MissionConfig、查的是 SheetMissionDict，兩個字典的鍵集合不一樣，所以一定要 TryGetValue。
+                        foreach (var mission in C.MissionConfig.Where(x => x.Value.Enabled
+                                                                          && SheetMissionDict.TryGetValue(x.Key, out var m)
+                                                                          && m.Jobs.Contains(Player.JobId)))
                         {
                             EnabledMissions.Add(mission.Key);
                         }
@@ -503,7 +735,11 @@ namespace ICE.Scheduler.Tasks
 
             return false;
         }
-        public static unsafe uint? FindBestRelicMission()
+        /// <param name="requireCurrentJob">
+        /// 只保留「任務職業包含目前職業」的候選。緊急／臨時分頁會列出其他職業的任務，
+        /// 而經驗是加在任務所屬職業的宇宙工具上，所以那兩個分頁必須開啟這個過濾。
+        /// </param>
+        public static unsafe uint? FindBestRelicMission(bool requireCurrentJob = false)
         {
             string tip = "[Relic XP Finder]";
 
@@ -588,7 +824,19 @@ namespace ICE.Scheduler.Tasks
                     var id = availMission.MissionId;
                     if (CosmicHelper.SheetMissionDict.TryGetValue(id, out var mission))
                     {
-                        var missionConfig = C.MissionConfig[id];
+                        if (requireCurrentJob && !mission.Jobs.Contains(Player.JobId))
+                        {
+                            IceLogging.Debug($"[Mission: {id}] 不是目前職業的任務，跳過（經驗會加到別的工具上）", tip);
+                            continue;
+                        }
+
+                        // MissionConfig 與 SheetMissionDict 的鍵集合不一樣。ConfigMigrator.UpdateConfigMissionList() 啟動時會把
+                        // SheetMissionDict 的每個 key 補進 MissionConfig，但那是別處建立的隱性前提，所以這裡自己守好。
+                        if (!C.MissionConfig.TryGetValue(id, out var missionConfig))
+                        {
+                            IceLogging.Debug($"[Mission: {id}] 沒有對應的 MissionConfig，跳過。", tip);
+                            continue;
+                        }
 
                         int minLevel = 10;
                         var rank = mission.Rank;
@@ -616,7 +864,9 @@ namespace ICE.Scheduler.Tasks
                         bool properLevel = Player.Level >= minLevel;
                         bool IgnoreManual = C.XPRelicIgnoreManual && missionConfig.ManualMode;
                         bool IgnoreNotEnabled = C.XPRelicOnlyEnabled && !missionConfig.Enabled;
-                        bool unSupported = UnsupportedMissions.Ids.Contains(id);
+                        // 宇宙工具經驗模式自己有一套候選池（不走 RefreshSelectedMissions），
+                        // 所以這裡也要問同一個判定函式，不要再直接讀黑名單。
+                        bool unSupported = MissionSupport.IsUnsupported(id, out var unsupportedReason);
 
                         PlayerHelper.UpdateHasManip();
                         var jobId = mission.Jobs.Where(x => CosmicHelper.CrafterJobList.Contains(x)).FirstOrDefault();
@@ -628,14 +878,22 @@ namespace ICE.Scheduler.Tasks
                                          $"Is proper Level: {properLevel} | Mission Level: {minLevel} | Player Level: {Player.Level} \n" +
                                          $"Ignoring cause of manual? {IgnoreManual}\n" +
                                          $"Ignoring cuase of not enabled: {IgnoreNotEnabled}\n" +
-                                         $"Ignoring because of not supported: {unSupported}" +
+                                         $"Ignoring because of not supported: {unSupported} ({unsupportedReason})" +
                                          $"Is Manipulation required: {isManipReq}" +
                                          $"Is Manipluation even unlocked: {manipUnlocked}", tip);
 
                         if (!properLevel) continue;
                         if (IgnoreManual) continue;
                         if (IgnoreNotEnabled) continue;
-                        if (unSupported) continue;
+                        if (unSupported)
+                        {
+                            // ⚠️ 不要靜默跳過。這裡跟 RefreshSelectedMissions 是兩條不同的候選池，
+                            //    宇宙工具經驗模式的使用者只會走到這一條。
+                            if (EzThrottler.Throttle($"ICE: relic xp skip unsupported {id}", 300000))
+                                IceLogging.Info($"宇宙工具經驗挑選跳過任務 [{id}]：{unsupportedReason}"
+                                                + $"（{MissionSupport.ReasonText(unsupportedReason)}）", tip);
+                            continue;
+                        }
                         if (isManipReq && !manipUnlocked) continue;
 
                         Dictionary<int, float> rewardDict = new();
@@ -727,6 +985,17 @@ namespace ICE.Scheduler.Tasks
                             continue;
                         }
 
+                        // 「臨時任務連刷」是第三條獨立的候選池（不走 RefreshSelectedMissions
+                        // 也不走 FindBestRelicMission），所以同樣要問一次判定函式。
+                        if (MissionSupport.IsUnsupported(m.Key, out var provisionalReason))
+                        {
+                            if (EzThrottler.Throttle($"ICE: provisional grind skip unsupported {m.Key}", 300000))
+                                IceLogging.Info($"臨時任務連刷跳過任務 [{m.Key}]「{m.Value.Name}」：{provisionalReason}"
+                                                + $"（{MissionSupport.ReasonText(provisionalReason)}）",
+                                                "[FindMission: 未支援]");
+                            continue;
+                        }
+
                         IceLogging.Debug($"Found the provisional mission: [{m.Key}] [{m.Value.Name}].");
                         if (m.Value.Attributes.HasFlag(MissionAttributes.ProvisionalSequential) && !SequenceMissions.Contains(m.Key))
                             SequenceMissions.Add(m.Key);
@@ -763,6 +1032,9 @@ namespace ICE.Scheduler.Tasks
                         if (mission != null)
                         {
                             mission.Select();
+                            // 這條路徑沒走 InsertGrabMission，所以要自己標記目標任務。
+                            TargetMissionId = id;
+                            CollectableUnlock.WarnIfMissing(id);
                             P.TaskManager.InsertMulti
                             (
                                 new(() => ChangeJob(id), "Changing job if necessary"),
@@ -776,8 +1048,8 @@ namespace ICE.Scheduler.Tasks
                     }
                 }
 
-                IceLogging.ChatInfo("Provisional Grind has found no missions.", "[ICE: Provisional Grind]");
-                IceLogging.ChatInfo("Going to wait ~5s before checking again", "[ICE: Provisional Grind]");
+                IceLogging.ChatInfo("Provisional Grind has found no missions.".Loc(), "[ICE: Provisional Grind]");
+                IceLogging.ChatInfo("Going to wait ~5s before checking again".Loc(), "[ICE: Provisional Grind]");
                 P.TaskManager.EnqueueDelay(5000);
                 return true;
             }
@@ -804,7 +1076,16 @@ namespace ICE.Scheduler.Tasks
                         Mission_Settings.missionAppearanceCounts[missionId] = 0;
                     Mission_Settings.missionAppearanceCounts[missionId]++;
 
-                    var rank = CosmicHelper.SheetMissionDict[missionId].Rank;
+                    // 🔴 上面守的是 missionAppearanceCounts，下一行查的卻是 SheetMissionDict —— 兩個不同的字典，要另外守。
+                    //    這裡的 missionId 是從遊戲的 WKSMission addon 的 AtkValues 讀出來的（ECommons 只濾掉 0），不是驗證過的鍵集合：
+                    //    索引偏移對不上或讀到沒有名稱的任務列時，直接索引會丟 KeyNotFoundException，而它在任務裡＝佇列卡死。
+                    if (!CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var rerollMission))
+                    {
+                        IceLogging.Info($"任務板上出現了不在任務表裡的任務 ID {missionId}，重骰判斷時略過它。", "[Task_FindMission: FindReroll]");
+                        continue;
+                    }
+
+                    var rank = rerollMission.Rank;
                     switch (rank)
                     {
                         case 5: AExRank.Add(missionId); break;
@@ -974,14 +1255,23 @@ namespace ICE.Scheduler.Tasks
                     var abandonMission = x.StellerMissions.First(m => m.MissionId == missionToAbandon);
                     abandonMission.Select();
                     P.TaskManager.Insert(() => GrabMission(missionToAbandon, true), "Going to abandon mission now");
-                    IceLogging.Debug($"Attempting to abandon mission ID: {missionToAbandon} (Rank: {CosmicHelper.SheetMissionDict[missionToAbandon].Rank})");
+                    // 這裡只是為了印一行 log，不能讓它有機會把佇列打斷（所以用 TryGetValue）。
+                    var abandonRank = CosmicHelper.SheetMissionDict.TryGetValue(missionToAbandon, out var abandonEntry)
+                        ? abandonEntry.Rank.ToString()
+                        : "不在任務表裡";
+                    IceLogging.Debug($"Attempting to abandon mission ID: {missionToAbandon} (Rank: {abandonRank})");
                     Mission_Settings.missionAppearanceCounts[missionToAbandon] = 0;
 
                     return true;
                 }
                 else
                 {
-                    IceLogging.Debug("No valid missions found to abandon");
+                    // 🔴 這條路徑 `return false` ＝ NeoTaskManager **下一幀原地重跑同一個任務**
+                    //    （在 NeoTaskManager 裡 false 才是「還沒好，再來一次」，null 是中止整個佇列）。
+                    //    候選池空掉時條件不會自己改變，所以這行原本會一路噴到任務逾時為止。
+                    //    只節流 log，控制流完全不動。EzThrottler 首次必放行 ⇒ 第一次仍看得到。
+                    if (EzThrottler.Throttle("ICE: findreroll no abandon candidate", 5000))
+                        IceLogging.Debug("No valid missions found to abandon");
                     return false;
                 }
             }
@@ -990,6 +1280,13 @@ namespace ICE.Scheduler.Tasks
         }
         public static void InsertGrabMission(uint missionId)
         {
+            // 這裡就是「已經決定要領哪一個」的時間點 —— 疊加層要顯示的正是這個。
+            TargetMissionId = missionId;
+            CollectableUnlock.WarnIfMissing(missionId);
+            // 真的挑到任務了，這一輪的「換職業已試過清單」就結束了。
+            // ⚠️ 不能只靠 CheckReroll 裡那個 ExecutingMission 分支清 —— 挑到任務的那一輪
+            //    CheckStandard 直接 return true，根本不會再走到 CheckReroll。
+            triedJobsThisSweep.Clear();
             P.TaskManager.InsertMulti(
                 new(() => Navmesh_MoveToMission(missionId), "Checking if movement is necessary", Utils.TaskConfig),
                 new(() => FrameDelay(8), "Waiting 8 frames before next action"),
@@ -1001,6 +1298,8 @@ namespace ICE.Scheduler.Tasks
         {
             if (CosmicHelper.CurrentLunarMission != 0)
             {
+                // 任務真的接下來了，「正要去領」的目標就過期了。
+                ClearTargetMission();
                 Mission_Settings.ResetNodeCounter();
                 SchedulerMain.State = IceState.ExecutingMission;
                 timeoutAmount = 0;
@@ -1008,28 +1307,45 @@ namespace ICE.Scheduler.Tasks
             }
             else if (GenericHelpers.TryGetAddonMaster<SelectYesno>("SelectYesno", out var select) && select.IsAddonReady)
             {
-                if (EzThrottler.Throttle("Selecting Yesno window"))
+                // 🔴 守衛順序：IsHeld → 讀文字 → MayPress → 按。按過（確定或取消）而且還沒觀察到它收掉的那幾幀
+                //    連文字都不讀、也不消耗節流 —— 那正是視窗記憶體變動中的幾幀。
+                //    被擋下＝跳過整個區塊 → 落到方法尾的 return false，與節流擋下走的是同一條既有路徑：
+                //    Tasks.Clear()／State 轉移都沒執行、佇列原封不動、下一幀重跑；窗消失後由上面
+                //    CurrentLunarMission != 0 那一支收工。
+                if (!YesnoPressGuard.IsHeld(select) && EzThrottler.Throttle("Selecting Yesno window"))
                 {
-                    if (CosmicHandler.commenceStrings.Any(s => NormalizeWhitespace(select.Text).StartsWith(NormalizeWhitespace(s), StringComparison.OrdinalIgnoreCase)) || !C.RejectUnknownYesno)
+                    var promptText = select.Text;
+                    if (AddonPressGuard.IsTextCorrupt("SelectYesno", promptText))
                     {
-                        select.Yes();
-                        if (reroll)
-                            SchedulerMain.State = IceState.AbandonMission;
-                        else
-                            SchedulerMain.State = IceState.ExecutingMission;
-                        IceLogging.Debug($"Current State upon  grabbing mission: {SchedulerMain.State}");
-                        P.TaskManager.Tasks.Clear();
-                        Mission_Settings.nodeTotal = 0;
-                        P.TaskManager.Insert(() => CosmicHelper.CurrentLunarMission != 0);
-                        IceLogging.Debug($"Are we expected to reroll? {reroll}", "[Grab Mission]");
+                        // 讀到 U+FFFD ＝ 視窗記憶體正在變動（多半是關閉中），這一幀不碰。
+                    }
+                    else if (CosmicHandler.commenceStrings.Any(s => NormalizeWhitespace(promptText).StartsWith(NormalizeWhitespace(s), StringComparison.OrdinalIgnoreCase)) || !C.RejectUnknownYesno)
+                    {
+                        // 🔴 守衛必須在文字比對之內另開一層 if，不能併進上面的條件式 —— 併進去被擋時會掉進 else 的取消分支。
+                        //    這一次按壓被記下來，正是 reroll 鏈下游 Task_AbandonMission 對同一扇窗判「按過了」的唯一依據。
+                        if (YesnoPressGuard.MayPress("接取任務：開始任務確認", select))
+                        {
+                            select.Yes();
+                            if (reroll)
+                                SchedulerMain.State = IceState.AbandonMission;
+                            else
+                                SchedulerMain.State = IceState.ExecutingMission;
+                            IceLogging.Debug($"Current State upon  grabbing mission: {SchedulerMain.State}");
+                            P.TaskManager.Tasks.Clear();
+                            Mission_Settings.nodeTotal = 0;
+                            P.TaskManager.Insert(() => CosmicHelper.CurrentLunarMission != 0);
+                            IceLogging.Debug($"Are we expected to reroll? {reroll}", "[Grab Mission]");
 
-                        return true;
+                            return true;
+                        }
                     }
                     else
                     {
-                        IceLogging.Debug($"Unexpected text: '{select.Text}'", "[ICE_GrabMission]");
+                        IceLogging.Debug($"Unexpected text: '{promptText}'", "[ICE_GrabMission]");
 
-                        if (EzThrottler.Throttle("Unexpected Abandon Window..."))
+                        // 同一扇 SelectYesno 的第二種按法（取消）也要過同一個守衛。
+                        if (EzThrottler.Throttle("Unexpected Abandon Window...")
+                            && YesnoPressGuard.MayPress("接取任務：關閉未預期的確認框", select))
                         {
                             select.No();
                             return false;
@@ -1059,7 +1375,10 @@ namespace ICE.Scheduler.Tasks
                 var selectedMission = mission.StellerMissions.Where(x => x.MissionId == missionId).FirstOrDefault();
                 if (selectedMission != null)
                 {
-                    if (EzThrottler.Throttle("Initating the quest"))
+                    // WKSMission 按「開始」後本身不關（開出 SelectYesno），屬多次互動窗：逃生口 15 幀，
+                    // 500ms 的刻意重送節奏不變；擋的只有「同一任務在窗走完生命週期前 15 幀內再送一次」。
+                    if (EzThrottler.Throttle("Initating the quest")
+                        && AddonPressGuard.TryBeginPress("接取任務：送出開始任務", "WKSMission", mission, AddonPressGuard.BuildPressKey(true, 13, (int)missionId), AddonPressGuard.RoutineRePressEscapeFrames))
                     {
                         selectedMission.Initiate();
                     }
@@ -1069,12 +1388,14 @@ namespace ICE.Scheduler.Tasks
                 {
                     if (FrameThrottler.Throttle("Checking Weather Tab for mission", 16))
                     {
-                        mission.ProvisionalMissions();
+                        if (AddonPressGuard.TryBeginPress("接取任務：切到臨時任務分頁", "WKSMission", mission, "ProvisionalMissions", AddonPressGuard.RoutineRePressEscapeFrames))
+                            mission.ProvisionalMissions();
                         return false;
                     }
                     if (FrameThrottler.Throttle("Checking Standard Tab for missions", 16))
                     {
-                        mission.BasicMissions();
+                        if (AddonPressGuard.TryBeginPress("接取任務：切到基本任務分頁", "WKSMission", mission, "BasicMissions", AddonPressGuard.RoutineRePressEscapeFrames))
+                            mission.BasicMissions();
                         return false;
                     }
                 }
@@ -1095,8 +1416,22 @@ namespace ICE.Scheduler.Tasks
         {
             ThrottleMessage("Currently in a navmesh movement");
 
-            var missionEntry = CosmicHelper.SheetMissionDict[missionId];
-            var missionConfig = C.MissionConfig[missionId];
+            // 兩個字典的鍵集合不同，所以分開守（SheetMissionDict 在這裡、C.MissionConfig 在下方）。
+            if (!CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var missionEntry))
+            {
+                IceLogging.ChatError($"任務 {missionId} 不在任務表裡，無法前往任務地點。", "[ICE]");
+                SchedulerMain.State = IceState.GrabMission;
+                P.TaskManager.Tasks.Clear();
+                return true;
+            }
+
+            if (!C.MissionConfig.TryGetValue(missionId, out var missionConfig))
+            {
+                IceLogging.ChatError($"任務 {missionId} 在設定檔裡沒有對應的設定，無法前往任務地點。", "[ICE]");
+                SchedulerMain.State = IceState.GrabMission;
+                P.TaskManager.Tasks.Clear();
+                return true;
+            }
             var currentJob = Player.JobId;
 
             if (!missionEntry.Jobs.Contains(currentJob))
@@ -1108,7 +1443,7 @@ namespace ICE.Scheduler.Tasks
                 return true;
             }
 
-            if (missionConfig.ManualMode || UnsupportedMissions.Ids.Contains(missionId))
+            if (missionConfig.ManualMode || MissionSupport.IsUnsupported(missionId))
             {
                 // TODO: Remove the extra 2 here until I can fix pathfinding thing
                 // This is here to make sure that you don't need to be in the area for moving. Mainly cause nodes aren't mapped out yet and it's expecting to map to that area...
@@ -1129,13 +1464,36 @@ namespace ICE.Scheduler.Tasks
                 var mapId = missionEntry.MapPosition;
                 var gatherInfo = GatheringRouteLoader.GetRoute(missionTerritory, mapId);
 
-                if (gatherInfo.Count == 0)
+                // ⚠️ GetRoute 查不到路線時回 null，不是空清單 —— 直接 .Count 是
+                //    NullReferenceException，表現成「卡住不動而且沒有訊息」。
+                if (gatherInfo == null || gatherInfo.Count == 0)
                 {
                     IceLogging.Info("HEY. This gathering location hasn't been set to gather, and should honestly be set to a manual state. Cause things are about to bug out. If it's a new area please let me know o/");
                     return true;
                 }
 
-                Vector3 closestNode = gatherInfo[0].LandZone;
+                // 🔴 第一次進場挑離玩家最近的點起跑，不是「路線檔的第一個點」：路線是環狀的
+                //    （PathandCheckNode 會遞增並回繞），從哪一個點起跑都合法；用路線檔自己的座標算，
+                //    不依賴採集點有沒有載進 ObjectTable。
+                var entryNode = gatherInfo.OrderBy(x => Player.DistanceTo(x.LandZone)).First();
+                Vector3 closestNode = entryNode.LandZone;
+
+                // 套一層採集接近角：用角度資料（radius_start/end + max_distance）算出「從允許
+                //     角度接近」的點；只有當它確實落在導航網格上（NearestPoint）才採用，否則維持原本的
+                //     LandZone。🔴 fail-open 必須——角度資料是國際服作者標的、台服未驗，不讓它成為必經路徑。
+                var approach = Task_Gather.GetGatherApproachPosition(entryNode, entryNode.Position);
+                if (Task_Gather.TryResolveApproachOnMesh(approach, out var meshApproach))
+                {
+                    closestNode = meshApproach;
+                    if (EzThrottler.Throttle("ICE: gather approach angle", 5000))
+                        IceLogging.Info($"採集接近角：採集點 {entryNode.NodeId} 依角度資料算出接近點並吸附到導航網格，改用它當入口。",
+                                        "[FindMission: NavmeshMoveTo]");
+                }
+
+                if (EzThrottler.Throttle("ICE: gather route entry node", 5000))
+                    IceLogging.Info($"前往採集區域：路線共 {gatherInfo.Count} 個點，" +
+                                    $"選最近的採集點 {entryNode.NodeId}（距離 {Player.DistanceTo(entryNode.LandZone):N1}）當入口。",
+                                    "[FindMission: NavmeshMoveTo]");
 
                 if (!P.Navmesh.IsRunning())
                 {
@@ -1218,12 +1576,25 @@ namespace ICE.Scheduler.Tasks
                 // Then need to add the last path to it once the base has been generated, to make sure that you're facing to the fishing hole properly.
                 var location = missionEntry.MapPosition;
                 var territory = missionEntry.TerritoryId;
-                var fishingHole = GatheringUtil.MoonFishingLocations[territory][location];
 
-                if (fishingHole == null || fishingHole.Count == 0)
+                // 🔴 MoonFishingLocations 是**寫死在原始碼裡的釣點座標表**（上游照國際服建的）：外層鍵是區域 ID、
+                //    內層鍵是任務的地圖旗標座標，而且是 Vector2 的**浮點數相等比對** —— 跟遊戲資料之間沒有任何共同保證，
+                //    所以兩層都用 TryGetValue（裸索引找不到鍵是丟例外、不是回 null）。
+                //    ⚠️ [1291] Phaenna 的 11 個旗標無法離線驗證（台服那些任務列目前整列是空的）。
+                if (!GatheringUtil.MoonFishingLocations.TryGetValue(territory, out var territorySpots)
+                    || !territorySpots.TryGetValue(location, out var fishingHole)
+                    || fishingHole.Count == 0)
                 {
-                    IceLogging.Info("We've seemed to have ran into a problem with the fishing hole... either it's missing spots, or it doesn't exist. Please report back to me on this with logs leading up to this");
-                    IceLogging.Info($"Mission ID: {missionId} | Map Position: {missionEntry.MapPosition} | Moon Territory: {missionEntry.TerritoryId}");
+                    if (EzThrottler.Throttle("ICE: fishing hole data missing", 5000))
+                    {
+                        IceLogging.Info(
+                            $"找不到這個釣魚任務的釣點資料，略過自動前往（這個任務請改用手動模式）。" +
+                            $"任務 {missionId}／區域 {territory}／地圖旗標 ({location.X}, {location.Y})。" +
+                            "（釣點座標是寫死在 GatheringUtil.MoonFishingLocations 裡的，" +
+                            "這個客戶端新開放的區域還沒有對應資料時就會走到這裡。）",
+                            "[FindMission: 釣點]");
+                    }
+                    return true;
                 }
 
                 var navPos = Vector3.Zero;
@@ -1336,20 +1707,237 @@ namespace ICE.Scheduler.Tasks
 
             return false;
         }
+        // 連續重骰但一直沒找到任務的次數。找到任務時歸零。
+        private static int consecutiveRerolls = 0;
+
+        /// <summary>
+        /// 這一輪「候選池空了 → 換職業」已經試過的職業。真的領到任務、或全部職業都試完之後清空。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 沒有這個集合就會無限迴圈：換過去的職業如果同樣挑不到任務，重骰上限會再次觸發，
+        /// 然後又從 <c>JobPrio</c> 的第一個重新挑 —— 在兩個職業之間來回跳、永遠不收斂。
+        /// </remarks>
+        private static readonly HashSet<uint> triedJobsThisSweep = new();
+
+        /// <summary>換職業這件事本身的期限（<c>Environment.TickCount64</c>）。0 ＝ 目前沒有在換。</summary>
+        /// <remarks>
+        /// ⚠️ <see cref="SwitchJobStep"/> 只有真的換成功才回 true。沒有期限的話，換不過去
+        /// （主手缺裝、角色一直忙碌…）就會一路回 false，失敗形式是「安靜地卡住」而不是報錯。
+        /// </remarks>
+        private static long jobSwitchDeadline = 0;
+
+        /// <summary>換職業最多等多久（毫秒）。</summary>
+        private const int JobSwitchTimeoutMs = 15000;
+
         private static bool? CheckReroll()
         {
             if (SchedulerMain.State == IceState.ExecutingMission)
             {
                 IceLogging.Debug("No reason to reroll, you found a proper mission");
+                consecutiveRerolls = 0;
+                triedJobsThisSweep.Clear();
             }
             else
             {
-                IceLogging.Debug("No mission was found, time for rerolling!", "[Check Reroll]");
+                consecutiveRerolls++;
+
+                // 沒有上限時，只要候選池空了（例如開了「取得金星後自動停用」而目前可接的
+                // 全都拿過金星），這裡就會無限重骰、卡在原地而且完全沒有提示。
+                var limit = C.MaxConsecutiveRerolls;
+                if (limit > 0 && consecutiveRerolls >= limit)
+                {
+                    // 停止是最後手段：先看看有沒有別的職業還有未金星的任務可以接。
+                    // 預設關閉，使用者開了才會走這條（見 C.AutoSwitchJobWhenPoolEmpty）。
+                    if (TrySwitchToJobWithMissions())
+                    {
+                        consecutiveRerolls = 0;
+                        return true;
+                    }
+
+                    IceLogging.Info(
+                        $"連續重骰 {consecutiveRerolls} 次仍找不到可接任務，停止。" +
+                        "常見原因：啟用了「取得金星後自動停用該任務」，而目前可接的任務都已經拿過金星。" +
+                        "可改用「沒金星的優先」（只排序不移出候選池），或放寬啟用中的任務清單。",
+                        "[Check Reroll]");
+                    consecutiveRerolls = 0;
+                    triedJobsThisSweep.Clear();
+                    SchedulerMain.State = IceState.Idle;
+                    TataruPraiseIPC.NotifyNeedsHelp("連續重骰仍然找不到可接的任務");
+                    P.TaskManager.Tasks.Clear();
+
+                    if (C.PlaySoundAlert)
+                        _ = SoundPlayer.PlaySoundAsync();
+
+                    return true;
+                }
+
+                IceLogging.Debug($"No mission was found, time for rerolling! ({consecutiveRerolls})", "[Check Reroll]");
 
                 P.TaskManager.Insert(() => OpenTab("Reset"), "Opening tab to the reset mission");
                 IceLogging.Debug("Task for re-roll thrown in", "[Check Reroll]");
             }
             return true;
+        }
+        /// <summary>
+        /// 候選池空了：照「職業優先度」（<c>C.JobPrio</c>）找下一個還有未金星任務、而且真的換得
+        /// 過去的職業，把換職業的步驟排進佇列。<b>回傳 true 代表已經接手，呼叫端不要再走停止流程。</b>
+        /// </summary>
+        /// <remarks>
+        /// ⚠️ 只走 <c>C.JobPrio</c> 裡列出來的職業。設定介面只能拖曳排序、不能增刪，所以正常情況下
+        /// 11 個職業都在；真的缺了就寫一行 Information 講出來，不要默默把使用者移掉的職業加回去。
+        /// </remarks>
+        private static bool TrySwitchToJobWithMissions()
+        {
+            if (!C.AutoSwitchJobWhenPoolEmpty)
+                return false;
+
+            var currentJob = Player.JobId;
+            triedJobsThisSweep.Add(currentJob);
+
+            var allJobCount = CosmicHelper.CrafterJobList.Count + CosmicHelper.GatheringJobList.Count;
+            if (C.JobPrio.Count < allJobCount)
+            {
+                IceLogging.Info(
+                    $"職業優先度清單裡只有 {C.JobPrio.Count} 個職業（完整是 {allJobCount} 個），" +
+                    "沒列出來的職業不會被自動換過去。要全部納入請到「優先度設定」按重設。",
+                    "[Check Reroll: 換職業]");
+            }
+
+            foreach (var jobId in C.JobPrio)
+            {
+                if (jobId == currentJob || triedJobsThisSweep.Contains(jobId))
+                    continue;
+
+                var (viable, ungolded, goldKnown) = CountViableMissions(jobId);
+                var ungoldedText = goldKnown ? ungolded.ToString() : "?";
+
+                // 使用者要的條件是「還沒全金星的職業」。讀不到 WKSManager 時退回「還有任務可接」——
+                // 那時每個任務的金星狀態都是不知道的，拿「不知道」去否決一個職業會更糟。
+                var wanted = goldKnown ? ungolded : viable;
+
+                // 不管選不選它，這一輪都算試過了：否則下一次觸發重骰上限又會把同一批職業重新
+                // 評估一遍，同樣的訊息會一直重印。
+                triedJobsThisSweep.Add(jobId);
+
+                if (wanted <= 0)
+                {
+                    IceLogging.Debug(
+                        $"職業 {(Job)jobId}：可接 {viable} 個、未金星 {ungoldedText} 個，跳過",
+                        "[Check Reroll: 換職業]");
+                    continue;
+                }
+
+                // ⚠️ 不要靜默跳過：使用者看到的會是「明明還有任務卻換不過去」，而且沒有任何線索。
+                if (!GearsetHandler.HasUsableGearset((Job)jobId))
+                {
+                    IceLogging.Info(
+                        $"{(Job)jobId} 還有 {viable} 個可接的任務（未金星 {ungoldedText} 個），" +
+                        "但找不到可以直接換過去的套裝 —— 沒有這個職業的套裝，或套裝的主手武器不在身上。跳過它。",
+                        "[Check Reroll: 換職業]");
+                    continue;
+                }
+
+                IceLogging.Info(
+                    $"目前職業（{(Job)currentJob}）已經沒有可接的任務了，換到 {(Job)jobId}：" +
+                    $"可接 {viable} 個，其中 {ungoldedText} 個還沒拿到金星。",
+                    "[Check Reroll: 換職業]");
+
+                jobSwitchDeadline = Environment.TickCount64 + JobSwitchTimeoutMs;
+                P.TaskManager.Tasks.Clear();
+                P.TaskManager.InsertMulti(
+                    new(() => RefreshMissionUi(), "Closing the mission board before changing job"),
+                    new(() => SwitchJobStep(jobId), "Switching to a job that still has missions")
+                );
+
+                // 換完之後從狀態判斷重跑：Task_CheckState 會用新職業重新決定要修理／萃取／接任務，
+                // 那是這個狀態機唯一的通用復原點。
+                SchedulerMain.State = IceState.Start;
+                return true;
+            }
+
+            IceLogging.Info(
+                "職業優先度裡的每一個職業都沒有可接的未金星任務，沒有可以換過去的對象。",
+                "[Check Reroll: 換職業]");
+            triedJobsThisSweep.Clear();
+            return false;
+        }
+
+        /// <summary>
+        /// 算出「如果現在是 <paramref name="jobId"/>，候選池裡會有幾個任務、其中幾個還沒金星」。
+        /// </summary>
+        /// <remarks>
+        /// 🔑 過濾條件與 <see cref="RefreshSelectedMissions"/> <b>逐條相同</b>：
+        /// 已啟用 → 在任務表裡 → 職業對得上 → 區域對得上 → ICE 跑得動。
+        /// ⚠️ 指標只在這個呼叫的堆疊框內使用，不跨幀保存。
+        /// </remarks>
+        private static unsafe (int Viable, int Ungolded, bool GoldKnown) CountViableMissions(uint jobId)
+        {
+            var viable = 0;
+            var ungolded = 0;
+
+            var manager = WKSManager.Instance();
+            var goldKnown = manager != null;
+
+            foreach (var mission in C.MissionConfig)
+            {
+                var enabled = mission.Value.Enabled;
+
+                if (C.XPRelicGrind)
+                {
+                    if (!enabled && C.XPRelicOnlyEnabled)
+                        continue;
+                }
+                else if (!enabled)
+                    continue;
+
+                if (!CosmicHelper.SheetMissionDict.TryGetValue(mission.Key, out var missionInfo))
+                    continue;
+                if (!missionInfo.Jobs.Contains(jobId))
+                    continue;
+                if (missionInfo.TerritoryId != Player.Territory)
+                    continue;
+                if (MissionSupport.IsUnsupported(mission.Key))
+                    continue;
+
+                viable++;
+                if (goldKnown && !manager->IsMissionGolded(mission.Key))
+                    ungolded++;
+            }
+
+            return (viable, ungolded, goldKnown);
+        }
+
+        /// <summary>
+        /// 真的把職業換過去。換到了回 true；等過頭了也回 true（帶一行 Information），
+        /// 讓流程繼續往下跑而不是安靜地卡住。
+        /// </summary>
+        /// <remarks>
+        /// ⚠️ <c>GearsetHandler.TaskClassChange</c> 自帶 250ms 節流、而且玩家忙碌時直接返回，
+        /// 所以這裡不必再包一層節流。
+        /// </remarks>
+        private static bool? SwitchJobStep(uint jobId)
+        {
+            if (Player.JobId == jobId)
+            {
+                // 換成功了才把「ICE 認定的主職業」換過來，交件之後才不會被換回去。
+                Mission_Settings.StartJob = jobId;
+                jobSwitchDeadline = 0;
+                IceLogging.Info($"已經換到 {(Job)jobId}，重新開始找任務。", "[Check Reroll: 換職業]");
+                return true;
+            }
+
+            if (jobSwitchDeadline != 0 && Environment.TickCount64 > jobSwitchDeadline)
+            {
+                jobSwitchDeadline = 0;
+                IceLogging.Info(
+                    $"等了 {JobSwitchTimeoutMs / 1000} 秒還是沒能換到 {(Job)jobId}，放棄這次換職業。" +
+                    "（常見原因：那個職業的套裝主手武器不在身上，或角色一直處於忙碌狀態。）",
+                    "[Check Reroll: 換職業]");
+                return true;
+            }
+
+            GearsetHandler.TaskClassChange((Job)jobId);
+            return false;
         }
         public static bool? FrameDelay(int amount)
         {
@@ -1364,7 +1952,15 @@ namespace ICE.Scheduler.Tasks
         }
         private static bool? ChangeJob(uint missionId)
         {
-            var jobId = CosmicHelper.SheetMissionDict[missionId].Jobs.First();
+            // 查不到就當成「不用換職業」直接放行，讓後面的步驟去處理，
+            // 總比在這裡丟例外把整個佇列卡住好。
+            if (!CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var jobMission))
+            {
+                IceLogging.Info($"任務 {missionId} 不在任務表裡，跳過換職業判斷。", "[Task_FindMission: ChangeJob]");
+                return true;
+            }
+
+            var jobId = jobMission.Jobs.First();
             if (Player.JobId == jobId)
                 return true;
             else

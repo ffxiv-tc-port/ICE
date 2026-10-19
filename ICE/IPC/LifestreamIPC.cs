@@ -6,7 +6,7 @@ namespace ICE.IPC
     public class LifestreamIPC
     {
         public const string Name = "Lifestream";
-        public const string Repo = "https://github.com/NightmareXIV/MyDalamudPlugins/raw/main/pluginmaster.json";
+        public const string Repo = "https://raw.githubusercontent.com/ffxiv-tc-port/DalamudPluginsTC/main/repo.json";
         public LifestreamIPC() => EzIPC.Init(this, Name, SafeWrapper.AnyException);
 
         [EzIPC] public Func<string, bool> AethernetTeleport; //

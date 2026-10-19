@@ -216,17 +216,22 @@ namespace ICE.Ui.DebugWindowTabs
             //  1          - Unknown 10
             //  1          - Unknown 11
 
-            ImGui.Text($"{WKSManager.Instance()->CurrentMissionUnitRowId}");
+            // 🔴 WKSManager.Instance() 在宇宙探索內容以外是 null，直接 -> 就是攔不到的 AccessViolationException；
+            //    除錯視窗更容易在區外被打開。
+            //    🔑 讀不到畫「?」而不是 0 —— 0 是有效的任務 ID 語意（＝沒有進行中的任務），
+            //       把「不知道」畫成 0 會直接誤導看的人。
+            var testButtonsManager = WKSManager.Instance();
+            ImGui.Text(testButtonsManager == null ? "?" : $"{testButtonsManager->CurrentMissionUnitRowId}");
 
-            if (ImGui.Button("Find Mission"))
+            if (ImGui.Button("Find Mission".Loc()))
             {
                 // TaskMissionFind.Enqueue();
             }
-            if (ImGui.Button("Clear Task"))
+            if (ImGui.Button("Clear Task".Loc()))
             {
                 P.TaskManager.Abort();
             }
-            if (ImGui.Button("Artisan Craft"))
+            if (ImGui.Button("Artisan Craft".Loc()))
             {
                 P.Artisan.CraftItem(36176, 1);
             }
@@ -257,7 +262,7 @@ namespace ICE.Ui.DebugWindowTabs
             float gameObjectDistance = 0;
             if (gameObject is not null)
                 gameObjectDistance = PlayerHelper.GetDistanceToPlayer(gameObject);
-            if (ImGui.Button("Click Nearest EventObject"))
+            if (ImGui.Button("Click Nearest EventObject".Loc()))
             {
                 Utils.TargetgameObjectTask(gameObject);
                 Utils.InteractWithObject(gameObject);
@@ -269,7 +274,7 @@ namespace ICE.Ui.DebugWindowTabs
             float collectionPointDistance = 0;
             if (collectionPoint is not null)
                 collectionPointDistance = PlayerHelper.GetDistanceToPlayer(collectionPoint);
-            if (ImGui.Button("Click Nearest Collection Point"))
+            if (ImGui.Button("Click Nearest Collection Point".Loc()))
             {
                 Utils.TargetgameObjectTask(collectionPoint);
                 Utils.InteractWithObject(collectionPoint);
@@ -277,17 +282,18 @@ namespace ICE.Ui.DebugWindowTabs
             ImGui.SameLine();
             ImGui.Text($"Distance to nearest: {collectionPointDistance}");
 
-            if (ImGui.Button("Print GatheringPoint Info"))
+            if (ImGui.Button("Print GatheringPoint Info".Loc()))
             {
-                var gatheringPoint = Svc.ClientState.LocalPlayer.TargetObject;
+                var gatheringPoint = Svc.Objects.LocalPlayer.TargetObject;
                 if (gatheringPoint is not null)
                 {
                     var nodeId = gatheringPoint.BaseId;
                     var position = gatheringPoint.Position;
                     var landZone = gatheringPoint.Position;
                     var gatheringType = Player.Job == Job.MIN ? 2 : 3;
-                    var currentMission = CosmicHelper.CurrentMissionInfo;
-                    var nodeSet = currentMission?.MapPosition ?? new Vector2(0, 0);
+                    var nodeSet = CosmicHelper.TryGetCurrentMissionInfo(out var currentMission)
+                        ? currentMission.MapPosition
+                        : new Vector2(0, 0);
 
                     string info = $"new GathNodeInfo\n{{\n    ZoneId = 1237,\n    NodeId = {nodeId},\n    Position = new Vector3({position.X}f, {position.Y}f, {position.Z}f),\n    LandZone = new Vector3({landZone.X}f, {landZone.Y}f, {landZone.Z}f),\n    GatheringType = {gatheringType},\n    NodeSet = {nodeSet}\n}}";
 
@@ -300,15 +306,15 @@ namespace ICE.Ui.DebugWindowTabs
                 }
             }
 
-            if (ImGui.Button("Switch class to CRP"))
+            if (ImGui.Button("Switch class to CRP".Loc()))
             {
                 GearsetHandler.TaskClassChange(Job.CRP);
             }
-            if (ImGui.Button("Switch class to MIN"))
+            if (ImGui.Button("Switch class to MIN".Loc()))
             {
                 GearsetHandler.TaskClassChange(Job.MIN);
             }
-            if (ImGui.Button("Relic Turnin"))
+            if (ImGui.Button("Relic Turnin".Loc()))
             {
                 Task_RelicTurnin.Enqueue();
             }
@@ -351,7 +357,7 @@ namespace ICE.Ui.DebugWindowTabs
                 }
             }
             ImGui.Text($"Mission Timer: {AddonHelper.GetNodeText("WKSMissionInfomation", 24)}");
-            if (ImGui.Button("Move Item"))
+            if (ImGui.Button("Move Item".Loc()))
             {
                 MoveItem();
             }
@@ -359,14 +365,14 @@ namespace ICE.Ui.DebugWindowTabs
 
         private static void DrawIconSelector()
         {
-            if (ImGui.Button("Export Selected to Dictionary"))
+            if (ImGui.Button("Export Selected to Dictionary".Loc()))
             {
                 ExportSelectedIcons();
                 showExportWindow = true;
             }
 
             ImGui.SameLine();
-            if (ImGui.Button("Clear All Selections"))
+            if (ImGui.Button("Clear All Selections".Loc()))
             {
                 selectedIcons.Clear();
                 iconNames.Clear();
@@ -419,11 +425,11 @@ namespace ICE.Ui.DebugWindowTabs
                         iconNames[i] = name;
                     }
                     ImGui.SameLine();
-                    ImGui.TextDisabled("(optional custom name)");
+                    ImGui.TextDisabled("(optional custom name)".Loc());
                 }
                 else
                 {
-                    ImGui.TextDisabled("(select to add optional name)");
+                    ImGui.TextDisabled("(select to add optional name)".Loc());
                 }
             }
 
@@ -462,7 +468,7 @@ namespace ICE.Ui.DebugWindowTabs
         {
             ImGui.Begin("Exported Icon Dictionary", ref showExportWindow);
 
-            if (ImGui.Button("Copy to Clipboard"))
+            if (ImGui.Button("Copy to Clipboard".Loc()))
             {
                 ImGui.SetClipboardText(exportedCode);
                 Svc.Chat.Print("Dictionary code copied to clipboard!");
@@ -503,7 +509,11 @@ namespace ICE.Ui.DebugWindowTabs
 
         private static unsafe void MoveItem()
         {
-            InventoryManager.Instance()->MoveItemSlot(InventoryType.Inventory4, 0, InventoryType.Inventory4, 1, false);
+            // The 5th argument (a6) is the "send this move to the server" master switch, not a
+            // don't-care unknown. With a6: false the game only updates the local container and
+            // refreshes the UI -- no packet is sent, and the item snaps back on the next inventory
+            // sync. The game's own drag-and-drop handler passes true, so this debug button does too.
+            InventoryManager.Instance()->MoveItemSlot(InventoryType.Inventory4, 0, InventoryType.Inventory4, 1, a6: true);
         }
     }
 }

@@ -237,6 +237,11 @@ public static unsafe partial class GatheringUtil
         { "CollectorsHigh", new GatheringActions
         {
             // Only available in certain missions... *-sighs-*
+            // 📌 這一條是宇宙採集任務的專屬臨時技能 Action 41307「極致強化洞察」。
+            // 🔴 它掛在任務指令槽上，所以這裡填的 ActionId 是 27（GeneralAction 27 =「任務指令2」）而不是 41307 ——
+            //    要找這個能力請搜 GeneralAction 27 或狀態 3911（下面的 StatusId，就是它賦予的「強化洞察」）。
+            // 📌 受它加成的是 GathCollectableActions 裡的 "Brazen"（大膽提煉）與 "Meticulous"（慎重提煉）。
+            // ⚠️ 只有「有 GP 的輪替」(Mission_Settings.SelectedRotation == 1) 會用到它；NoGpRotation 刻意不碰任務指令槽。
             ActionName = "Collectors High Standard",
             ClassAction = new()
             {

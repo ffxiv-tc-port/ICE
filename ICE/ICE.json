@@ -1,9 +1,14 @@
 {
   "Author": "Ice",
   "Name": "Ice's Cosmic Exploration",
-  "Punchline": "The gathering companion that we all needed.",
-  "Description": "A little helper to go gather your heart out.",
+  "InternalName": "ICE",
+  "Punchline": "宇宙探索的自動化好夥伴。",
+  "Description": "宇宙探索輔助工具：自動接取宇宙探索任務，並代為完成採集與製作流程，讓你輕鬆累積研究進度。",
   "ApplicableVersion": "any",
+  "RepoUrl": "https://github.com/ffxiv-tc-port/ICE",
+  "IconUrl": "https://raw.githubusercontent.com/ffxiv-tc-port/DalamudPluginsTC/main/icons/ICE.png",
+  "LoadPriority": 0,
+  "DalamudApiLevel": 13,
   "Tags": [
     "Gatherers"
   ]

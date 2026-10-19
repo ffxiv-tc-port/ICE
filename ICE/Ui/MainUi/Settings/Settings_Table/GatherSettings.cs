@@ -14,7 +14,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
     internal class GatherSettings
     {
         private static string newProfileName = "";
-        private static string[] MissionTypes = ["Limited Nodes", "Gather x Amount", "Time Attack", "Chained Scoring", "Boon Scoring", "Chain + Boon Scoring", "Dual Class"];
+        private static string[] MissionTypes => ["Limited Nodes".Loc(), "Gather x Amount".Loc(), "Time Attack".Loc(), "Chained Scoring".Loc(), "Boon Scoring".Loc(), "Chain + Boon Scoring".Loc(), "Dual Class".Loc()];
         private static int MissionIndex = 0;
 
         private static readonly string PROFILE_PREFIX = "IceGatherProfile_";
@@ -122,7 +122,10 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 {
                     var id = mission.Key;
 
-                    var missionDict = CosmicHelper.SheetMissionDict[id];
+                    // 🔴 迭代 C.MissionConfig 卻要查 SheetMissionDict：兩個字典的鍵集合不一樣（舊設定檔可能殘留 key 0），
+                    //     直接索引就是 KeyNotFoundException —— 在 ImGui 繪製迴圈裡丟例外會讓整個視窗畫不出來。
+                    if (!CosmicHelper.SheetMissionDict.TryGetValue(id, out var missionDict))
+                        continue;
 
                     bool craftMission = missionDict.Attributes.HasFlag(MissionAttributes.Craft);
                     bool gatherMission = missionDict.Attributes.HasFlag(MissionAttributes.Gather);
@@ -154,9 +157,12 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                             UpdateMissions();
                         else if (type == "boonChain" && ChainedMission && BoonMission)
                             UpdateMissions();
-                        else if (type == "dualCraft" && craftMission)
-                            UpdateMissions();
+                        // ⚠️ 這條鏈裡的 dualCraft／gatherX 順序**在單次呼叫內沒有語意差別**
+                        //    （type 是固定值，兩個分支不可能同時成立）；排成與 SetupAllProfiles()
+                        //    的呼叫順序一致，只是為了讓兩處讀起來對得上。真正決定勝負的是那邊。
                         else if (type == "gatherX" && GatherX)
+                            UpdateMissions();
+                        else if (type == "dualCraft" && craftMission)
                             UpdateMissions();
                     }
                 }
@@ -184,7 +190,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             int maxGp = 1200;
 
             bool SelfSpiritbondGather = C.SelfSpiritbondGather;
-            if (ImGui.Checkbox("Extract Spiritbond on Gather", ref SelfSpiritbondGather))
+            if (ImGui.Checkbox("Extract Spiritbond on Gather".Loc() + "###ICEExtractSpiritbondOnGather", ref SelfSpiritbondGather))
             {
                 if (C.SelfSpiritbondGather != SelfSpiritbondGather)
                 {
@@ -194,50 +200,50 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             }
 
             bool AutoCordial = C.AutoCordial;
-            if (ImGui.Checkbox("Auto Cordial", ref AutoCordial))
+            if (ImGui.Checkbox("Auto Cordial".Loc() + "###ICEAutoCordial", ref AutoCordial))
             {
                 C.AutoCordial = AutoCordial;
                 C.Save();
             }
-            ImGuiEx.HelpMarker("Will only work while using ICE and not manual mode\n" +
-                               "Will also pause pandora cordial usage while on the moon");
-            if (ImGui.CollapsingHeader("Cordial Settings"))
+            ImGuiEx.HelpMarker(("Will only work while using ICE and not manual mode\n" +
+                               "Will also pause pandora cordial usage while on the moon").Loc());
+            if (ImGui.CollapsingHeader("Cordial Settings".Loc() + "###ICECordialSettings"))
             {
                 bool InverseCordialPrio = C.inverseCordialPrio;
                 bool PreventOvercap = C.PreventOvercap;
                 int CordialMinGp = C.CordialMinGp;
 
-                if (ImGui.Checkbox("Inverse Priority (Watered -> Regular -> Hi)", ref InverseCordialPrio))
+                if (ImGui.Checkbox("Inverse Priority (Watered -> Regular -> Hi)".Loc() + "###ICEInverseCordialPrio", ref InverseCordialPrio))
                 {
                     C.inverseCordialPrio = InverseCordialPrio;
                     C.Save();
                 }
-                if (ImGui.Checkbox("Prevent Overcap", ref PreventOvercap))
+                if (ImGui.Checkbox("Prevent Overcap".Loc() + "###ICEPreventOvercap", ref PreventOvercap))
                 {
                     C.PreventOvercap = PreventOvercap;
                     C.Save();
                 }
                 ImGui.SetNextItemWidth(200);
-                if (ImGui.SliderInt("Use cordial when below the following GP", ref CordialMinGp, 0, maxGp))
+                if (ImGui.SliderInt("Use cordial when below the following GP".Loc() + "###ICECordialMinGp", ref CordialMinGp, 0, maxGp))
                 {
                     C.CordialMinGp = CordialMinGp;
                     C.SaveDebounced();
                 }
                 ImGui.SameLine();
-                ImGuiEx.HelpMarker("What's the minimum gp you can have before it uses a cordial.\n" +
-                                   "If set to 0, it'll never use a cordial even with it enabled (because... you'll never have 0 gp)");
+                ImGuiEx.HelpMarker(("What's the minimum gp you can have before it uses a cordial.\n" +
+                                   "If set to 0, it'll never use a cordial even with it enabled (because... you'll never have 0 gp)").Loc());
             }
 
-            if (ImGui.CollapsingHeader("Food Settings"))
+            if (ImGui.CollapsingHeader("Food Settings".Loc() + "###ICEFoodSettings"))
             {
                 bool useFood = C.UseGatheringFood;
-                if (ImGui.Checkbox("Use food on gathering missions", ref useFood))
+                if (ImGui.Checkbox("Use food on gathering missions".Loc() + "###ICEUseGatheringFood", ref useFood))
                 {
                     C.UseGatheringFood = useFood;
                     C.Save();
                 }
 
-                if (ImGui.Button("Select Gathering Food"))
+                if (ImGui.Button("Select Gathering Food".Loc() + "###ICESelectGatheringFood"))
                 {
                     foreach (var item in ConsumableInfo.Food)
                     {
@@ -250,11 +256,13 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 ImGui.SameLine();
                 if (C.GatheringFood == 0)
                 {
-                    ImGui.Text("No Food Selected");
+                    ImGui.Text("No Food Selected".Loc());
                 }
                 else
                 {
-                    var itemName = Svc.Data.GetExcelSheet<Item>().Where(x => x.RowId == C.GatheringFood).FirstOrDefault().Name.ToString();
+                    // GetRowOrDefault 是索引查詢 O(1)（這裡在 Draw 路徑上、每幀執行，不要對整張 Item 表做線性走訪）。
+                    // 找不到時用 ?? "" 顯示空字串。
+                    var itemName = Svc.Data.GetExcelSheet<Item>().GetRowOrDefault(C.GatheringFood)?.Name.ToString() ?? "";
                     ImGui.Text($"{itemName}");
                 }
 
@@ -262,13 +270,13 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 {
                     if (ImGui.BeginTable("Food Item Selection", 2, ImGuiTableFlags.RowBg))
                     {
-                        ImGui.TableSetupColumn("Food Item");
-                        ImGui.TableSetupColumn("Amount");
+                        ImGui.TableSetupColumn("Food Item".Loc());
+                        ImGui.TableSetupColumn("Amount".Loc());
 
                         // First Column, pretty much giving an option for "None" if they want none
                         ImGui.TableNextRow();
                         ImGui.TableSetColumnIndex(0);
-                        if (ImGui.Selectable("Use no gathering food"))
+                        if (ImGui.Selectable("Use no gathering food".Loc() + "###ICEUseNoGatheringFood"))
                         {
                             C.GatheringFood = 0;
                             C.Save();
@@ -311,18 +319,18 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
             if (ImGui.BeginTable("Gathering Profile Settings", 2, ImGuiTableFlags.SizingFixedFit))
             {
-                ImGui.TableSetupColumn("Profile Selection");
-                ImGui.TableSetupColumn("Gathering Settings");
+                ImGui.TableSetupColumn("Profile Selection".Loc());
+                ImGui.TableSetupColumn("Gathering Settings".Loc());
 
                 // 1st Row, technically only really used for the gather profile name creator
                 ImGui.TableNextRow();
 
                 ImGui.TableSetColumnIndex(0);
                 ImGui.SetNextItemWidth(200);
-                ImGui.InputText("New Profile Name", ref newProfileName, 64);
+                ImGui.InputText("New Profile Name".Loc() + "###ICENewProfileName", ref newProfileName, 64);
                 using (ImRaii.Disabled(newProfileName == ""))
                 {
-                    if (ImGui.Button("Add Profile") && !string.IsNullOrWhiteSpace(newProfileName))
+                    if (ImGui.Button("Add Profile".Loc() + "###ICEAddProfile") && !string.IsNullOrWhiteSpace(newProfileName))
                     {
                         var newId = C.GatherProfiles.Keys.Max() + 1;
                         C.GatherProfiles[newId] = new()
@@ -340,12 +348,12 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
                 #region Profile Selection
 
-                ImGui.Text("Gather Profiles");
+                ImGui.Text("Gather Profiles".Loc());
 
                 bool canDelete = C.GatherProfiles.Count > 1 && C.SelectedGatherIndex != 0;
                 using (ImRaii.Disabled(!canDelete))
                 {
-                    if (ImGui.Button("Delete Selected Profile"))
+                    if (ImGui.Button("Delete Selected Profile".Loc() + "###ICEDeleteSelectedProfile"))
                     {
                         int deletedId = C.SelectedGatherIndex;
 
@@ -391,14 +399,16 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
                 GatherProfile entry = C.GatherProfiles[C.SelectedGatherIndex];
 
-                ImGui.Combo("Mission Type", ref MissionIndex, MissionTypes, MissionTypes.Length);
-                if (ImGui.Button("Apply to Mission Types"))
+                ImGui.Combo("Mission Type".Loc() + "###ICEMissionType", ref MissionIndex, MissionTypes, MissionTypes.Length);
+                if (ImGui.Button("Apply to Mission Types".Loc() + "###ICEApplyToMissionTypes"))
                 {
                     foreach (var mission in C.MissionConfig)
                     {
                         var id = mission.Key;
 
-                        var missionDict = CosmicHelper.SheetMissionDict[id];
+                        // MissionConfig 與 SheetMissionDict 的鍵集合不一樣，要 TryGetValue。
+                        if (!CosmicHelper.SheetMissionDict.TryGetValue(id, out var missionDict))
+                            continue;
 
                         bool craftMission = missionDict.Attributes.HasFlag(MissionAttributes.Craft);
                         bool gatherMission = missionDict.Attributes.HasFlag(MissionAttributes.Gather);
@@ -430,9 +440,11 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                                 UpdateMissions();
                             else if (MissionIndex == 5 && ChainedMission && BoonMission)
                                 UpdateMissions();
-                            else if (MissionIndex == 6 && craftMission)
-                                UpdateMissions();
+                            // MissionIndex 是固定值，這條鏈的先後不影響結果；
+                            // 排成與 SetupAllProfiles() 一致純粹是為了對照方便。
                             else if (MissionIndex == 1 && GatherX)
+                                UpdateMissions();
+                            else if (MissionIndex == 6 && craftMission)
                                 UpdateMissions();
                         }
                     }
@@ -449,13 +461,13 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
                 int minGP = entry.MinimumGp;
                 ImGui.SetNextItemWidth(100);
-                if (ImGui.SliderInt("Minimum GP to start mission", ref minGP, -1, maxGp))
+                if (ImGui.SliderInt("Minimum GP to start mission".Loc() + "###ICEMinimumGpToStart", ref minGP, -1, maxGp))
                 {
                     entry.MinimumGp = minGP;
                     C.SaveDebounced();
                 }
 
-                ImGui.Text("Where'd the dual craft amount go?");
+                ImGui.Text("Where'd the dual craft amount go?".Loc());
                 ImGui.SameLine();
                 ImGui.Dummy(new(5, 0));
                 ImGui.SameLine();
@@ -465,14 +477,14 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     ImGui.SetNextWindowSize(new(400.0f, 0.0f)); // Fixed width, auto height
                     ImGui.BeginTooltip();
 
-                    ImGui.TextWrapped("Short answer: It's built in now\n" +
+                    ImGui.TextWrapped(("Short answer: It's built in now\n" +
                      "Long answer: Honestly, this was a cumbersome system in itself. And with square deciding to not continue on with dual crafting missions going into the 2nd moon, I figured it would be better to just tie it into the scoring system. You realistically only need:\n" +
                      "Gold: 3 Items\n" +
                      "Silver: 2 Items\n" +
                      "Bronze: 1 Item\n" +
                      "to be able to hit the threshold. And even then, if you manage to not hit it on the first attempt, it'll just keep gathering. Plus. This makes it to where I can not have to worry about profile managing on fishing for... 4 missions? Seemed minorly reduntant in my eyes.\n" +
                      "So now how it'll work. Select the turnin option (Gold/Any both work the same) and it will now gather up to the necessary amount -> turnin when it's ready.\n" +
-                     "NOW NONE OF YOU CAN TELL IT TO CRAFT 27 ITEMS. STOP IT. IT SAID CRAFT (╯°Д°)╯︵/(.□ . \\)");
+                     "NOW NONE OF YOU CAN TELL IT TO CRAFT 27 ITEMS. STOP IT. IT SAID CRAFT (╯°Д°)╯︵/(.□ . \\)").Loc());
                     ImGui.EndTooltip();
                 }
 
@@ -480,7 +492,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
                 #region Boon Increase 2
 
-                if (ImGui.CollapsingHeader("Pioneer's | Mountaineer's Gift II"))
+                if (ImGui.CollapsingHeader("Pioneer's | Mountaineer's Gift II".Loc() + "###ICEBuffBoonIncrease2"))
                 {
                     string buffName = "BoonIncrease2";
 
@@ -490,26 +502,26 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     int minUseGp = entry.GatherBuffs.Buffs[buffName].MinGp;
                     int minActionGp = GatheringUtil.GathActionDict[buffName].RequiredGp;
                     int maxActionUsage = entry.GatherBuffs.Buffs[buffName].MaxUse;
-                    string ActionInfo = "Apply a 30% buff to your boon chance.";
+                    string ActionInfo = "Apply a 30% buff to your boon chance.".Loc();
 
-                    ImGui.Text($"Action Info: ");
+                    ImGui.Text("Action Info: ".Loc());
                     ImGuiEx.HelpMarker(ActionInfo);
 
-                    if (ImGui.Checkbox("Enable", ref currentlyEnabled))
+                    if (ImGui.Checkbox("Enable".Loc(), ref currentlyEnabled))
                     {
                         entry.GatherBuffs.Buffs[buffName].Enabled = currentlyEnabled;
                         C.Save();
                     }
 
                     ImGui.SetNextItemWidth(200);
-                    if (ImGui.SliderInt("Minimum Gp for Usage", ref minUseGp, minActionGp, maxGp))
+                    if (ImGui.SliderInt("Minimum Gp for Usage".Loc(), ref minUseGp, minActionGp, maxGp))
                     {
                         entry.GatherBuffs.Buffs[buffName].MinGp = minUseGp;
                         C.SaveDebounced();
                     }
 
                     ImGui.SetNextItemWidth(200);
-                    if (ImGui.InputInt("Max Use", ref maxActionUsage))
+                    if (ImGui.InputInt("Max Use".Loc(), ref maxActionUsage))
                     {
                         entry.GatherBuffs.Buffs[buffName].MaxUse = maxActionUsage;
                         C.SaveDebounced();
@@ -522,7 +534,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
                 #region Boon Increase 1
 
-                if (ImGui.CollapsingHeader("Pioneer's | Mountaineer's Gift I"))
+                if (ImGui.CollapsingHeader("Pioneer's | Mountaineer's Gift I".Loc() + "###ICEBuffBoonIncrease1"))
                 {
                     string buffName = "BoonIncrease1";
 
@@ -532,32 +544,32 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     int minUseGp = entry.GatherBuffs.Buffs[buffName].MinGp;
                     int minActionGp = GatheringUtil.GathActionDict[buffName].RequiredGp;
                     int maxActionUsage = entry.GatherBuffs.Buffs[buffName].MaxUse;
-                    string ActionInfo = "Apply a 10% buff to your boon chance.";
+                    string ActionInfo = "Apply a 10% buff to your boon chance.".Loc();
 
-                    ImGui.Text($"Action Info: ");
+                    ImGui.Text("Action Info: ".Loc());
                     ImGuiEx.HelpMarker(ActionInfo);
 
-                    if (ImGui.Checkbox("Enable", ref currentlyEnabled))
+                    if (ImGui.Checkbox("Enable".Loc(), ref currentlyEnabled))
                     {
                         entry.GatherBuffs.Buffs[buffName].Enabled = currentlyEnabled;
                         C.Save();
                     }
 
                     ImGui.SetNextItemWidth(200);
-                    if (ImGui.SliderInt("Minimum Gp for Usage", ref minUseGp, minActionGp, maxGp))
+                    if (ImGui.SliderInt("Minimum Gp for Usage".Loc(), ref minUseGp, minActionGp, maxGp))
                     {
                         entry.GatherBuffs.Buffs[buffName].MinGp = minUseGp;
                         C.SaveDebounced();
                     }
 
                     ImGui.SetNextItemWidth(200);
-                    if (ImGui.InputInt("Max Use", ref maxActionUsage))
+                    if (ImGui.InputInt("Max Use".Loc(), ref maxActionUsage))
                     {
                         entry.GatherBuffs.Buffs[buffName].MaxUse = maxActionUsage;
                         C.SaveDebounced();
                     }
-                    ImGuiEx.HelpMarker("Set to -1 to allow for infinite uses \n" +
-                                       "Set to 1-> X to set maximum amount of uses per mission");
+                    ImGuiEx.HelpMarker(("Set to -1 to allow for infinite uses \n" +
+                                       "Set to 1-> X to set maximum amount of uses per mission").Loc());
 
                     ImGui.PopID();
                 }
@@ -566,7 +578,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
                 #region Nophica's / Nald'thal's Tidings
 
-                if (ImGui.CollapsingHeader("Nophica's / Nald'thal's Tidings Buff"))
+                if (ImGui.CollapsingHeader("Nophica's / Nald'thal's Tidings Buff".Loc() + "###ICEBuffTidings"))
                 {
                     string buffName = "Tidings";
 
@@ -576,32 +588,32 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     int minUseGp = entry.GatherBuffs.Buffs[buffName].MinGp;
                     int minActionGp = GatheringUtil.GathActionDict[buffName].RequiredGp;
                     int maxActionUsage = entry.GatherBuffs.Buffs[buffName].MaxUse;
-                    string ActionInfo = "Increases item yield from Gatherer's Boon by 1";
+                    string ActionInfo = "Increases item yield from Gatherer's Boon by 1".Loc();
 
-                    ImGui.Text($"Action Info: ");
+                    ImGui.Text("Action Info: ".Loc());
                     ImGuiEx.HelpMarker(ActionInfo);
 
-                    if (ImGui.Checkbox("Enable", ref currentlyEnabled))
+                    if (ImGui.Checkbox("Enable".Loc(), ref currentlyEnabled))
                     {
                         entry.GatherBuffs.Buffs[buffName].Enabled = currentlyEnabled;
                         C.Save();
                     }
 
                     ImGui.SetNextItemWidth(200);
-                    if (ImGui.SliderInt("Minimum Gp for Usage", ref minUseGp, minActionGp, maxGp))
+                    if (ImGui.SliderInt("Minimum Gp for Usage".Loc(), ref minUseGp, minActionGp, maxGp))
                     {
                         entry.GatherBuffs.Buffs[buffName].MinGp = minUseGp;
                         C.SaveDebounced();
                     }
 
                     ImGui.SetNextItemWidth(200);
-                    if (ImGui.InputInt("Max Use", ref maxActionUsage))
+                    if (ImGui.InputInt("Max Use".Loc(), ref maxActionUsage))
                     {
                         entry.GatherBuffs.Buffs[buffName].MaxUse = maxActionUsage;
                         C.SaveDebounced();
                     }
-                    ImGuiEx.HelpMarker("Set to -1 to allow for infinite uses \n" +
-                                       "Set to 1-> X to set maximum amount of uses per mission");
+                    ImGuiEx.HelpMarker(("Set to -1 to allow for infinite uses \n" +
+                                       "Set to 1-> X to set maximum amount of uses per mission").Loc());
 
                     ImGui.PopID();
                 }
@@ -610,7 +622,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
                 #region Blessed / Kings Yield II
 
-                if (ImGui.CollapsingHeader("Blessed / Kings Yield II"))
+                if (ImGui.CollapsingHeader("Blessed / Kings Yield II".Loc() + "###ICEBuffYieldII"))
                 {
                     string buffName = "YieldII";
 
@@ -620,33 +632,33 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     int minUseGp = entry.GatherBuffs.Buffs[buffName].MinGp;
                     int minActionGp = GatheringUtil.GathActionDict[buffName].RequiredGp;
                     int maxActionUsage = entry.GatherBuffs.Buffs[buffName].MaxUse;
-                    string ActionInfo = "Increases the number of items obtained when gathering by 2\n" +
-                                        "Will only apply when the gathering node has full durability";
+                    string ActionInfo = ("Increases the number of items obtained when gathering by 2\n" +
+                                        "Will only apply when the gathering node has full durability").Loc();
 
-                    ImGui.Text($"Action Info: ");
+                    ImGui.Text("Action Info: ".Loc());
                     ImGuiEx.HelpMarker(ActionInfo);
 
-                    if (ImGui.Checkbox("Enable", ref currentlyEnabled))
+                    if (ImGui.Checkbox("Enable".Loc(), ref currentlyEnabled))
                     {
                         entry.GatherBuffs.Buffs[buffName].Enabled = currentlyEnabled;
                         C.Save();
                     }
 
                     ImGui.SetNextItemWidth(200);
-                    if (ImGui.SliderInt("Minimum Gp for Usage", ref minUseGp, minActionGp, maxGp))
+                    if (ImGui.SliderInt("Minimum Gp for Usage".Loc(), ref minUseGp, minActionGp, maxGp))
                     {
                         entry.GatherBuffs.Buffs[buffName].MinGp = minUseGp;
                         C.SaveDebounced();
                     }
 
                     ImGui.SetNextItemWidth(200);
-                    if (ImGui.InputInt("Max Use", ref maxActionUsage))
+                    if (ImGui.InputInt("Max Use".Loc(), ref maxActionUsage))
                     {
                         entry.GatherBuffs.Buffs[buffName].MaxUse = maxActionUsage;
                         C.SaveDebounced();
                     }
-                    ImGuiEx.HelpMarker("Set to -1 to allow for infinite uses \n" +
-                                       "Set to 1-> X to set maximum amount of uses per mission");
+                    ImGuiEx.HelpMarker(("Set to -1 to allow for infinite uses \n" +
+                                       "Set to 1-> X to set maximum amount of uses per mission").Loc());
 
                     ImGui.PopID();
                 }
@@ -655,7 +667,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
                 #region Blessed / Kings Yield I
 
-                if (ImGui.CollapsingHeader("Blessed / Kings Yield I"))
+                if (ImGui.CollapsingHeader("Blessed / Kings Yield I".Loc() + "###ICEBuffYieldI"))
                 {
                     string buffName = "YieldI";
 
@@ -665,33 +677,33 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     int minUseGp = entry.GatherBuffs.Buffs[buffName].MinGp;
                     int minActionGp = GatheringUtil.GathActionDict[buffName].RequiredGp;
                     int maxActionUsage = entry.GatherBuffs.Buffs[buffName].MaxUse;
-                    string ActionInfo = "Increases the number of items obtained when gathering by 1\n" +
-                                        "Will only apply when the gathering node has full durability";
+                    string ActionInfo = ("Increases the number of items obtained when gathering by 1\n" +
+                                        "Will only apply when the gathering node has full durability").Loc();
 
-                    ImGui.Text($"Action Info: ");
+                    ImGui.Text("Action Info: ".Loc());
                     ImGuiEx.HelpMarker(ActionInfo);
 
-                    if (ImGui.Checkbox("Enable", ref currentlyEnabled))
+                    if (ImGui.Checkbox("Enable".Loc(), ref currentlyEnabled))
                     {
                         entry.GatherBuffs.Buffs[buffName].Enabled = currentlyEnabled;
                         C.Save();
                     }
 
                     ImGui.SetNextItemWidth(200);
-                    if (ImGui.SliderInt("Minimum Gp for Usage", ref minUseGp, minActionGp, maxGp))
+                    if (ImGui.SliderInt("Minimum Gp for Usage".Loc(), ref minUseGp, minActionGp, maxGp))
                     {
                         entry.GatherBuffs.Buffs[buffName].MinGp = minUseGp;
                         C.SaveDebounced();
                     }
 
                     ImGui.SetNextItemWidth(200);
-                    if (ImGui.InputInt("Max Use", ref maxActionUsage))
+                    if (ImGui.InputInt("Max Use".Loc(), ref maxActionUsage))
                     {
                         entry.GatherBuffs.Buffs[buffName].MaxUse = maxActionUsage;
                         C.SaveDebounced();
                     }
-                    ImGuiEx.HelpMarker("Set to -1 to allow for infinite uses \n" +
-                                       "Set to 1-> X to set maximum amount of uses per mission");
+                    ImGuiEx.HelpMarker(("Set to -1 to allow for infinite uses \n" +
+                                       "Set to 1-> X to set maximum amount of uses per mission").Loc());
 
                     ImGui.PopID();
                 }
@@ -700,7 +712,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
                 #region Bonus Integrity
 
-                if (ImGui.CollapsingHeader("Ageless Words / Solid Reason"))
+                if (ImGui.CollapsingHeader("Ageless Words / Solid Reason".Loc() + "###ICEBuffBonusIntegrity"))
                 {
                     string buffName = "BonusIntegrity";
 
@@ -710,33 +722,33 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     int minUseGp = entry.GatherBuffs.Buffs[buffName].MinGp;
                     int minActionGp = GatheringUtil.GathActionDict[buffName].RequiredGp;
                     int maxActionUsage = entry.GatherBuffs.Buffs[buffName].MaxUse;
-                    string ActionInfo = "Increase the Integrity by 1\n" +
-                                        "50% chance to grant Eureka Moment";
+                    string ActionInfo = ("Increase the Integrity by 1\n" +
+                                        "50% chance to grant Eureka Moment").Loc();
 
-                    ImGui.Text($"Action Info: ");
+                    ImGui.Text("Action Info: ".Loc());
                     ImGuiEx.HelpMarker(ActionInfo);
 
-                    if (ImGui.Checkbox("Enable", ref currentlyEnabled))
+                    if (ImGui.Checkbox("Enable".Loc(), ref currentlyEnabled))
                     {
                         entry.GatherBuffs.Buffs[buffName].Enabled = currentlyEnabled;
                         C.Save();
                     }
 
                     ImGui.SetNextItemWidth(200);
-                    if (ImGui.SliderInt("Minimum Gp for Usage", ref minUseGp, minActionGp, maxGp))
+                    if (ImGui.SliderInt("Minimum Gp for Usage".Loc(), ref minUseGp, minActionGp, maxGp))
                     {
                         entry.GatherBuffs.Buffs[buffName].MinGp = minUseGp;
                         C.SaveDebounced();
                     }
 
                     ImGui.SetNextItemWidth(200);
-                    if (ImGui.InputInt("Max Use", ref maxActionUsage))
+                    if (ImGui.InputInt("Max Use".Loc(), ref maxActionUsage))
                     {
                         entry.GatherBuffs.Buffs[buffName].MaxUse = maxActionUsage;
                         C.SaveDebounced();
                     }
-                    ImGuiEx.HelpMarker("Set to -1 to allow for infinite uses \n" +
-                                       "Set to 1-> X to set maximum amount of uses per mission");
+                    ImGuiEx.HelpMarker(("Set to -1 to allow for infinite uses \n" +
+                                       "Set to 1-> X to set maximum amount of uses per mission").Loc());
 
                     ImGui.PopID();
                 }
@@ -745,7 +757,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
                 #region Bountiful Yield II
 
-                if (ImGui.CollapsingHeader("Bountiful Yield II / Bountiful Harvest II"))
+                if (ImGui.CollapsingHeader("Bountiful Yield II / Bountiful Harvest II".Loc() + "###ICEBuffBountifulYieldII"))
                 {
                     string buffName = "BountifulYieldII";
 
@@ -755,35 +767,35 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     int minUseGp = entry.GatherBuffs.Buffs[buffName].MinGp;
                     int minActionGp = GatheringUtil.GathActionDict[buffName].RequiredGp;
                     int maxActionUsage = entry.GatherBuffs.Buffs[buffName].MaxUse;
-                    string ActionInfo = "Increases the number of items obtained when gathering by 2\n" +
-                                        "Will only apply when the gathering node has full durability";
+                    string ActionInfo = ("Increases the number of items obtained when gathering by 2\n" +
+                                        "Will only apply when the gathering node has full durability").Loc();
 
-                    ImGui.Text($"Action Info: ");
+                    ImGui.Text("Action Info: ".Loc());
                     ImGuiEx.HelpMarker(ActionInfo);
 
-                    if (ImGui.Checkbox("Enable", ref currentlyEnabled))
+                    if (ImGui.Checkbox("Enable".Loc(), ref currentlyEnabled))
                     {
                         entry.GatherBuffs.Buffs[buffName].Enabled = currentlyEnabled;
                         C.Save();
                     }
 
                     ImGui.SetNextItemWidth(200);
-                    if (ImGui.SliderInt("Minimum Gp for Usage", ref minUseGp, minActionGp, maxGp))
+                    if (ImGui.SliderInt("Minimum Gp for Usage".Loc(), ref minUseGp, minActionGp, maxGp))
                     {
                         entry.GatherBuffs.Buffs[buffName].MinGp = minUseGp;
                         C.SaveDebounced();
                     }
 
                     ImGui.SetNextItemWidth(200);
-                    if (ImGui.InputInt("Max Use", ref maxActionUsage))
+                    if (ImGui.InputInt("Max Use".Loc(), ref maxActionUsage))
                     {
                         entry.GatherBuffs.Buffs[buffName].MaxUse = maxActionUsage;
                         C.SaveDebounced();
                     }
-                    ImGuiEx.HelpMarker("Set to -1 to allow for infinite uses \n" +
-                                       "Set to 1-> X to set maximum amount of uses per mission");
+                    ImGuiEx.HelpMarker(("Set to -1 to allow for infinite uses \n" +
+                                       "Set to 1-> X to set maximum amount of uses per mission").Loc());
 
-                    ImGui.Text("Minumum Items To Gather");
+                    ImGui.Text("Minumum Items To Gather".Loc());
                     ImGui.SameLine();
                     int minItems = entry.GatherBuffs.BountifulMinItem;
                     if (ImGui.DragInt("##MinItemsGather", ref minItems, 1, 2, 4))
@@ -801,7 +813,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
                 #region Field Mastery III
 
-                if (ImGui.CollapsingHeader("Field Mastery | Sharp Vision III"))
+                if (ImGui.CollapsingHeader("Field Mastery | Sharp Vision III".Loc() + "###ICEBuffFieldMasteryIII"))
                 {
                     string buffName = "FieldMasteryIII";
 
@@ -811,34 +823,34 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     int minUseGp = entry.GatherBuffs.Buffs[buffName].MinGp;
                     int minActionGp = GatheringUtil.GathActionDict[buffName].RequiredGp;
                     int maxActionUsage = entry.GatherBuffs.Buffs[buffName].MaxUse;
-                    string ActionInfo = "Increases the gather chance by 50%\n" +
+                    string ActionInfo = ("Increases the gather chance by 50%\n" +
                                         "Please note: You can have multiple enabled, but only the one that will get you the closest to " +
-                                        "100% the cheapest will be applied";
+                                        "100% the cheapest will be applied").Loc();
 
-                    ImGui.Text($"Action Info: ");
+                    ImGui.Text("Action Info: ".Loc());
                     ImGuiEx.HelpMarker(ActionInfo);
 
-                    if (ImGui.Checkbox("Enable", ref currentlyEnabled))
+                    if (ImGui.Checkbox("Enable".Loc(), ref currentlyEnabled))
                     {
                         entry.GatherBuffs.Buffs[buffName].Enabled = currentlyEnabled;
                         C.Save();
                     }
 
                     ImGui.SetNextItemWidth(200);
-                    if (ImGui.SliderInt("Minimum Gp for Usage", ref minUseGp, minActionGp, maxGp))
+                    if (ImGui.SliderInt("Minimum Gp for Usage".Loc(), ref minUseGp, minActionGp, maxGp))
                     {
                         entry.GatherBuffs.Buffs[buffName].MinGp = minUseGp;
                         C.SaveDebounced();
                     }
 
                     ImGui.SetNextItemWidth(200);
-                    if (ImGui.InputInt("Max Use", ref maxActionUsage))
+                    if (ImGui.InputInt("Max Use".Loc(), ref maxActionUsage))
                     {
                         entry.GatherBuffs.Buffs[buffName].MaxUse = maxActionUsage;
                         C.SaveDebounced();
                     }
-                    ImGuiEx.HelpMarker("Set to -1 to allow for infinite uses \n" +
-                                       "Set to 1-> X to set maximum amount of uses per mission");
+                    ImGuiEx.HelpMarker(("Set to -1 to allow for infinite uses \n" +
+                                       "Set to 1-> X to set maximum amount of uses per mission").Loc());
 
                     ImGui.PopID();
                 }
@@ -847,7 +859,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
                 #region Field Mastery II
 
-                if (ImGui.CollapsingHeader("Field Mastery | Sharp Vision II"))
+                if (ImGui.CollapsingHeader("Field Mastery | Sharp Vision II".Loc() + "###ICEBuffFieldMasteryII"))
                 {
                     string buffName = "FieldMasteryII";
 
@@ -857,34 +869,34 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     int minUseGp = entry.GatherBuffs.Buffs[buffName].MinGp;
                     int minActionGp = GatheringUtil.GathActionDict[buffName].RequiredGp;
                     int maxActionUsage = entry.GatherBuffs.Buffs[buffName].MaxUse;
-                    string ActionInfo = "Increases the gather chance by 15%\n" +
+                    string ActionInfo = ("Increases the gather chance by 15%\n" +
                                         "Please note: You can have multiple enabled, but only the one that will get you the closest to " +
-                                        "100% the cheapest will be applied";
+                                        "100% the cheapest will be applied").Loc();
 
-                    ImGui.Text($"Action Info: ");
+                    ImGui.Text("Action Info: ".Loc());
                     ImGuiEx.HelpMarker(ActionInfo);
 
-                    if (ImGui.Checkbox("Enable", ref currentlyEnabled))
+                    if (ImGui.Checkbox("Enable".Loc(), ref currentlyEnabled))
                     {
                         entry.GatherBuffs.Buffs[buffName].Enabled = currentlyEnabled;
                         C.Save();
                     }
 
                     ImGui.SetNextItemWidth(200);
-                    if (ImGui.SliderInt("Minimum Gp for Usage", ref minUseGp, minActionGp, maxGp))
+                    if (ImGui.SliderInt("Minimum Gp for Usage".Loc(), ref minUseGp, minActionGp, maxGp))
                     {
                         entry.GatherBuffs.Buffs[buffName].MinGp = minUseGp;
                         C.SaveDebounced();
                     }
 
                     ImGui.SetNextItemWidth(200);
-                    if (ImGui.InputInt("Max Use", ref maxActionUsage))
+                    if (ImGui.InputInt("Max Use".Loc(), ref maxActionUsage))
                     {
                         entry.GatherBuffs.Buffs[buffName].MaxUse = maxActionUsage;
                         C.SaveDebounced();
                     }
-                    ImGuiEx.HelpMarker("Set to -1 to allow for infinite uses \n" +
-                                       "Set to 1-> X to set maximum amount of uses per mission");
+                    ImGuiEx.HelpMarker(("Set to -1 to allow for infinite uses \n" +
+                                       "Set to 1-> X to set maximum amount of uses per mission").Loc());
 
                     ImGui.PopID();
                 }
@@ -893,7 +905,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
                 #region Field Mastery I
 
-                if (ImGui.CollapsingHeader("Field Mastery | Sharp Vision I"))
+                if (ImGui.CollapsingHeader("Field Mastery | Sharp Vision I".Loc() + "###ICEBuffFieldMasteryI"))
                 {
                     string buffName = "FieldMasteryI";
 
@@ -903,34 +915,34 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     int minUseGp = entry.GatherBuffs.Buffs[buffName].MinGp;
                     int minActionGp = GatheringUtil.GathActionDict[buffName].RequiredGp;
                     int maxActionUsage = entry.GatherBuffs.Buffs[buffName].MaxUse;
-                    string ActionInfo = "Increases the gather chance by 5%\n" +
+                    string ActionInfo = ("Increases the gather chance by 5%\n" +
                                         "Please note: You can have multiple enabled, but only the one that will get you the closest to " +
-                                        "100% the cheapest will be applied";
+                                        "100% the cheapest will be applied").Loc();
 
-                    ImGui.Text($"Action Info: ");
+                    ImGui.Text("Action Info: ".Loc());
                     ImGuiEx.HelpMarker(ActionInfo);
 
-                    if (ImGui.Checkbox("Enable", ref currentlyEnabled))
+                    if (ImGui.Checkbox("Enable".Loc(), ref currentlyEnabled))
                     {
                         entry.GatherBuffs.Buffs[buffName].Enabled = currentlyEnabled;
                         C.Save();
                     }
 
                     ImGui.SetNextItemWidth(200);
-                    if (ImGui.SliderInt("Minimum Gp for Usage", ref minUseGp, minActionGp, maxGp))
+                    if (ImGui.SliderInt("Minimum Gp for Usage".Loc(), ref minUseGp, minActionGp, maxGp))
                     {
                         entry.GatherBuffs.Buffs[buffName].MinGp = minUseGp;
                         C.SaveDebounced();
                     }
 
                     ImGui.SetNextItemWidth(200);
-                    if (ImGui.InputInt("Max Use", ref maxActionUsage))
+                    if (ImGui.InputInt("Max Use".Loc(), ref maxActionUsage))
                     {
                         entry.GatherBuffs.Buffs[buffName].MaxUse = maxActionUsage;
                         C.SaveDebounced();
                     }
-                    ImGuiEx.HelpMarker("Set to -1 to allow for infinite uses \n" +
-                                       "Set to 1-> X to set maximum amount of uses per mission");
+                    ImGuiEx.HelpMarker(("Set to -1 to allow for infinite uses \n" +
+                                       "Set to 1-> X to set maximum amount of uses per mission").Loc());
 
                     ImGui.PopID();
                 }
@@ -939,7 +951,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
                 #region Field Mastery [Temp]
 
-                if (ImGui.CollapsingHeader("Flora Mastery | Clear Vision [Temp]"))
+                if (ImGui.CollapsingHeader("Flora Mastery | Clear Vision [Temp]".Loc() + "###ICEBuffFieldMasteryTemp"))
                 {
                     string buffName = "FieldMasteryTemp";
 
@@ -949,33 +961,33 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     int minUseGp = entry.GatherBuffs.Buffs[buffName].MinGp;
                     int minActionGp = GatheringUtil.GathActionDict[buffName].RequiredGp;
                     int maxActionUsage = entry.GatherBuffs.Buffs[buffName].MaxUse;
-                    string ActionInfo = "Increases the gather chance by 15%\n" +
-                                        "This can be applied with normal field mastery, but will only apply per hit";
+                    string ActionInfo = ("Increases the gather chance by 15%\n" +
+                                        "This can be applied with normal field mastery, but will only apply per hit").Loc();
 
-                    ImGui.Text($"Action Info: ");
+                    ImGui.Text("Action Info: ".Loc());
                     ImGuiEx.HelpMarker(ActionInfo);
 
-                    if (ImGui.Checkbox("Enable", ref currentlyEnabled))
+                    if (ImGui.Checkbox("Enable".Loc(), ref currentlyEnabled))
                     {
                         entry.GatherBuffs.Buffs[buffName].Enabled = currentlyEnabled;
                         C.Save();
                     }
 
                     ImGui.SetNextItemWidth(200);
-                    if (ImGui.SliderInt("Minimum Gp for Usage", ref minUseGp, minActionGp, maxGp))
+                    if (ImGui.SliderInt("Minimum Gp for Usage".Loc(), ref minUseGp, minActionGp, maxGp))
                     {
                         entry.GatherBuffs.Buffs[buffName].MinGp = minUseGp;
                         C.SaveDebounced();
                     }
 
                     ImGui.SetNextItemWidth(200);
-                    if (ImGui.InputInt("Max Use", ref maxActionUsage))
+                    if (ImGui.InputInt("Max Use".Loc(), ref maxActionUsage))
                     {
                         entry.GatherBuffs.Buffs[buffName].MaxUse = maxActionUsage;
                         C.SaveDebounced();
                     }
-                    ImGuiEx.HelpMarker("Set to -1 to allow for infinite uses \n" +
-                                       "Set to 1-> X to set maximum amount of uses per mission");
+                    ImGuiEx.HelpMarker(("Set to -1 to allow for infinite uses \n" +
+                                       "Set to 1-> X to set maximum amount of uses per mission").Loc());
 
                     ImGui.PopID();
                 }
@@ -990,13 +1002,13 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             }
 
             ImGui.Separator();
-            if (ImGui.Button("Copy Selected Profile"))
+            if (ImGui.Button("Copy Selected Profile".Loc() + "###ICECopySelectedProfile"))
             {
                 string export = ExportGatherProfile(C.SelectedGatherIndex);
                 ImGui.SetClipboardText(export);
             }
 
-            if (ImGui.Button("Import Selected Profile"))
+            if (ImGui.Button("Import Selected Profile".Loc() + "###ICEImportSelectedProfile"))
             {
                 string importProfile = ImGui.GetClipboardText();
                 string errorMessage = "";
@@ -1016,17 +1028,17 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
             using (ImRaii.Disabled(!ImGui.IsKeyDown(ImGuiKey.LeftShift)))
             {
-                if (ImGui.Button("Setup Gathering Profiles"))
+                if (ImGui.Button("Setup Gathering Profiles".Loc() + "###ICESetupAllGatheringProfiles"))
                 {
                     SetupAllProfiles();
 
                     C.Save();
                 }
             }
-            ImGuiEx.HelpMarker("PLEASE NOTE:\n" +
+            ImGuiEx.HelpMarker(("PLEASE NOTE:\n" +
                                "This will wipe out all your current profiles, and apply what I would suggest for each one.\n" +
                                "For most of you this would be fine, this is really only here if you don't know what to apply for each one." +
-                               "If you're okay with this, hold left shift and apply");
+                               "If you're okay with this, hold left shift and apply").Loc());
         }
 
         public static void SetupAllProfiles()
@@ -1061,8 +1073,13 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             GatherSettings.InitialSetupProfile(chainedMissions, "chained", out var _);
             GatherSettings.InitialSetupProfile(boonMissions, "boon", out var _);
             GatherSettings.InitialSetupProfile(ChainBoonMission, "boonChain", out var _);
-            GatherSettings.InitialSetupProfile(DualClass, "dualCraft", out var _);
+            // 🔴 dualCraft 必須排在 gatherX **後面**。InitialSetupProfile 是「符合條件就把 GProfileId 覆寫成這一份的 id」，
+            //    而 GatherX 的條件（!採集品 !還元 !恩惠 !連鎖 !限時 !限量）**沒有排除 craft**，
+            //    所以雙職（採集＋製作）任務會同時落在 dualCraft 與 gatherX 兩桶裡，**後呼叫的那一個贏**。
+            //    順序反過來的話雙職任務永遠拿不到「Dual Class」設定檔（那份的 DualClassCraftAmount 是 2，其餘都是 1），
+            //    而且沒有任何錯誤訊息。
             GatherSettings.InitialSetupProfile(GatherXAmount, "gatherX", out var _);
+            GatherSettings.InitialSetupProfile(DualClass, "dualCraft", out var _);
         }
     }
 }

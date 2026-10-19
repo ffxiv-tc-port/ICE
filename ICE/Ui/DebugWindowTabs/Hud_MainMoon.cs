@@ -8,14 +8,14 @@ namespace ICE.Ui.DebugWindowTabs
         {
             if (GenericHelpers.TryGetAddonMaster<WKSHud>("WKSHud", out var HudAddon))
             {
-                if (ImGui.Button("Mission"))
+                if (ImGui.Button("Mission".Loc()))
                 {
                     HudAddon.Mission();
                 }
 
                 ImGui.SameLine();
 
-                if (ImGui.Button("Mech"))
+                if (ImGui.Button("Mech".Loc()))
                 {
                     HudAddon.Mech();
                 }
@@ -36,7 +36,7 @@ namespace ICE.Ui.DebugWindowTabs
 
                 ImGui.SameLine();
 
-                if (ImGui.Button("Research"))
+                if (ImGui.Button("Research".Loc()))
                 {
                     HudAddon.Research();
                 }
@@ -50,7 +50,7 @@ namespace ICE.Ui.DebugWindowTabs
             }
             else
             {
-                ImGui.Text("Waiting for \"WKSHud\" to be visible");
+                ImGui.Text("Waiting for \"WKSHud\" to be visible".Loc());
             }
         }
     }

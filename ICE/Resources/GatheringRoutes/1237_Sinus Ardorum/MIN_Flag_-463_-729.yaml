@@ -4,8 +4,8 @@ job: MIN
 flag:
   x: -463
   y: -729
-author: Puni.sh Community
-date_modified: 2025-12-15T02:28:29.6090924Z
+author: "Puni.sh Community; angle data: Leontopodium Nivale"
+date_modified: 2026-06-08T14:32:20.537445Z
 nodes:
 - node_id: 35056
   position:
@@ -16,10 +16,10 @@ nodes:
     x: -420.66
     y: 65.99
     z: -690.31
-  radius_start: 0
-  radius_end: 360
+  radius_start: 135
+  radius_end: 274
   min_distance: 1
-  max_distance: 5
+  max_distance: 2
 - node_id: 35055
   position:
     x: -428.39
@@ -29,10 +29,10 @@ nodes:
     x: -429.45
     y: 67.01
     z: -702.27
-  radius_start: 0
-  radius_end: 360
+  radius_start: 153
+  radius_end: 308
   min_distance: 1
-  max_distance: 5
+  max_distance: 2
 - node_id: 35054
   position:
     x: -447.28
@@ -43,9 +43,9 @@ nodes:
     y: 67.66
     z: -707.8
   radius_start: 0
-  radius_end: 360
+  radius_end: 155
   min_distance: 1
-  max_distance: 5
+  max_distance: 2
 - node_id: 35053
   position:
     x: -461.66
@@ -55,10 +55,10 @@ nodes:
     x: -462.73
     y: 68.9
     z: -712.48
-  radius_start: 0
-  radius_end: 360
+  radius_start: 154
+  radius_end: 332
   min_distance: 1
-  max_distance: 5
+  max_distance: 2
 - node_id: 35052
   position:
     x: -462.91
@@ -68,10 +68,10 @@ nodes:
     x: -464.34
     y: 70.41
     z: -730.15
-  radius_start: 0
-  radius_end: 360
+  radius_start: 168
+  radius_end: 285
   min_distance: 1
-  max_distance: 5
+  max_distance: 2
 - node_id: 35051
   position:
     x: -467.54
@@ -81,10 +81,10 @@ nodes:
     x: -469.22
     y: 72.59
     z: -747.28
-  radius_start: 0
-  radius_end: 360
+  radius_start: 189
+  radius_end: 1
   min_distance: 1
-  max_distance: 5
+  max_distance: 2
 - node_id: 35050
   position:
     x: -469.04
@@ -94,10 +94,10 @@ nodes:
     x: -470.74
     y: 76.04
     z: -769.39
-  radius_start: 0
-  radius_end: 360
+  radius_start: 178
+  radius_end: 327
   min_distance: 1
-  max_distance: 5
+  max_distance: 2
 - node_id: 35049
   position:
     x: -492.64
@@ -107,7 +107,7 @@ nodes:
     x: -492.14
     y: 77.9
     z: -775
-  radius_start: 0
-  radius_end: 360
+  radius_start: 109
+  radius_end: 265
   min_distance: 1
-  max_distance: 5
+  max_distance: 2

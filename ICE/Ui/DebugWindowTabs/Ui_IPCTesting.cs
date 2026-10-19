@@ -2,7 +2,6 @@
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using ICE.Utilities.Cosmic_Helper;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 
 namespace ICE.Ui.DebugWindowTabs
 {
@@ -27,7 +26,7 @@ namespace ICE.Ui.DebugWindowTabs
         {
             ImGui.Text($"Artisan Is Busy? {P.Artisan.IsBusy()}");
             ImGui.Text($"{EzThrottler.GetRemainingTime("[Main Item(s)] Starting Main Craft")}");
-            if (ImGui.Button("Artisan, craft this"))
+            if (ImGui.Button("Artisan, craft this".Loc()))
             {
                 P.Artisan.CraftItem(36026, 1);
             }
@@ -41,14 +40,17 @@ namespace ICE.Ui.DebugWindowTabs
 
             if (ImGui.Button($"Test Radius"))
             {
+                // AgentMap 取得器合法回 null；這裡要讀 CurrentTerritoryId。
                 var agent = AgentMap.Instance();
-
-                Utils.SetGatheringRing(agent->CurrentTerritoryId, XLoc, YLoc, Radius);
+                if (agent == null)
+                    IceLogging.Info("AgentMap 尚未就緒，不執行採集圈測試。", "[Ui_IPCTesting]");
+                else
+                    Utils.SetGatheringRing(agent->CurrentTerritoryId, XLoc, YLoc, Radius);
             }
 
             ImGui.Separator();
             ImGui.InputText("Pandora Feature", ref PandoraFeature);
-            if (ImGui.Button("Pause Feature"))
+            if (ImGui.Button("Pause Feature".Loc()))
             {
                 P.Pandora.PauseFeature(PandoraFeature, amount);
             }
@@ -57,38 +59,41 @@ namespace ICE.Ui.DebugWindowTabs
             ImGui.Text("AutoHook");
             ImGui.SetNextItemWidth(150);
             ImGui.InputText("Preset String", ref importString, 2048);
-            if (ImGui.Button("Import"))
+            if (ImGui.Button("Import".Loc()))
             {
                 P.AutoHook.ImportAndSelectPreset(importString);
                 importString = string.Empty;
             }
             ImGui.SetNextItemWidth(150);
             ImGui.InputText("Swap to preset", ref SwapToPreset);
-            if (ImGui.Button("Swap"))
+            if (ImGui.Button("Swap".Loc()))
             {
                 P.AutoHook.SetPreset(SwapToPreset);
             }
-            if (ImGui.Button("Apply Temp"))
+            if (ImGui.Button("Apply Temp".Loc()))
             {
                 P.AutoHook.CreateAndSelectAnonymousPreset(importString);
             }
             ImGui.SetNextItemWidth(200);
             ImGui.InputUInt("Select mission to import", ref missionId);
             ImGui.InputUInt("Bait ID", ref baitId);
-            if (ImGui.Button("Swap to bait"))
+            if (ImGui.Button("Swap to bait".Loc()))
             {
                  SwapBait(baitId);
             }
-            if (ImGui.Button("Swap Bait... simple"))
+            if (ImGui.Button("Swap Bait... simple".Loc()))
             {
                 if (CosmicHelper.CurrentBait == 0)
                 {
                     IceLogging.Debug("Bait is not currently equipped");
                 }
 
-                P.AutoHook.SwapBaitById(baitId);
+                // SwapBaitById 直接回 bool（與 AutoHook 提供端的簽章一致）。
+                // 把結果印出來——否則按下去沒反應時，分不出「AutoHook 拒絕了」與「這顆按鈕根本沒作用」。
+                var swapped = P.AutoHook.SwapBaitById(baitId);
+                IceLogging.Info($"[除錯] AutoHook.SwapBaitById({baitId}) 回傳 {swapped}。", "[AutoHook IPC]");
             }
-            if (ImGui.Button("Stupid Test"))
+            if (ImGui.Button("Stupid Test".Loc()))
             {
                 if (CosmicHelper.CurrentBait == 0)
                 {
@@ -104,23 +109,23 @@ namespace ICE.Ui.DebugWindowTabs
                 }
             }
 
-            if (ImGui.Button("Enable AutoHook"))
+            if (ImGui.Button("Enable AutoHook".Loc()))
             {
                 P.AutoHook.SetPluginState(true);
             }
-            if (ImGui.Button("Disable Autohook"))
+            if (ImGui.Button("Disable Autohook".Loc()))
             {
                 P.AutoHook.SetPluginState(false);
             }
 
             ImGui.Separator();
             ImGui.Text($"Is ICE Running? | {P.IceIpc.IsRunning()}");
-            if (ImGui.Button("Only Missions Via IPC"))
+            if (ImGui.Button("Only Missions Via IPC".Loc()))
             {
                 HashSet<uint> missionListIds = new() { 1, 3, 4, 7, 9, 11 };
                 P.IceIpc.OnlyMissions(missionListIds);
             }
-            if (ImGui.Button("Change to gamba"))
+            if (ImGui.Button("Change to gamba".Loc()))
             {
                 SchedulerMain.State = IceState.Gambling;
             }
@@ -129,35 +134,24 @@ namespace ICE.Ui.DebugWindowTabs
 
             ImGui.SetNextItemWidth(150);
             ImGui.InputText("Setting Name", ref SettingChange);
-            ImGui.Checkbox("Setting Bool", ref SettingState);
+            ImGui.Checkbox("Setting Bool".Loc(), ref SettingState);
 
-            if (ImGui.Button("Toggle Setting"))
+            if (ImGui.Button("Toggle Setting".Loc()))
             {
                 P.IceIpc.ChangeSetting(SettingChange, SettingState);
             }
 
-            if (ImGui.Button("Assign Artisan Food Test"))
-            {
-                P.Artisan.AssignArtisanRecipe(48797, 46253);
-            }
+            // ⚠️ 刻意不放「Assign Artisan Food Test」按鈕：Artisan 沒有註冊那個 IPC，
+            //    按下去完全沒反應也不會有任何 log。
         }
 
         private static void SwapBait(uint baitId)
         {
-            _ = Task.Run(async () =>
-            {
-                baitSwapped = await TaskSwapBait(baitId);
-            });
-
-            _ = Task.Run(async () =>
-            {
-                await P.AutoHook.SwapBaitById(baitId);
-            });
-        }
-
-        private static async Task<bool> TaskSwapBait(uint bait)
-        {
-            return await P.AutoHook.SwapBaitById(bait);
+            // 🔴 一定要同步呼叫，不可以丟進 Task.Run：AutoHook 的 SwapBaitById 第一件事就是判
+            //    IsInFrameworkUpdateThread，不在就拒絕並回 false（換餌走遊戲的原生函式，跨執行緒是攔不到的 AccessViolation）。
+            //    ImGui 的繪製回呼與 Framework 更新在同一條主執行緒上，直接同步呼叫才是對的。
+            baitSwapped = P.AutoHook.SwapBaitById(baitId);
+            IceLogging.Info($"[除錯] AutoHook.SwapBaitById({baitId}) 回傳 {baitSwapped}。", "[AutoHook IPC]");
         }
     }
 }

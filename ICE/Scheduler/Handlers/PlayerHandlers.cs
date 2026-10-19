@@ -5,6 +5,7 @@ using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.System.Framework;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Component.GUI;
+using ICE.Utilities.Cosmic_Helper;
 using System.Collections.Generic;
 using Callback = ECommons.Automation.Callback;
 using Time = (int start, int end);
@@ -165,7 +166,8 @@ internal static unsafe class PlayerHandlers
         }
     };
 
-    private static readonly uint stellarSprintID = 4398;
+    // stellarSprintID (= 4398) 已移到 StellarSprintHandler.StellarSprintStatusId，
+    // 與它真正對應的技能 ID 放在一起。
 
     public static float Distance(this Vector3 v, Vector3 v2)
     {
@@ -173,7 +175,12 @@ internal static unsafe class PlayerHandlers
     }
     public static unsafe bool IsMoving()
     {
-        return AgentMap.Instance()->IsPlayerMoving;
+        // AgentMap.Instance() 是產生器產出的兩層可空取得器（agentModule 或代理人任一為 null
+        // 就回 null），裸解參考是攔不到的 AVE。唯一的呼叫端（StellarSprintHandler）
+        // 拿它當「要不要放宇宙衝刺」的閘門，
+        // 所以讀不到就回 false ＝ 不放技能（fail-closed）。
+        var agent = AgentMap.Instance();
+        return agent != null && agent->IsPlayerMoving;
     }
 
     internal static unsafe void Tick()
@@ -181,25 +188,33 @@ internal static unsafe class PlayerHandlers
         if (!P.overlayWindow.IsOpen && PlayerHelper.IsInCosmicZone() && PlayerHelper.UsingSupportedJob() && C.ShowOverlay)
             P.overlayWindow.IsOpen = true;
 
-        if (C.MoonSprint 
-         && PlayerHelper.IsInCosmicZone() 
-         && !PlayerHelper.HasStatusId(stellarSprintID) 
-         && Svc.Condition[ConditionFlag.NormalConditions] 
-         && IsMoving()) 
-            UseSprint();
+        // 機甲行動狀態視窗比照上面 overlayWindow 那一行的慣例：每個 tick 補開，真正的開關是設定而不是視窗的 X 鈕。
+        // ⚠️ 這裡刻意**不要求** UsingSupportedJob()：機甲行動的協助員用的是宇宙工具，
+        //    不見得掛在 ICE 認得的那幾個生產職上，要求職業會把協助員整個擋掉。
+        // ⚠️ 條件只放到「總開關 + 在宇宙區域」為止；要不要真的畫、畫哪幾段，
+        //    仍然完全由 MechaOpsWindow.DrawConditions() 決定。
+        if (!P.mechaOpsWindow.IsOpen && PlayerHelper.IsInCosmicZone() && C.ShowMechaAoeOverlay)
+            P.mechaOpsWindow.IsOpen = true;
+
+        // 宇宙衝刺在 StellarSprintHandler：先試「宇宙衝刺」，用不了時退回一般衝刺（GeneralAction 4）。
+        StellarSprintHandler.Tick();
 
         if ((!PlayerHelper.IsInCosmicZone() || !PlayerHelper.UsingSupportedJob()) && SchedulerMain.State != IceState.Idle)
         {
             DisablePlugin();
         }
 
-        if (PlayerHelper.HasStatusId(4409) && C.RemoveStellarStatus)
+        // 先看設定再讀狀態欄：設定關著（預設）時整段不碰狀態欄，每幀不配置。
+        if (C.RemoveStellarStatus && PlayerHelper.HasStatusId(4409))
         {
             if (EzThrottler.Throttle("Turning off Stellar Buff"))
                 StatusManager.ExecuteStatusOff(4409);
         }
 
-        if (GenericHelpers.TryGetAddonByName<AtkUnitBase>("WKSReward", out var addon) && GenericHelpers.IsAddonReady(addon))
+        // 只在排程跑著時代關：閒置時 YesAlready 的 WKSReward 功能也會關同一扇窗，兩邊各送一次 -1＝打在關閉中的窗上。
+        // 跑著時 YesAlready 已被 YesAlreadyManager 暫停，這裡是唯一的按窗者。
+        if (SchedulerMain.State != IceState.Idle
+            && GenericHelpers.TryGetAddonByName<AtkUnitBase>("WKSReward", out var addon) && GenericHelpers.IsAddonReady(addon))
         {
             if (EzThrottler.Throttle("Closing the reward popup"))
             {
@@ -207,6 +222,39 @@ internal static unsafe class PlayerHandlers
             }
         }
 
+        WatchForUnsupportedMission();
+    }
+
+    /// <summary>上一次看到的進行中任務 ID，用來偵測「任務換了」這個邊緣事件。0 = 沒有任務。</summary>
+    private static uint lastSeenMissionId;
+
+    /// <summary>
+    /// 使用者<b>自己手動接了</b>一個 ICE 跑不動的任務時，馬上在聊天視窗說明原因。
+    /// </summary>
+    /// <remarks>
+    /// ⚠️ 用<b>邊緣觸發</b>（任務 ID 變了才判斷）而不是每幀判斷，所以不會洗版；
+    /// 就算同一個任務反覆接放，<c>IceLogging.ChatInfo</c> 還有一層以訊息全文為鍵的 60 秒節流。
+    /// ⚠️ 只在宇宙探索區域內判斷：離開區域時 <c>CurrentLunarMission</c> 讀到的東西沒有意義。
+    /// </remarks>
+    private static void WatchForUnsupportedMission()
+    {
+        if (!PlayerHelper.IsInCosmicZone())
+        {
+            lastSeenMissionId = 0;
+            return;
+        }
+
+        var currentMissionId = CosmicHelper.CurrentLunarMission;
+        if (currentMissionId == lastSeenMissionId)
+            return;
+
+        lastSeenMissionId = currentMissionId;
+
+        if (currentMissionId == 0)
+            return;
+
+        if (MissionSupport.IsUnsupported(currentMissionId, out var reason))
+            MissionSupport.Notify(currentMissionId, reason);
     }
 
     internal static void DisablePlugin()
@@ -218,21 +266,26 @@ internal static unsafe class PlayerHandlers
         }
     }
 
-    private static void UseSprint()
-    {
-        var am = ActionManager.Instance();
-        var isSprintReady = am->GetActionStatus(ActionType.GeneralAction, 4) == 0;
-
-        if (isSprintReady) am->UseAction(ActionType.GeneralAction, 4);
-    }
 
     /// <summary>
     ///
     /// </summary>
-    /// <returns>Hours[long], Minutes[long]</returns>
-    private static (long, long) GetEorzeaTime()
+    /// <returns>Hours[long], Minutes[long]；Framework 尚未就緒時回 null。</returns>
+    /// <remarks>
+    /// 🔴 Framework.Instance() 是 isPointer 的 StaticAddress：遊戲尚未建立單例時回 null，
+    /// 裸解參考 null 原生指標是 AVE，try/catch 攔不到 —— 所以判空放在本函式裡，不依賴呼叫端先擋。
+    /// <para>
+    /// 📌 這裡回 <c>null</c> 而不是 <c>(0, 0)</c>：退回 0 點會讓呼叫端靜默排出一列
+    /// 看起來完全正常、實際上是錯時段的任務，比「沒有資料」更難被察覺。
+    /// </para>
+    /// </remarks>
+    private static (long, long)? GetEorzeaTime()
     {
-        var eorzeaTime = Framework.Instance()->ClientTime.EorzeaTime;
+        var framework = Framework.Instance();
+        if (framework == null)
+            return null;
+
+        var eorzeaTime = framework->ClientTime.EorzeaTime;
         long hours = eorzeaTime / 3600 % 24;
         long minutes = eorzeaTime / 60 % 60;
         return (hours, minutes);
@@ -240,18 +293,51 @@ internal static unsafe class PlayerHandlers
 
     public static (List<TimedInfo> currentMissions, List<TimedInfo> nextMissions) GetMissionsForHour()
     {
-        var EzTime = GetEorzeaTime();
+        // 🔴 GetEorzeaTime() 取不到 Framework 時回 null（判空在它裡面）。
+        //    刻意「回空清單並記一次 Information」而不是退回 0 點：退回 0 點會靜默排出一列
+        //    看起來完全正常、實際上是錯時段的任務，比空白更難被察覺。
+        if (GetEorzeaTime() is not { } EzTime)
+        {
+            if (EzThrottler.Throttle("ICE: eorzea clock unavailable", 60000))
+                IceLogging.Info(
+                    "取不到艾歐澤亞時間（Framework 尚未就緒），本次略過時段任務顯示。",
+                    "[時段任務]");
+            return (new List<TimedInfo>(), new List<TimedInfo>());
+        }
+
         var currentHour = (int)EzTime.Item1; // Current hour
         var territoryId = Player.Territory;
 
-        // Select the appropriate map based on territoryId
-        Dictionary<int, List<TimedInfo>> selectedMap = territoryId switch
+        // 依所在星球選時段表。未知星球保留原本的 fallback（SinusMapV2，不改預設值），只補上診斷：
+        //    拿 Sinus 的時段表去排別的星球，畫面看起來正常但整列都是錯的資料。
+        // 📌 目前這條 default 走不到，因為唯一的呼叫端（OverlayWindow）被
+        //    PlayerHelper.IsInCosmicZone() 擋在 {1237, 1291} 之內。第三顆星開放時
+        //    若有人只改了 IsInCosmicZone 卻忘了這張表，這行 log 就是唯一的痕跡。
+        Dictionary<int, List<TimedInfo>> selectedMap;
+        string mapName;
+        switch (territoryId)
         {
-            // Add your actual territory IDs here
-            1291 => PhaennaMapV2,
-            1237 => SinusMapV2,
-            _ => SinusMapV2       // Default to Phaenna
-        };
+            case 1291:
+                selectedMap = PhaennaMapV2;
+                mapName = nameof(PhaennaMapV2);
+                break;
+            case 1237:
+                selectedMap = SinusMapV2;
+                mapName = nameof(SinusMapV2);
+                break;
+            default:
+                selectedMap = SinusMapV2;   // 維持上游的 fallback，不改預設
+                mapName = nameof(SinusMapV2);
+                if (EzThrottler.Throttle("ICE: unknown cosmic territory", 60000))
+                    IceLogging.Info(
+                        $"目前區域 {territoryId} 不在已知的月面區域清單中"
+                        + "（已知 1237 Sinus Ardorum、1291 Phaenna），"
+                        + $"時段任務表暫時沿用 {nameof(SinusMapV2)}，畫面上的時段任務很可能是錯的。"
+                        + "（若這是新開放的星球，PlayerHandlers 的時段表與 "
+                        + "PlayerHelper.IsInCosmicZone 都需要補上這個區域。）",
+                        "[時段任務]");
+                break;
+        }
 
         // Find which bracket the current hour falls into
         int currentBracket = (currentHour / 2) * 2;
@@ -259,16 +345,75 @@ internal static unsafe class PlayerHandlers
         // Calculate next bracket (wraps around at 24)
         int nextBracket = (currentBracket + 2) % 24;
 
-        // Get the missions for current bracket
-        var currentMissions = selectedMap.ContainsKey(currentBracket)
-            ? selectedMap[currentBracket]
-            : new List<TimedInfo>();
+        var currentMissions = MissionsForBracket(selectedMap, mapName, territoryId, currentBracket, currentHour);
+        var nextMissions = MissionsForBracket(selectedMap, mapName, territoryId, nextBracket, currentHour);
 
-        // Get the missions for next bracket
-        var nextMissions = selectedMap.ContainsKey(nextBracket)
-            ? selectedMap[nextBracket]
-            : new List<TimedInfo>();
+        return (KnownMissionsOnly(currentMissions, mapName, territoryId),
+                KnownMissionsOnly(nextMissions, mapName, territoryId));
+    }
 
-        return (currentMissions, nextMissions);
+    /// <summary>
+    /// 取某個時段（雙數小時）的任務清單；缺鍵時回空清單並記一次 Information。
+    /// </summary>
+    /// <remarks>
+    /// ⚠️ 這裡用 <c>TryGetValue</c> 而不是索引器，所以缺鍵**不會**丟
+    /// <c>KeyNotFoundException</c>。但「回空清單」在疊加層上跟「這個時段本來就沒任務」
+    /// 長得一模一樣 —— 失效是完全靜默的，所以缺鍵時一定要說出來。
+    /// </remarks>
+    private static List<TimedInfo> MissionsForBracket(
+        Dictionary<int, List<TimedInfo>> map, string mapName, uint territoryId, int bracket, int currentHour)
+    {
+        if (map.TryGetValue(bracket, out var list))
+            return list;
+
+        // 節流 key 帶上時段，避免「0 點缺」把「2 點缺」整個蓋掉。
+        // 📌 EzThrottler 的 key 全域持久，但這裡的 key 集合上限是 12 個（雙數時段），不會無限膨脹。
+        if (EzThrottler.Throttle($"ICE: timed mission bracket missing {bracket}", 60000))
+        {
+            IceLogging.Info(
+                $"時段任務表 {mapName}（區域 {territoryId}）沒有「{bracket} 點」這個時段，該時段顯示為空。"
+                + $"目前艾歐澤亞時間 {currentHour} 點；表裡實際有的時段："
+                + string.Join(", ", map.Keys.OrderBy(x => x)) + "。",
+                "[時段任務]");
+        }
+
+        return new List<TimedInfo>();
+    }
+
+    /// <summary>
+    /// 濾掉「這個客戶端根本沒有的任務」。
+    /// </summary>
+    /// <remarks>
+    /// ⚠️ <c>SinusMapV2</c>／<c>PhaennaMapV2</c> 是上游<b>照國際服寫死</b>的時段表，
+    /// 表裡的任務 ID 跟 <c>SheetMissionDict</c>（從遊戲資料建出來的）之間<b>沒有任何共同保證</b>。
+    /// </remarks>
+    private static List<TimedInfo> KnownMissionsOnly(List<TimedInfo> missions, string mapName, uint territoryId)
+    {
+        if (missions.Count == 0)
+            return missions;
+
+        var known = missions.Where(x => CosmicHelper.SheetMissionDict.ContainsKey(x.MissionId)).ToList();
+        if (known.Count == missions.Count)
+            return missions; // 常見路徑：全部都在，直接回原本那份，不要多配置一個 List
+
+        // 節流：這個判斷每幀都會走到（疊加層一幀呼叫兩次），不節流會把 log 灌爆。
+        // 📌 節流 key 帶上表名，才不會讓 Sinus 的訊息把 Phaenna 的蓋掉（反之亦然）。
+        if (EzThrottler.Throttle($"ICE: timed mission table mismatch {mapName}", 60000))
+        {
+            var missing = missions.Where(x => !CosmicHelper.SheetMissionDict.ContainsKey(x.MissionId))
+                                  .Select(x => x.MissionId)
+                                  .Distinct()
+                                  .OrderBy(x => x);
+            IceLogging.Info(
+                $"時段任務表 {mapName}（區域 {territoryId}）有 {missions.Count - known.Count}/{missions.Count} "
+                + "筆任務在這個客戶端的 WKSMissionUnit 查不到資料（該列存在但整列是空的），已從顯示中略過："
+                + string.Join(", ", missing)
+                + $"。（{mapName} 是寫死在 PlayerHandlers 裡的國際服資料，"
+                + "尚未開放的星球會整批對不上，屬於預期行為；"
+                + "若是**已開放**的星球出現這行，代表上游的任務 ID 與台服對不上，需要重建這張表。）",
+                "[時段任務]");
+        }
+
+        return known;
     }
 }

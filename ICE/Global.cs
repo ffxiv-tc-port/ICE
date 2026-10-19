@@ -3,6 +3,7 @@ global using Dalamud.Plugin;
 global using ECommons.DalamudServices;
 global using ECommons.ExcelServices;
 global using ECommons.ImGuiMethods;
+global using ECommons.LanguageHelpers;
 global using ECommons.Throttlers;
 global using ECommons.Logging;
 global using ECommons;

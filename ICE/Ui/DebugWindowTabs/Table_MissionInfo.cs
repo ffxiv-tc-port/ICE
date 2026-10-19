@@ -2,6 +2,7 @@
 using Dalamud.Interface.Textures;
 using FFXIVClientStructs.FFXIV.Client.Game.WKS;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
+using ICE.Utilities.Cosmic_Helper;
 using Lumina.Excel.Sheets;
 using System.Collections.Generic;
 using System.IO;
@@ -46,13 +47,13 @@ namespace ICE.Ui.DebugWindowTabs
             ImGui.SliderUInt("Rank ID", ref RankSearch, 0, 6);
             ImGui.SetNextItemWidth(250);
             ImGui.SliderUInt("Class Selection", ref jobSearch, 7, 18);
-            if (ImGui.Button("Copy Scores"))
+            if (ImGui.Button("Copy Scores".Loc()))
             {
                 ImGui.SetClipboardText(GenerateMissionScoreDictionaryCode());
             }
             ImGui.SameLine();
 
-            if (ImGui.Button("Export Fishing Missions"))
+            if (ImGui.Button("Export Fishing Missions".Loc()))
             {
                 var fishingMissions = CosmicHelper.SheetMissionDict
                     .Where(kvp => kvp.Value.Attributes.HasFlag(MissionAttributes.Fish)) // Adjust flag name as needed
@@ -73,13 +74,13 @@ namespace ICE.Ui.DebugWindowTabs
                 }
                 else
                 {
-                    ImGui.SetTooltip("No fishing missions found!");
+                    ImGui.SetTooltip("No fishing missions found!".Loc());
                 }
             }
 
             ImGui.SameLine();
 
-            if (ImGui.Button("Clear stored scores"))
+            if (ImGui.Button("Clear stored scores".Loc()))
             {
                 C.ScoreKeeper.Clear();
                 C.Save();
@@ -89,7 +90,7 @@ namespace ICE.Ui.DebugWindowTabs
             ImGui.InputText("##ExportPath", ref exportPath, 500);
 
             ImGui.SameLine();
-            if (ImGui.Button("Browse..."))
+            if (ImGui.Button("Browse...".Loc()))
             {
                 fileDialogManager.SaveFileDialog(
                     "Select Export Location",
@@ -107,7 +108,7 @@ namespace ICE.Ui.DebugWindowTabs
             }
 
             ImGui.SameLine();
-            if (ImGui.Button("Export CSV"))
+            if (ImGui.Button("Export CSV".Loc()))
             {
                 ExportToCsv();
             }
@@ -143,8 +144,6 @@ namespace ICE.Ui.DebugWindowTabs
                 ImGui.TableSetupColumn("Attribute Flags");
 
                 IOrderedEnumerable<KeyValuePair<int, string>> orderedExp = CosmicHelper.ExpDictionary.ToList().OrderBy(exp => exp.Key);
-                var agent = AgentMap.Instance();
-                var wk = WKSManager.Instance();
 
                 foreach (var exp in orderedExp)
                 {
@@ -224,7 +223,7 @@ namespace ICE.Ui.DebugWindowTabs
 
                     // Mission Name
                     ImGui.TableNextColumn();
-                    ImGui.Text(entry.Value.Name);
+                    ImGui.Text(MissionSupport.NameWithMarker(entry.Key, entry.Value.Name));
                     if (ImGui.IsItemClicked())
                     {
                         ImGui.SetClipboardText(RemovePrivateUseChars(entry.Value.Name));
@@ -360,7 +359,7 @@ namespace ICE.Ui.DebugWindowTabs
                         if (ImGui.IsItemHovered())
                         {
                             ImGui.BeginTooltip();
-                            ImGui.Text("Export this fishing mission entry");
+                            ImGui.Text("Export this fishing mission entry".Loc());
                             ImGui.EndTooltip();
                         }
                     }
@@ -383,9 +382,6 @@ namespace ICE.Ui.DebugWindowTabs
                     }
 
                     ImGui.TableSetColumnIndex(33);
-                    var manager = (WKSManagerCustom*)WKSManager.Instance();
-                    var isCompleted = manager->IsMissionCompleted(entry.Key);
-                    var isGold = manager->IsMissionGolded(entry.Key);
                     Completion(entry.Key);
 
                     ImGui.PopID();
@@ -504,9 +500,10 @@ namespace ICE.Ui.DebugWindowTabs
 
         private static unsafe void Completion(uint id)
         {
-            var manager = (WKSManagerCustom*)WKSManager.Instance();
-            var isCompleted = manager->IsMissionCompleted(id);
-            var isGold = manager->IsMissionGolded(id);
+            // 🔴 WKSManager 在宇宙探索內容以外是 null，直接解參考＝攔不到的 AccessViolationException；這是除錯視窗，
+            //    「不在宇宙區時把它打開」正是最容易發生的情境。
+            //    所以走共用讀取點 MissionStatusHelper.GetStatus（讀不到就回 (false, false)）。
+            var (isCompleted, isGold) = MissionStatusHelper.GetStatus(id);
 
             if (isCompleted)
             {

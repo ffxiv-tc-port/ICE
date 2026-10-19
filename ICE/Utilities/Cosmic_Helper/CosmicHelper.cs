@@ -35,8 +35,7 @@ public static unsafe partial class CosmicHelper
         [CosmicWeather.Rain] = 60207,
     };
 
-    public static readonly int MinimumLevel = 10;
-    public static readonly int MaximumLevel = Player.MaxLevel;
+    // 📌 要用等級上限的話當場問 Player，不要放模組層級的 static 快照（static 初始化器只跑一次，登入前的值未必可用）。
 
     public static readonly int MaxRelicLevel = 14;
 
@@ -99,9 +98,47 @@ public static unsafe partial class CosmicHelper
         public uint BronzeScore { get; set; } = 0;
         public uint SilverScore { get; set; } = 0;
         public uint GoldScore { get; set; } = 0;
+
+        /// <summary><c>WKSMissionUnit.MissionTime</c>（秒）。0 代表這個任務沒有時間限制。</summary>
+        public uint TimeLimitSeconds { get; set; } = 0;
+
+        /// <summary>
+        /// 這個任務的銀星／金星是不是用「交件時還剩多少時間」評的（而不是評價分數）。
+        /// </summary>
+        /// <remarks>
+        /// ⚠️ 時間型的門檻單位是「剩餘秒數 × 10」，但光看「門檻除以 10 塞得進時限」<b>不足以</b>判定型別——MissionType 3／4／9 也都
+        /// 通過那個測試，它們卻是評價型。所以不要拿數字範圍當判別依據。
+        /// </remarks>
+        public bool IsTimeGraded => Attributes.HasFlag(MissionAttributes.ScoreTimeRemaining);
     }
 
     public static Dictionary<uint, CosmicInfo> SheetMissionDict = new();
+
+    /// <summary>
+    /// 任務類型分類鍵——跟主視窗任務分頁（<c>modeSelect_Standard.Draw</c> 的 Standard 分類，也就是
+    /// <c>C.GrindProvisionals</c> 關閉時那個 if/else-if 鏈）用完全同一套互斥、依序判斷的優先序：<br/>
+    /// Critical → ProvisionalWeather → ProvisionalTimed → ProvisionalSequential → Rank(A/B/C/D)。
+    /// </summary>
+    public static string? GetMissionCategoryKey(CosmicInfo info)
+    {
+        if (info.Attributes.HasFlag(MissionAttributes.Critical))
+            return "Critical";
+        if (info.Attributes.HasFlag(MissionAttributes.ProvisionalWeather))
+            return "Weather";
+        if (info.Attributes.HasFlag(MissionAttributes.ProvisionalTimed))
+            return "Timed";
+        if (info.Attributes.HasFlag(MissionAttributes.ProvisionalSequential))
+            return "Sequence";
+        if (info.Rank > 3)
+            return "A Rank";
+        if (info.Rank == 3)
+            return "B Rank";
+        if (info.Rank == 2)
+            return "C Rank";
+        if (info.Rank == 1)
+            return "D Rank";
+        return null;
+    }
 
     public class GatheringInfo
     {

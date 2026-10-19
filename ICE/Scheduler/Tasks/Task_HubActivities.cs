@@ -24,10 +24,15 @@ namespace ICE.Scheduler
             {
                 P.TaskManager.EnqueueMulti
                 (
+                    // 🔴 PathToRepair 是 vnav 走去修理 NPC（分鐘級），RepairAtNpc 要跑完整套修理動畫。
+                    //    這一串用預設 30 秒 + AbortOnTimeout 逾時，會連同這個方法最後面那組
+                    //    「ResetAll → 走回製作點 → 狀態切回 GrabMission」的收尾一起清掉。
+                    //    收尾沒跑 → RepairNpc 還是 true、狀態還停在 HubReturn → Tick 再排一次
+                    //    → 又走一半又逾時，變成無聲的無限迴圈。
                     new(() => IceLogging.Info("Starting repair task at the npc", "Task_HubActivities")),
-                    new(Task_Repair.PathToRepair, "Pathing to the repair NPC"),
-                    new(Task_Repair.RepairAtNpc, "Repairing at the NPC Vendor"),
-                    new(Task_Repair.CloseRepair, "Closing the repair window")
+                    new(Task_Repair.PathToRepair, "Pathing to the repair NPC", Utils.TaskConfig),
+                    new(Task_Repair.RepairAtNpc, "Repairing at the NPC Vendor", Utils.TaskConfig),
+                    new(Task_Repair.CloseRepair, "Closing the repair window", Utils.TaskConfig)
                 );
             }
             if (RelicTurnin)
@@ -38,7 +43,7 @@ namespace ICE.Scheduler
             }
             if (CosmoBuy)
             {
-                P.TaskManager.Enqueue(() => IceLogging.Info("Starting Relic Turnin task at the npc", "Task_HubActivities"));;
+                P.TaskManager.Enqueue(() => IceLogging.Info("Starting Cosmo Buy task at the npc", "Task_HubActivities"));
                 Task_BuyCosmoItems.Enqueue();
             }
             if (CanGamba)

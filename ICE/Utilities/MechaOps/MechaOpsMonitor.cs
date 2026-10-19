@@ -1,0 +1,934 @@
+using Dalamud.Game.ClientState.Objects.Enums;
+using ECommons.GameHelpers;
+using FFXIVClientStructs.FFXIV.Client.Game;
+using FFXIVClientStructs.FFXIV.Client.Game.WKS;
+using FFXIVClientStructs.FFXIV.Client.UI.Agent;
+using FFXIVClientStructs.FFXIV.Client.UI.Misc;
+using ICE.Utilities.Cosmic_Helper;
+using System.Collections.Generic;
+using System.Text;
+using CSFramework = FFXIVClientStructs.FFXIV.Client.System.Framework.Framework;
+
+namespace ICE.Utilities.MechaOps;
+
+/// <summary>
+/// 目前出現在 PetHotbar 上、且形狀可解析的機甲技能。
+/// <para>
+/// <paramref name="RecastTotal"/> / <paramref name="RecastRemaining"/> 是快照當下的重置時間（秒），
+/// 由 <see cref="MechaOpsMonitor.SnapshotTick"/> 標記取樣時刻；顯示端要自己扣掉經過的牆鐘時間，
+/// 才不會因為 250ms 的掃描節流而讀數跳動。<c>RecastTotal &lt;= 0</c> 代表這技能沒有重置時間或取不到。
+/// </para>
+/// </summary>
+internal sealed record MechaCandidate(
+    uint ActionId,
+    string Name,
+    MechaAoeShape Shape,
+    float RecastTotal,
+    float RecastRemaining);
+
+/// <summary>
+/// 一個「被 status 把關」的機甲技能的 proc 狀態（台服目前只有
+/// 42037 強力胡蘿蔔加農砲 ← Status 4405 胡蘿蔔授權）。
+/// <paramref name="RemainingSeconds"/> 只有在該 status 真的掛在本機玩家身上時才有值；
+/// 若判定是靠 <c>IsActionHighlighted</c> 得到的，這裡會是 0。
+/// </summary>
+internal sealed record MechaProcState(
+    uint ActionId,
+    string ActionName,
+    uint StatusId,
+    string StatusName,
+    bool Ready,
+    float RemainingSeconds);
+
+/// <summary>
+/// 目前這場機甲事件的進度快照。
+/// <paramref name="ServerTimeAtSample"/> 是取樣當下的伺服器秒數（取不到時為 0），
+/// <paramref name="SampledTick"/> 是同一刻的 <see cref="Environment.TickCount64"/>。
+/// 顯示端用 <see cref="ServerTimeNow"/> 把它外推到繪製當下，這樣倒數不會被
+/// 250ms 的取樣節流卡成一格一格跳，也不需要在繪製執行緒上呼叫任何遊戲函式。
+/// </summary>
+internal sealed record MechaEventDetail(
+    WKSMechaEventFlag Flags,
+    uint DataRowId,
+    int Progress,
+    int ProgressMax,
+    int Contribution,
+    int PersonalProgress,
+    int PersonalProgressMax,
+    int EventStart,
+    int EventEnd,
+    int RegistrationStart,
+    int RegistrationEnd,
+    int TeleportStart,
+    long ServerTimeAtSample,
+    long SampledTick)
+{
+    /// <summary>
+    /// 取樣時的伺服器秒數＋從那時起經過的牆鐘秒數。
+    /// <c>0</c> 代表「這一輪拿不到伺服器時間」，顯示端要退回顯示原始整數。
+    /// </summary>
+    public long ServerTimeNow => ServerTimeAtSample <= 0
+        ? 0
+        : ServerTimeAtSample + (Environment.TickCount64 - SampledTick) / 1000L;
+
+    /// <summary>
+    /// <paramref name="nowServer"/> 為 0（拿不到伺服器時間）時回 <c>null</c>＝無法判定。
+    /// </summary>
+    public bool? IsRegistrationOpen(long nowServer)
+    {
+        if ((Flags & WKSMechaEventFlag.PilotRegistrationOpen) == 0)
+            return false;
+        if (nowServer <= 0 || RegistrationEnd <= 0)
+            return null;
+        return nowServer < RegistrationEnd;
+    }
+
+    /// <summary>
+    /// 🔑 傳送視窗是 <c>(TeleportStart, EventStart)</c> —— **結束時間就是事件開始時間**（照抄遊戲自己的判定）。
+    /// </summary>
+    public bool? IsTeleportOpen(long nowServer)
+    {
+        if ((Flags & WKSMechaEventFlag.GroundSupportTeleportOpen) == 0)
+            return false;
+        if (nowServer <= 0 || EventStart <= 0 || TeleportStart <= 0)
+            return null;
+        return nowServer > TeleportStart && nowServer < EventStart;
+    }
+}
+
+/// <summary>
+/// 機甲行動偵察＋繪製快照的生產者。
+/// 掛在 Framework.Update（ICE.Tick）；遊戲結構一律在這裡讀，
+/// 繪製執行緒（<see cref="MechaAoeOverlay"/>）只讀本類別發布的不可變快照。
+/// 🔴 讀原生結構的地方只讀純量，而且讀取範圍被 <see cref="IsInsideEventArray"/> 鎖在模組自有配置內；
+/// proc 的剩餘秒數取不到時只少掉秒數，提示本身仍然正確（見 <see cref="ResolveProc"/> 的備援設計）。
+/// </summary>
+internal static unsafe class MechaOpsMonitor
+{
+    /// <summary>
+    /// 目前的機甲技能快照。Framework 執行緒寫入、繪製執行緒讀取；
+    /// 一律整個 List 換參考發布，發布後不再修改內容。
+    /// </summary>
+    public static IReadOnlyList<MechaCandidate> ActiveCandidates => activeCandidates;
+    private static List<MechaCandidate> activeCandidates = [];
+
+    /// <summary>
+    /// 上一次發布快照的時刻（<see cref="Environment.TickCount64"/>）。
+    /// 顯示端用它把 <see cref="MechaCandidate.RecastRemaining"/> 外推到當下，
+    /// 讓倒數在 250ms 的掃描節流之間仍然是平滑的。
+    /// </summary>
+    public static long SnapshotTick { get; private set; }
+
+    /// <summary>
+    /// 目前「被 status 把關」的機甲技能的 proc 狀態快照。發布方式同 <see cref="ActiveCandidates"/>。
+    /// </summary>
+    public static IReadOnlyList<MechaProcState> ActiveProcs => activeProcs;
+    private static List<MechaProcState> activeProcs = [];
+
+    /// <summary>
+    /// 目前畫得出來的目標點位快照。發布方式同 <see cref="ActiveCandidates"/>。
+    /// ⚠️ 這一份跟其他快照不同，是<b>每幀</b>重新取樣的（見 <see cref="SampleTargets"/>）——
+    /// 技能形狀與冷卻慢 250ms 沒差，但目標位置慢 250ms 就會讓「有沒有蓋到」的判定失真。
+    /// </summary>
+    public static IReadOnlyList<MechaTarget> ActiveTargets => activeTargets;
+    private static List<MechaTarget> activeTargets = [];
+
+    /// <summary>
+    /// <c>WKSMechaEventModule.Flags</c> 的最新取樣值。只有 <see cref="EventFlagsValid"/>
+    /// 為 true 時才有意義。
+    /// </summary>
+    public static WKSEventModuleFlag EventFlags { get; private set; }
+
+    /// <summary>上一次取樣時 WKSManager 與 MechaEventModule 都拿得到。</summary>
+    public static bool EventFlagsValid { get; private set; }
+
+    /// <summary>
+    /// 「身上有沒有駕駛申請書」。<c>null</c> ＝這一輪讀不到（模組資料還沒送到），
+    /// 顯示端必須畫成「?」而不是「無」。
+    /// </summary>
+    public static bool? PilotTicketHeld { get; private set; }
+
+    /// <summary>
+    /// 這一輪判定的參與身份。判準是<b>手上有哪些機甲技能</b>（見 <see cref="ResolveRole"/>）。
+    /// 🔑 <b>為什麼不用 <c>WKSEventModuleFlag.PilotApplicationAccepted</c></b>：那是「申請有沒有
+    /// 中籤」，而 CS 對同一組結構裡的其他旗標明文註記「時間過了也不會被清掉」，我們無法離線
+    /// 證明它在事件結束後會歸零。萬一它是黏著的，下一場事件就會把協助員誤判成駕駛員——
+    /// 而那個方向的誤判正是使用者回報的「目標不一樣」。技能清單是<b>當下</b>的事實，
+    /// 沒有這個問題。旗標仍然照樣印進診斷，讓實機資料自己說話。
+    /// </summary>
+    public static MechaRole Role { get; private set; } = MechaRole.Unknown;
+
+    /// <summary>
+    /// 目前這場機甲事件的進度快照，<c>null</c> 代表「這一輪讀不到」——
+    /// 沒有 <see cref="WKSEventModuleFlag.HasCurrentEvent"/>、指標是 null，
+    /// 或指標沒有通過 <see cref="IsInsideEventArray"/> 的範圍驗證。
+    /// 三種情況顯示端一律不畫（不做任何降級顯示）。
+    /// 發布方式同 <see cref="ActiveCandidates"/>：整個換參考，發布後不再修改。
+    /// </summary>
+    public static MechaEventDetail? EventDetail => eventDetail;
+    private static MechaEventDetail? eventDetail;
+
+    /// <summary>
+    /// 機甲事件的<b>排程</b>快照：<c>_events</c> 兩格裡每一格「有填開始時間戳」的那些。
+    /// 與 <see cref="EventDetail"/> 不同，這一份**不限於進行中的那場**——
+    /// 使用者要的「下一次機甲事件是幾點」就是從這裡算出來的。
+    /// 發布方式同 <see cref="ActiveCandidates"/>：整個換參考，發布後不再修改。
+    /// </summary>
+    public static IReadOnlyList<MechaScheduleEntry> Schedule => schedule;
+    private static List<MechaScheduleEntry> schedule = [];
+
+    /// <summary>
+    /// 緊急事件（紅色警報）的狀態快照，<c>null</c> ＝這一輪讀不到或功能沒開。
+    /// ⚠️ 只有 <c>C.ShowMechaEmergency</c> 開著時才會去取樣（那是部署閘門，預設關）。
+    /// </summary>
+    public static MechaEmergencyState? Emergency => emergency;
+    private static MechaEmergencyState? emergency;
+
+    private static string lastSignature = "";
+    private static bool wasActive;
+
+    public static void Tick()
+    {
+        try
+        {
+            TickInner();
+        }
+        catch (Exception ex)
+        {
+            if (EzThrottler.Throttle("MechaOpsMonitorError", 60_000))
+                IceLogging.Error($"MechaOpsMonitor tick failed: {ex}", "[MechaOps]");
+        }
+    }
+
+    private static void TickInner()
+    {
+        // 🔑 這兩關刻意放在節流之前：離開宇宙區域／登出時要立刻清空，
+        //    不能讓最多 250ms 的節流把一份過期的目標清單留在畫面上。
+        if (!PlayerHelper.IsInCosmicZone() || !Player.Available)
+        {
+            Deactivate();
+            return;
+        }
+
+        // 目的指示的 ObjectTable 解析每幀做：「對上的那個物件現在在哪」慢 250ms 就會讓方向箭頭指偏。
+        // ⚠️ 只讀受管理 API，不碰任何原生結構。
+        // 🔑 順序有意義：它要先跑，SampleTargets 才拿得到**這一幀**的
+        //    ConfirmedObjectIds／BaseId 白名單。反過來的話目標分級會固定慢一幀，
+        //    表現就是任務目標在剛出現時閃一下才被認出來。
+        MechaObjectiveTracker.ResolveFrame();
+
+        // 目標點位每幀取樣（不進節流）——理由見 ActiveTargets 的註解。
+        SampleTargets();
+
+        if (!EzThrottler.Throttle("MechaOpsMonitorScan", 250))
+            return;
+
+        // 事件狀態要在機甲階段之外也能顯示（報名 → 中籤 → 加入），所以在
+        // PetHotbar 的檢查之前就取樣。
+        ReadEventFlags();
+
+        // 「報名視窗開了」的一次性通知。純通知，不做任何遊戲動作（見該類別的註解）。
+        // 🔑 放在這裡而不是繪製端：通知必須在使用者沒開任何機甲視窗時也送得出去，
+        //    而它吃的就是上一行剛發布的排程快照，不再自己讀任何遊戲結構。
+        MechaSignupNotifier.Tick(schedule);
+
+        // 緊急事件跟機甲模組是兩條獨立的資料源（它走 AgentWKSAnnounce），
+        // 所以就算 WKSManager／MechaEventModule 取不到也要照樣試。
+        emergency = ReadEmergency();
+
+        var module = RaptureHotbarModule.Instance();
+        if (module == null)
+        {
+            DeactivateSkills();
+            return;
+        }
+
+        var am = ActionManager.Instance();
+        var candidates = new List<MechaCandidate>();
+        var procs = new List<MechaProcState>();
+        var signature = new StringBuilder(128);
+        var dump = new StringBuilder(512);
+
+        for (var i = 0u; i < 16; i++)
+        {
+            var slot = module->PetHotbar.GetHotbarSlot(i);
+            if (slot == null)
+                continue;
+
+            var type = slot->CommandType;
+            var id = slot->CommandId;
+            if (type == RaptureHotbarModule.HotbarSlotType.Empty || id == 0)
+            {
+                signature.Append("-|");
+                continue;
+            }
+
+            uint status = uint.MaxValue;
+            var name = "?";
+            if (type == RaptureHotbarModule.HotbarSlotType.Action)
+            {
+                if (am != null)
+                    status = am->GetActionStatus(ActionType.Action, id);
+
+                if (MechaActionShapes.TryResolve(id, out var shape, out name)
+                    && MechaActionShapes.IsMechaCandidate(id))
+                {
+                    // 冷卻：一律走 ActionManager 的標準 API（傳 ActionType + ActionId 兩個純量，
+                    // 由遊戲自己解算重置群組），完全不碰 WKS 結構、也不自己讀 RecastDetail 陣列。
+                    // ⚠️ 台服 Action 表裡這六技共用重置群組 75（42261 是 76），而群組 75/76 是
+                    //    「特殊內容動作」的公用池（104 個動作共用）。這裡不去猜群組語意——
+                    //    GetRecastTime/Elapsed 回什麼就顯示什麼，與遊戲熱鍵上的轉圈一致。
+                    float recastTotal = 0f, recastRemaining = 0f;
+                    if (am != null)
+                    {
+                        recastTotal = am->GetRecastTime(ActionType.Action, id);
+                        if (recastTotal > 0f)
+                        {
+                            var elapsed = am->GetRecastTimeElapsed(ActionType.Action, id);
+                            recastRemaining = Math.Clamp(recastTotal - elapsed, 0f, recastTotal);
+                        }
+                    }
+
+                    candidates.Add(new MechaCandidate(id, name, shape, recastTotal, recastRemaining));
+
+                    // proc 提示（例如「胡蘿蔔授權」把關「強力胡蘿蔔加農砲」）。
+                    if (MechaActionShapes.TryGetProcStatus(id, out var procStatusId, out var procStatusName))
+                    {
+                        var (ready, remaining) = ResolveProc(am, id, procStatusId);
+                        procs.Add(new MechaProcState(id, name, procStatusId, procStatusName, ready, remaining));
+                    }
+                }
+            }
+
+            signature.Append((int)type).Append(':').Append(id).Append(':').Append(status).Append('|');
+            dump.Append($"\n  slot{i:00} type={type} id={id} apparent={slot->ApparentActionId}({slot->ApparentSlotType}) name={name} status={status}");
+        }
+
+        // 快照發布：換參考，不就地修改。
+        // 先寫時刻再換清單——顯示端最壞情況是用「稍早的時刻」去外推新清單，
+        // 誤差方向是「倒數顯示得比實際少一點」，不會出現負數（顯示端有 clamp）。
+        SnapshotTick = Environment.TickCount64;
+        activeCandidates = candidates;
+        activeProcs = procs;
+
+        // 身份要在候選發布之後才算——它就是從這一份清單推出來的。
+        Role = ResolveRole(candidates);
+        ReportRole();
+
+        // ---- 偵察診斷 ----
+        // 只在「機甲技能可用期間」輸出；狀態變化時輸出一次，不每幀。
+        // Information 只留一行摘要，16 格原始傾印是 Debug。
+        // ⚠️ 之後若又要請使用者回傳原始格位，臨時把該行改回 Information，不要叫他去調記錄等級。
+        if (candidates.Count == 0)
+        {
+            if (wasActive)
+            {
+                IceLogging.Info("機甲技能已從 PetHotbar 消失（機甲階段結束或假設 1/3 不成立）", "[MechaOps]");
+                wasActive = false;
+                lastSignature = "";
+            }
+            return;
+        }
+
+        wasActive = true;
+        var sig = signature.ToString();
+        if (sig == lastSignature)
+            return;
+        if (!EzThrottler.Throttle("MechaOpsDump", 1000))
+            return; // 這輪先不印也不更新 lastSignature，下輪補印最終狀態
+        lastSignature = sig;
+
+        var pos = Player.Position;
+        var rot = Player.Object.Rotation;
+        var target = Svc.Targets.Target;
+
+        // 🔴 這一行會進 IceLogging 的 LogSystem —— 那是一份 3000 筆的歷史紀錄，
+        //    而且 UI 上有「複製記錄到剪貼簿」。目標可能是**其他玩家**，
+        //    所以名字一律先過 MechaPrivacy（預設縮寫成「F. L.」）再寫進去。
+        //    ⚠️ 遮蔽必須發生在字串**進入 log 之前**，不能只在顯示端做——
+        //    紀錄一旦寫進去就補不回來了。
+        var targetText = target == null
+            ? "無"
+            : $"{MechaPrivacy.Sanitize(target.Name.ToString(), target.ObjectKind, target.GameObjectId == Player.Object.GameObjectId)}"
+              + $" @ ({target.Position.X:F1}, {target.Position.Y:F1}, {target.Position.Z:F1})";
+
+        var candidateText = string.Join("; ", candidates.Select(c => $"{c.ActionId} {c.Name} [{c.Shape.Kind} {c.Shape.Primary:F0}/{c.Shape.HalfWidth * 2:F0}]"));
+
+        // Information：一行摘要（幾個候選、哪些 id）。
+        IceLogging.Info(
+            $"機甲技能可用：{candidates.Count} 個 — {string.Join(", ", candidates.Select(c => $"{c.ActionId} {c.Name}"))}",
+            "[MechaOps]");
+
+        // Debug：完整 16 格傾印，只在需要重新校準時才需要。
+        IceLogging.Debug(
+            $"PetHotbar 偵察快照：{dump}\n" +
+            $"  PetHotbarMode={module->PetHotbarMode}\n" +
+            $"  玩家 pos=({pos.X:F1}, {pos.Y:F1}, {pos.Z:F1}) rot={rot:F3}rad\n" +
+            $"  目標：{targetText}\n" +
+            $"  繪製候選：{candidateText}",
+            "[MechaOps]");
+    }
+
+    /// <summary>
+    /// 列舉目前值得畫出來的目標，抄成純值快照發布。
+    /// 🔴🔴 <b>絕不跨幀保存原生指標。</b> 這裡拿到的 <c>IGameObject</c> 只在這個迴圈裡活著，
+    /// 抄走的是 <c>(GameObjectId, DataId, 名稱, 位置, hitbox, 種類)</c> 這些**純值**；
+    /// <c>IGameObject</c> 本身與它的 <c>Address</c> 一個都不留。
+    /// （本 pin 的 ObjectTable 包裝是每格共用、存取時就地改寫 <c>Address</c>，跨幀持有會靜默換人或懸空；
+    ///  <c>IsValid()</c> 只檢查有沒有登入，不是防護。）
+    /// </summary>
+    private static void SampleTargets()
+    {
+        // 沒開、或根本不在機甲階段（PetHotbar 上沒有機甲技能）就不掃。
+        // 🔑 錄製模式（MechaEventRecorder）開著時強制取樣：那兩個顯示開關預設是關的，
+        //    不強制的話錄出來的 log 會缺掉「ICE 判定出什麼」這個最重要的部分。
+        //    ⚠️ 這只影響**取樣**，繪製仍然完全由 C.ShowMechaAoeOverlay 決定，
+        //    所以畫面上不會多出任何東西，也不會動到使用者的任何一個設定值。
+        if (!MechaEventRecorder.ForceSampling && (!C.ShowMechaAoeOverlay || !C.ShowMechaTargets))
+        {
+            ClearTargets();
+            return;
+        }
+
+        if (activeCandidates.Count == 0)
+        {
+            ClearTargets();
+            return;
+        }
+
+        var self = Player.Object;
+        if (self == null)
+        {
+            ClearTargets();
+            return;
+        }
+
+        var selfId = self.GameObjectId;
+        var origin = self.Position;
+
+        // 60 是目前最長的機甲技能射程；上限拉到 200 只是防呆，不是建議值。
+        var maxDist = Math.Clamp(C.MechaTargetRadius, 5f, 200f);
+        var maxDistSq = maxDist * maxDist;
+
+        // 「這是不是我當前選取的目標」——只比對 id，不保留 Svc.Targets.Target 這個物件。
+        var currentTargetId = Svc.Targets.Target?.GameObjectId ?? 0UL;
+
+        // 這一幀的「已確認任務目標」清單（由 MechaObjectiveTracker.ResolveFrame 剛剛算好的）。
+        var confirmedIds = MechaObjectiveTracker.ConfirmedObjectIds;
+
+        var targets = new List<MechaTarget>();
+        foreach (var obj in Svc.Objects)
+        {
+            if (obj == null || obj.GameObjectId == selfId)
+                continue;
+
+            var kind = obj.ObjectKind;
+
+            // 永遠不可能是攻擊目標的東西。這是唯一寫死的排除清單，刻意保持很短。
+            if (kind is ObjectKind.MountType or ObjectKind.Companion
+                or ObjectKind.Ornament or ObjectKind.Retainer)
+                continue;
+
+            // 玩家的過濾放在分級之前：其他玩家不是任務目標，而且名字有隱私考量，
+            // 這一條無論如何都尊重使用者的設定。
+            if (kind == ObjectKind.Player && !C.MechaTargetsIncludePlayers)
+                continue;
+
+            // ⚠️ 距離先篩：底下的名字解析會配置字串，而 ObjectTable 動輒好幾百格、
+            //    這個方法**每幀**都跑。座標比對是純量運算，放前面才不會白白配置一堆字串。
+            var pos = obj.Position;
+            var dx = pos.X - origin.X;
+            var dz = pos.Z - origin.Z;
+            if (dx * dx + dz * dz > maxDistSq)
+                continue;
+
+            // 📌 Dalamud 已把 DataId 改名為 BaseId（同一個 Struct->BaseId，值完全一樣），
+            //    舊名還在但標了 [Obsolete]。新碼一律用 BaseId。
+            var baseId = obj.BaseId;
+
+            var tier = confirmedIds.Contains(obj.GameObjectId) ? MechaTargetTier.Objective
+                : MechaObjectiveTracker.IsObjectiveBaseId(baseId) ? MechaTargetTier.Likely
+                // 🔑 第三條線索：家族內用 ObjectKind 補分級（CardStand＝協助員 per-player 目標、
+                //    EventObj＝駕駛員目標，四個 DataId 兩場實機全吻合，見 RoleByObjectKind）。
+                //    ⚠️ 這是**純加法**：只把 Other 提成 Likely，永遠不會把上面兩層判出來的降級。
+                //    它要補的是「群組表沒把這個 DataId 分給我這個身份」的情況——
+                //    日後新增事件、新的 DataId 還沒進群組表時就靠這條接住。
+                : MechaObjectiveTracker.IsRoleTargetByKind(baseId, kind) ? MechaTargetTier.Likely
+                : MechaTargetTier.Other;
+
+            var rawName = GameTextUtil.StripGameIcons(obj.Name.ToString());
+
+            // 🔑 任務目標（前兩層）一律列出，不受「只顯示可選取的物件」與雜訊過濾影響：
+            //    目標不必是可選取的，也不必為了看到它而把所有場景物件一起放進來。
+            //    ⚠️ 這條豁免<b>只認 DataId 家族</b>，不是把過濾整個放寬——
+            //    EventNpc 之類的真雜訊仍然要靠下面兩條擋著。
+            if (tier == MechaTargetTier.Other && !MechaObjectNames.IsKnownEventObjectId(baseId))
+            {
+                if (C.MechaTargetsTargetableOnly)
+                {
+                    if (!obj.IsTargetable)
+                        continue;
+                }
+                else if (C.MechaTargetsHideSceneryAndNpcs && IsKnownNoise(kind, rawName, obj.IsTargetable))
+                {
+                    continue;
+                }
+            }
+
+            // 名字空的時候再問資料表（EObjName）。⚠️ 台服「有害菌床」兩邊都是空的，
+            // 所以顯示端還要有自己的後備標籤——這裡不硬塞一個假名字進去。
+            var label = rawName.Length > 0 ? rawName : MechaObjectNames.FromSheet(baseId) ?? string.Empty;
+
+            targets.Add(new MechaTarget(
+                obj.GameObjectId,
+                baseId,
+                rawName,
+                label,
+                pos,
+                obj.HitboxRadius,
+                kind,
+                currentTargetId != 0 && obj.GameObjectId == currentTargetId,
+                tier));
+        }
+
+        // 換參考發布，發布後不再修改內容。
+        activeTargets = targets;
+    }
+
+    /// <summary>
+    /// 從「現在手上有哪些機甲技能」推出參與身份。
+    /// 🔴 <b>駕駛員技能優先</b>：真的坐進機甲時，協助員的宇宙工具有沒有殘留在熱鍵上
+    /// 我們並不知道；反過來協助員手上絕不可能出現駕駛員技能。所以「看到駕駛員技能就是駕駛員」
+    /// 這個方向是安全的，倒過來則不是。
+    /// ⚠️ 兩邊都沒看到（例如還沒上機甲、或日後新增了沒驗證過的技能）就回
+    /// <see cref="MechaRole.Unknown"/>，呼叫端一律退化成「只信遊戲自己的標記」。
+    /// </summary>
+    private static MechaRole ResolveRole(List<MechaCandidate> candidates)
+    {
+        var sawGroundSupport = false;
+
+        foreach (var c in candidates)
+        {
+            switch (MechaActionShapes.RoleOf(c.ActionId))
+            {
+                case MechaRole.Pilot:
+                    return MechaRole.Pilot;
+                case MechaRole.GroundSupport:
+                    sawGroundSupport = true;
+                    break;
+            }
+        }
+
+        return sawGroundSupport ? MechaRole.GroundSupport : MechaRole.Unknown;
+    }
+
+    private static string lastRoleSignature = "";
+
+    /// <summary>
+    /// 身份／白名單狀態變化時輸出一行 Information。
+    /// 📌 要使用者回報的診斷：「ICE 以為我是哪一種身份」正是
+    /// 「目標對不對得上」唯一問得出答案的地方。
+    /// </summary>
+    private static void ReportRole()
+    {
+        var rowId = eventDetail?.DataRowId ?? 0u;
+        var sig = $"{Role}/{rowId}/{EventFlags}";
+        if (sig == lastRoleSignature)
+            return;
+        lastRoleSignature = sig;
+
+        var roleText = Role switch
+        {
+            MechaRole.Pilot => "駕駛員",
+            MechaRole.GroundSupport => "協助員",
+            _ => "判不出來",
+        };
+
+        var whitelist = Role == MechaRole.Unknown
+            ? "不套用資料表白名單（只信遊戲自己的標記）"
+            : $"資料表白名單 {MechaObjectNames.RoleIdCount(rowId, Role)} 個 DataId"
+              + $"（分群來源：{MechaObjectNames.RoleSplitSource}）";
+
+        var objective = MechaObjectNames.EventObjectiveText(rowId, Role);
+
+        // 📌 身份分流（畫不畫）的兩個輸入：開關 ＋ 這一場的歸屬表。
+        //    使用者回報「協助員看到駕駛員的目標」時，答案就在這一行——
+        //    歸屬表是空的代表分流根本沒生效，跟「生效但沒擋到東西」是兩回事。
+        var roleGate = C.MechaShowOtherRoleTargets
+            ? "身份分流：關（使用者選擇顯示其他身份的目標）"
+            : $"身份分流：開（只畫自己身份的目標）；歸屬表 {MechaObjectNames.DescribeOwners(rowId)}";
+
+        IceLogging.Info(
+            $"機甲身份判定：{roleText}（依據＝PetHotbar 上的技能 "
+            + $"[{string.Join(", ", activeCandidates.Select(c => c.ActionId + " " + c.Name))}]）"
+            + $"；事件列 {rowId}；{whitelist}"
+            + $"；標記學到 {MechaObjectiveTracker.LearnedBaseIdCount} 個 BaseId"
+            + $"；模組旗標 0x{(uint)EventFlags:X}（僅供對照，不參與判定）"
+            + $"\n  {roleGate}"
+            + (objective != null ? "\n  你的指示：" + objective.Replace("\n", " ") : ""),
+            "[MechaOps]");
+    }
+
+    /// <summary>「這一筆是已知的雜訊嗎」——只在使用者已經把「只顯示可選取的物件」關掉時才會被問到，
+    /// 而且任務目標（<see cref="MechaTargetTier.Objective"/>／<see cref="MechaTargetTier.Likely"/>）
+    /// 根本不會走到這裡。
+    /// 🔑 判準刻意寫成「**已知**是雜訊」而不是「不像目標」：前者漏掉的東西照樣顯示（安全的失敗方向），
+    /// 後者漏判就會把真正的目標藏起來。所以清單只放兩類：
+    ///  ① 機能型物件——NPC、以太之光、採集點、房屋、區域、過場、卡牌台；
+    ///  ② <b>不可選取</b>且<b>沒有名字</b>的場景裝飾。</summary>
+    internal static bool IsKnownNoise(ObjectKind kind, string name, bool targetable)
+    {
+        if (kind is ObjectKind.EventNpc or ObjectKind.Aetheryte or ObjectKind.GatheringPoint
+            or ObjectKind.Housing or ObjectKind.Area or ObjectKind.Cutscene or ObjectKind.CardStand)
+            return true;
+
+        return !targetable && name.Length == 0;
+    }
+
+    private static void ClearTargets()
+    {
+        if (activeTargets.Count > 0)
+            activeTargets = [];
+    }
+
+    /// <summary>
+    /// 判定一個 proc 現在亮著沒有，並盡量取得剩餘秒數。
+    /// 兩條路互為備援，都是標準／既有路徑：
+    ///  (a) 本機玩家的 StatusList（純 Dalamud 受管理 API，不碰原生指標）——能拿到剩餘秒數；
+    ///  (b) <c>ActionManager.IsActionHighlighted</c>——遊戲自己用來決定要不要在熱鍵上畫
+    ///      「螞蟻框」的判定，只傳 ActionType + ActionId 兩個純量。
+    /// </summary>
+    private static (bool Ready, float RemainingSeconds) ResolveProc(ActionManager* am, uint actionId, uint statusId)
+    {
+        var ready = false;
+        var remaining = 0f;
+
+        // (a) 受管理 API。⚠️ 只在這一幀內用，絕不把 status／IGameObject 存進欄位。
+        var statusList = Player.Status;
+        if (statusList != null)
+        {
+            foreach (var status in statusList)
+            {
+                if (status.StatusId != statusId)
+                    continue;
+                ready = true;
+                remaining = Math.Max(0f, status.RemainingTime);
+                break;
+            }
+        }
+
+        // (b) 遊戲自己的判定。
+        if (!ready && am != null)
+            ready = am->IsActionHighlighted(ActionType.Action, actionId);
+
+        return (ready, remaining);
+    }
+
+    /// <summary>
+    /// 取樣 <c>WKSMechaEventModule.Flags</c>，以及（通過範圍驗證時）目前這場事件的進度純量。
+    /// 存取從 <c>WKSManager.Instance()</c>（靜態單例，判空）開始，之後<b>只讀純量</b>：
+    /// 偏移讀錯的後果只是「拿到錯的數字」——
+    /// 前提是讀取位置一定落在已配置的記憶體內，這正是範圍驗證要保證的事。
+    /// </summary>
+    private static void ReadEventFlags()
+    {
+        var wks = WKSManager.Instance();
+        if (wks == null || wks->MechaEventModule == null)
+        {
+            EventFlags = 0;
+            EventFlagsValid = false;
+            PilotTicketHeld = null;
+            eventDetail = null;
+            if (schedule.Count > 0)
+                schedule = [];
+            MechaObjectiveTracker.ClearMarkersOnly();
+            return;
+        }
+
+        var mod = wks->MechaEventModule;
+        EventFlags = mod->Flags;
+        EventFlagsValid = true;
+        PilotTicketHeld = ReadPilotTicket(mod);
+        eventDetail = TryReadEventDetail(mod);
+        schedule = ReadSchedule(mod);
+    }
+
+    /// <summary>
+    /// 讀出駕駛申請書的持有狀態。只讀兩個 byte，不解任何指標；位移由
+    /// <see cref="MechaPilotTicketLayout"/> 在載入時從遊戲碼推出並對過 CS 版面。
+    /// 🔑 「資料已到」那格是 0 時回 null：持有旗標那格此時只是零初始化的殘值，
+    /// 當成「沒有申請書」會讓使用者白跑一趟去換一張已經有的票。
+    /// </summary>
+    private static bool? ReadPilotTicket(WKSMechaEventModule* mod)
+    {
+        var readyOffset = MechaPilotTicketLayout.ReadyOffset;
+        var heldOffset = MechaPilotTicketLayout.HeldOffset;
+        if (readyOffset < 0 || heldOffset < 0
+            || sizeof(WKSMechaEventModule) <= readyOffset || sizeof(WKSMechaEventModule) <= heldOffset)
+            return null;
+
+        var raw = (byte*)mod;
+        if (raw[readyOffset] == 0)
+            return null;
+
+        return raw[heldOffset] != 0;
+    }
+
+    /// <summary>
+    /// 掃 <c>_events</c> 的每一格，把「有填開始時間戳」的抄成純值快照。
+    /// 唯一前提是 <paramref name="mod"/> 本身有效，而呼叫端已經檢查過。
+    /// ⚠️ 仍然保留一次「陣列整塊落在模組配置內」的算術檢查（與
+    /// <see cref="IsInsideEventArray"/> 的 (i) 同義）：日後 CS 若改了佈局讓算術不再成立，
+    /// 退化行為是<b>本功能自動停用</b>，而不是開始越界讀取。
+    /// </summary>
+    private static List<MechaScheduleEntry> ReadSchedule(WKSMechaEventModule* mod)
+    {
+        var list = new List<MechaScheduleEntry>();
+
+        var slots = mod->Events;
+        if (slots.Length <= 0)
+            return list;
+
+        var slotSize = (nint)sizeof(WKSMechaEvent);
+        if (slotSize <= 0)
+            return list;
+
+        var arrayBase = GetEventArrayBase(mod);
+        var arrayBytes = slots.Length * slotSize;
+        var modBase = (nint)mod;
+        var modBytes = (nint)sizeof(WKSMechaEventModule);
+        if (arrayBase < modBase || arrayBase + arrayBytes > modBase + modBytes)
+            return list;
+
+        // 伺服器時間一輪只取一次；取不到（0）時顯示端會退回顯示原始整數。
+        var now = TryGetServerTime();
+        var tick = Environment.TickCount64;
+
+        for (var i = 0; i < slots.Length; i++)
+        {
+            ref var ev = ref slots[i];
+
+            // 沒填開始時間戳的格子＝這一格現在沒有排程，直接跳過。
+            // 🔑 這是唯一的「有沒有資料」判準，刻意不看旗標——
+            //    實機證據顯示事件還沒開始（旗標還沒亮）時時間戳就已經填好了。
+            var start = ev.EventStartTimestamp;
+            if (start <= 0)
+                continue;
+
+            list.Add(new MechaScheduleEntry(
+                i,
+                ev.WKSMechaEventDataRowId,
+                ev.Flags,
+                start,
+                ev.EventEndTimestamp,
+                ev.PilotRegistrationStartTimestamp,
+                ev.PilotRegistrationEndTimestamp,
+                ev.TeleportStartTimestamp,
+                now,
+                tick));
+        }
+
+        return list;
+    }
+
+    /// <summary>
+    /// 取樣緊急事件（紅色警報）狀態。
+    /// 資料源 <c>AgentWKSAnnounce.Data</c> 的大小無法離線驗證：若台服的配置比較小，讀 <c>+0xA0</c> 的 <c>State</c> 就是越界——
+    /// 而 AccessViolationException 是 corrupted-state exception，<c>try/catch</c> 攔不到。
+    /// ⇒ 在實機證實之前，預設不開；開了也只影響有主動打開機甲總開關的人。
+    /// 🔴 只讀純量（三個 byte ＋ 一個 uint），<b>不碰</b> <c>FormattedString</c>
+    /// 那個 <c>Utf8String</c>——理由見 <see cref="MechaEmergencyState"/>。
+    /// </summary>
+    private static MechaEmergencyState? ReadEmergency()
+    {
+        if (!C.ShowMechaEmergency)
+            return null;
+
+        var agent = AgentWKSAnnounce.Instance();
+        if (agent == null)
+            return null;
+
+        var data = agent->Data;
+        if (data == null)
+            return null;
+
+        return new MechaEmergencyState(
+            data->State,                    // +0xA0 byte
+            data->EmergencyInfoRowId,       // +0x04 byte
+            data->EmergencyInfoSubRowId,    // +0x08 byte
+            data->EndTime,                  // +0x8C uint（unix 秒）
+            TryGetServerTime(),
+            Environment.TickCount64);
+    }
+
+    /// <summary>
+    /// 取出目前這場事件的進度純量；任何一關沒過就回 <c>null</c>（顯示端什麼都不畫）。
+    /// 四關依序是：
+    ///  1. <see cref="WKSEventModuleFlag.HasCurrentEvent"/> 位元——沒設就連讀指標欄位都不讀。
+    ///  2. 指標 null 檢查。
+    ///  3. <see cref="IsInsideEventArray"/> 範圍驗證（本設計的核心，說明見該方法）。
+    ///  4. 只讀純量欄位，且一個指標欄位都不碰。
+    /// </summary>
+    private static MechaEventDetail? TryReadEventDetail(WKSMechaEventModule* mod)
+    {
+        if ((mod->Flags & WKSEventModuleFlag.HasCurrentEvent) == 0)
+        {
+            MechaObjectiveTracker.ClearMarkersOnly();
+            return null;
+        }
+
+        var ev = mod->CurrentEvent;
+        if (ev == null)
+        {
+            MechaObjectiveTracker.ClearMarkersOnly();
+            return null;
+        }
+
+        if (!IsInsideEventArray(mod, ev))
+        {
+            MechaObjectiveTracker.ClearMarkersOnly();
+            // ⚠️ 這是「合格的失敗」：驗證不過就當作讀不到，絕不放寬條件。
+            //    節流到 60 秒一次，不要每幀洗版。
+            if (EzThrottler.Throttle("MechaEventPointerRejected", 60_000))
+            {
+                IceLogging.Info(
+                    "CurrentEvent 未通過範圍驗證，本輪不顯示事件進度（這是設計上的安全退化，不是錯誤）："
+                    + $" module=0x{(nint)mod:X} events=0x{GetEventArrayBase(mod):X}"
+                    + $" moduleSize=0x{sizeof(WKSMechaEventModule):X} slotSize=0x{sizeof(WKSMechaEvent):X}"
+                    + $" current=0x{(nint)ev:X}",
+                    "[MechaOps]");
+            }
+            return null;
+        }
+
+        // 🔑 目的指示的取樣掛在這裡而不是別處，是因為安全論證的前提就是
+        //    「ev 已經通過 IsInsideEventArray」——放在這一行以外的任何地方都失去那個保證。
+        MechaObjectiveTracker.SampleMarkers(ev);
+
+        // ---- 以下全部是純量讀取，位置一律落在 _events 這塊模組自有配置裡 ----
+        return new MechaEventDetail(
+            ev->Flags,                              // +0x50DC uint 旗標
+            ev->WKSMechaEventDataRowId,             // +0x50D8 uint（不是那個 RowPtr）
+            ev->EventProgress,                      // +0x5104 int
+            ev->EventProgressMax,                   // +0x5108 int
+            ev->Contribution,                       // +0x510C int
+            ev->PersonalProgress,                   // +0x5114 int
+            ev->PersonalProgressMax,                // +0x5118 int
+            ev->EventStartTimestamp,                // +0x50E0 int
+            ev->EventEndTimestamp,                  // +0x50E4 int
+            ev->PilotRegistrationStartTimestamp,    // +0x50E8 int
+            ev->PilotRegistrationEndTimestamp,      // +0x50EC int
+            ev->TeleportStartTimestamp,             // +0x50F0 int
+            TryGetServerTime(),
+            Environment.TickCount64);
+    }
+
+    /// <summary>
+    /// 取樣伺服器時間（秒）。取不到就回 0，顯示端會退回顯示原始整數。
+    /// 為什麼是伺服器時間而不是 <c>DateTimeOffset.UtcNow</c>：遊戲自己判斷報名／傳送視窗
+    /// 開不開時，比較的就是這個值。
+    /// 用本機時鐘的話，使用者系統時間偏個幾分鐘倒數就是錯的，而且完全沒有徵兆。
+    /// ⚠️ <c>GetServerTime</c> 是 MemberFunction：特徵碼失準時 CS 產生的程式碼會丟
+    /// <c>InvalidOperationException</c>（**受管理例外，不是 AVE**），所以包在 try/catch 裡。
+    /// </summary>
+    private static long TryGetServerTime()
+    {
+        try
+        {
+            var t = CSFramework.GetServerTime();
+            return t > 0 ? t : 0;
+        }
+        catch (Exception ex)
+        {
+            if (EzThrottler.Throttle("MechaServerTimeFailed", 60_000))
+                IceLogging.Info($"取不到伺服器時間，事件時間改顯示原始整數：{ex.Message}", "[MechaOps]");
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// <c>_events</c>（<c>FixedSizeArray2&lt;WKSMechaEvent&gt;</c> @ +0x30）的起始位址。
+    /// 位址是從 CS 產生的 <c>Events</c> span 取得的，<b>不是</b> 我們自己寫死 0x30——
+    /// 這樣 CS 之後改佈局時這裡會自動跟著走，不會變成過期的常數。
+    /// </summary>
+    private static nint GetEventArrayBase(WKSMechaEventModule* mod)
+    {
+        fixed (WKSMechaEvent* p = mod->Events)
+            return (nint)p;
+    }
+
+    /// <summary>
+    /// 🔑 <b>本功能的放行條件</b>：確認 <c>CurrentEvent</c> 真的指向模組自己的
+    /// <c>_events</c> 陣列裡的某一格開頭。三關：(i) 陣列整塊落在模組配置內；
+    ///  (ii)  指標必須落在 <c>[base, base + Length * slotSize)</c> 之內。
+    ///  (iii) 且必須對齊到某一格的開頭（位移是 slotSize 的整數倍）。
+    /// ⚠️ 若實機發現 <c>CurrentEvent</c> 指向別處（例如另外的堆積配置），
+    ///    正確做法是「維持驗證失敗、不顯示」並回報，<b>不是</b>放寬這裡的條件。
+    /// </summary>
+    private static bool IsInsideEventArray(WKSMechaEventModule* mod, WKSMechaEvent* candidate)
+    {
+        var slots = mod->Events;
+        if (slots.Length <= 0)
+            return false;
+
+        var slotSize = (nint)sizeof(WKSMechaEvent);
+        if (slotSize <= 0)
+            return false;
+
+        var arrayBase = GetEventArrayBase(mod);
+        var arrayBytes = slots.Length * slotSize;
+
+        // (i) 陣列整塊在模組配置內。
+        var modBase = (nint)mod;
+        var modBytes = (nint)sizeof(WKSMechaEventModule);
+        if (arrayBase < modBase || arrayBase + arrayBytes > modBase + modBytes)
+            return false;
+
+        // (ii) 指標在陣列範圍內。
+        var delta = (nint)candidate - arrayBase;
+        if (delta < 0 || delta >= arrayBytes)
+            return false;
+
+        // (iii) 對齊到格子開頭。
+        return delta % slotSize == 0;
+    }
+
+    /// <summary>只清掉技能相關的快照，事件狀態維持上一次的取樣值。</summary>
+    private static void DeactivateSkills()
+    {
+        if (activeCandidates.Count > 0)
+            activeCandidates = [];
+        if (activeProcs.Count > 0)
+            activeProcs = [];
+        // 目標點位跟技能是一組的：沒有技能就沒有「有沒有蓋到」可言。
+        ClearTargets();
+
+        // 🔑 身份是從技能清單推出來的，清單沒了就不能繼續宣稱身份——
+        //    留著上一輪的值等於「事件結束後還記得你是駕駛員」，而那正是
+        //    我們刻意不用中籤旗標的理由。
+        Role = MechaRole.Unknown;
+
+        if (wasActive)
+        {
+            wasActive = false;
+            lastSignature = "";
+        }
+    }
+
+    /// <summary>離開宇宙區域：技能與事件狀態全部清空。</summary>
+    private static void Deactivate()
+    {
+        DeactivateSkills();
+        EventFlags = 0;
+        EventFlagsValid = false;
+        PilotTicketHeld = null;
+        eventDetail = null;
+        // 排程與緊急事件都是「宇宙區域內才有意義」的東西，離開就一起丟掉，
+        // 不要在別的地圖上留一行過期的「下次機甲事件」。
+        if (schedule.Count > 0)
+            schedule = [];
+        emergency = null;
+        // 目的指示連同繫結與手動釘選一起丟掉——換區之後物件 id 一律失效。
+        MechaObjectiveTracker.Deactivate();
+    }
+}

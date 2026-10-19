@@ -34,12 +34,18 @@ namespace ICE.Ui
                 MinimumSize = new Vector2(100, 100),
                 MaximumSize = new Vector2(4000, 4000),
             };
-            TitleBarButtons.Add(new() { ShowTooltip = () => ImGui.SetTooltip("♥ Ko-fi (Buy me an ice coffee)"), Icon = FontAwesomeIcon.Heart, IconOffset = new(1, 1), Click = _ => GenericHelpers.ShellStart("https://ko-fi.com/ice643269") });
+            TitleBarButtons.Add(new() { ShowTooltip = () => ImGui.SetTooltip("♥ Ko-fi (Buy me an ice coffee)".Loc()), Icon = FontAwesomeIcon.Heart, IconOffset = new(1, 1), Click = _ => GenericHelpers.ShellStart("https://ko-fi.com/ice643269") });
 
             P.windowSystem.AddWindow(this);
 
             AllowPinning = true;
             AllowClickthrough = true;
+
+            // Do not swallow the game's ESC key while this window is focused.
+            // Dalamud inhibits native addon close events AND the ESC system menu
+            // for any focused window with RespectCloseHotkey == true.
+            // Trade-off: ESC no longer closes this window; use the title bar X or /ice.
+            RespectCloseHotkey = false;
         }
 
         public void Dispose()
@@ -85,30 +91,23 @@ namespace ICE.Ui
                     modeSelect_Standard.Draw();
                     break;
 
-                // Settings
-                case "setting_StopWhen":
-                    StopWhen.Draw();
-                    break;
-                case "setting_GatheringProfile":
-                    GatherSettings.Draw();
-                    break;
                 case "setting_MissionPriority":
                     Priority_Settings.Draw();
                     break;
-                case "setting_Misc":
-                    Misc_Settings.Draw();
-                    break;
-                case "helpSelect_AllSettings":
-                    helpSelect_AllSettings.Draw();
-                    break;
 
-
-                // Hub Activities
-                case "hubActivities_CreditShopping":
-                    ShoppingTab.Draw();
+                // 這幾個 case 呼叫的都是**組頁函式**（各節的內容在各自的頁面類別裡）。
+                // 📌 舊路由 setting_*／hubActivities_* 都併進了這幾頁的某一節，不是被刪掉的功能。
+                case "page_Gathering":
+                    GatheringPage.Draw();
                     break;
-                case "hubActivites_GambaSetting":
-                    GambaWheel.Draw();
+                case "page_HubActivities":
+                    HubActivitiesPage.Draw();
+                    break;
+                case "page_MechaOps":
+                    Misc_Settings.DrawMechaOpsPage();
+                    break;
+                case "page_Settings":
+                    Misc_Settings.DrawSettingsPage();
                     break;
 
                 // Help Section
@@ -120,7 +119,7 @@ namespace ICE.Ui
                     break;
 
                 default:
-                    ImGui.Text("Hehe");
+                    ImGui.Text("No content for this tab yet.".Loc());
                     break;
             }
         }

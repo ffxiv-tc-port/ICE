@@ -12,6 +12,29 @@ namespace ICE.Ui.MainUi.ModeSelect
 {
     internal class modeSelect_Standard
     {
+        // 🔴 刻意**不寫進設定檔**：這是「我現在想找哪個任務」的暫時狀態，不是偏好。
+        //    存起來的話，下次開遊戲會看到任務表莫名其妙只剩兩三列，而使用者不會聯想到
+        //    是上次的搜尋還開著 —— 那是典型「靜默把功能弄壞」的設定。
+        // 📌 它只影響「表上畫不畫這一列」，不影響分類按鈕上的計數，也不影響自動化挑任務。
+        public static string MissionNameFilter = string.Empty;
+
+        /// <summary>
+        /// 搜尋列的比對：任務名稱含關鍵字（不分大小寫）或任務 ID 含這串數字。
+        /// 空字串一律回 true。
+        /// </summary>
+        public static bool PassesNameFilter(uint id, string? name)
+        {
+            if (string.IsNullOrWhiteSpace(MissionNameFilter))
+                return true;
+
+            var needle = MissionNameFilter.Trim();
+
+            if (!string.IsNullOrEmpty(name) && name.Contains(needle, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return id.ToString().Contains(needle, StringComparison.Ordinal);
+        }
+
         public static void Draw()
         {
             using var style = ImRaii.PushStyle(ImGuiStyleVar.ChildRounding, 10).Push(ImGuiStyleVar.ChildBorderSize, 1);
@@ -19,22 +42,8 @@ namespace ICE.Ui.MainUi.ModeSelect
             // Header at the top
             float scale = ImGuiHelpers.GlobalScale;
 
-            bool autoSelectMoon = C.AutoSelectMoon;
-            if (autoSelectMoon)
-            {
-                if (PlayerHelper.IsInSinusArdorum() && (!C.ShowSinusMissions || C.ShowPhaennaMissions))
-                {
-                    C.ShowSinusMissions = true;
-                    C.ShowPhaennaMissions = false;
-                    C.Save();
-                }
-                else if (PlayerHelper.IsInPhaenna() && (C.ShowSinusMissions || !C.ShowPhaennaMissions))
-                {
-                    C.ShowSinusMissions = false;
-                    C.ShowPhaennaMissions = true;
-                    C.Save();
-                }
-            }
+            // 自動選星同步在 SelectableSidebar.SyncAutoSelect()（含每幀閘門，一幀最多跑一次）。
+            SelectableSidebar.SyncAutoSelect();
 
             using (var headerChild = ImRaii.Child("##modeSelect_StandardHeader", new Vector2(0, 45 * scale), true, ImGuiWindowFlags.NoScrollbar))
             {
@@ -51,70 +60,84 @@ namespace ICE.Ui.MainUi.ModeSelect
                 bool standard = (!relicMode && !provisionalMode);
 
                 if (standard)
-                    modeType = "Standard";
+                    modeType = "Standard".Loc();
                 else if (relicMode)
                 {
-                    modeType = "Relic Grind";
+                    modeType = "Relic Grind".Loc();
                     modeIcon = FontAwesomeIcon.ArrowUpRightDots;
                 }
                 else if (provisionalMode)
                 {
-                    modeType = "Provisional";
+                    modeType = "Provisional".Loc();
                     modeIcon = FontAwesomeIcon.Cloud;
                 }
 
-                ImGuiEx.IconWithText(modeIcon, $"{modeType} Mode");
+                // 目前模式直接寫在下拉上。
+                // ⚠️ 三個選項寫進設定的動作與原本的圓鈕**逐字相同**（含「選宇宙工具就關掉限定任務」這種互斥副作用）。
+                // 📌 說明文字改成「滑鼠移到選項上」才出現，字串本身沒改，所以既有的翻譯照樣命中。
+                ImGuiEx.IconWithText(modeIcon, "Mode".Loc());
 
-                ImGui.SameLine(0, 10 * scale);
+                ImGui.SameLine(0, 8 * scale);
 
-                // Adjust the Y position to center the button vertically with the text
+                // Adjust the Y position to center the combo vertically with the text
                 float textHeight = ImGui.GetTextLineHeight();
                 float buttonHeight = ImGui.GetFrameHeight();
                 float yOffset = (textHeight - buttonHeight) / 2f;
                 ImGui.SetCursorPosY(ImGui.GetCursorPosY() + yOffset);
 
-                if (ImGuiEx.IconButtonWithText(FontAwesomeIcon.Play, "Mode Selection"))
+                ImGui.SetNextItemWidth(160 * scale);
+                if (ImGui.BeginCombo("###ICEModeSelectCombo", modeType))
                 {
-                    ImGui.OpenPopup("Mode Select | Select Mode Window");
-                }
-                if (ImGui.BeginPopup("Mode Select | Select Mode Window"))
-                {
-                    ImGui.Text("Select Mode");
-                    ImGui.Separator();
-
-                    if (ImGui.RadioButton("Standard", standard))
+                    if (ImGui.Selectable("Standard".Loc() + "###ICEModeStandard", standard))
                     {
                         C.XPRelicGrind = false;
                         C.GrindProvisionals = false;
                         C.Save();
                     }
-                    ImGuiEx.HelpMarker("Stand Mode \n" +
-                                       "-> Used to select which missions you want to grind. It'll priortize in the following order:\n" +
-                                       "-> Critical -> Provisional [Sequence/Timed/Weather] -> Standard [A->D]\n" +
-                                       "-> Select which missions you want to do, and go at it.");
-                    if (ImGui.RadioButton("Relic Grind", relicMode))
+                    if (standard)
+                        ImGui.SetItemDefaultFocus();
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.SetTooltip(("Stand Mode \n" +
+                                          "-> Used to select which missions you want to grind. It'll priortize in the following order:\n" +
+                                          "-> Critical -> Provisional [Sequence/Timed/Weather] -> Standard [A->D]\n" +
+                                          "-> Select which missions you want to do, and go at it.").Loc());
+                    }
+
+                    if (ImGui.Selectable("Relic Grind".Loc() + "###ICEModeRelicGrind", relicMode))
                     {
                         C.XPRelicGrind = true;
                         C.GrindProvisionals = false;
                         C.Save();
                     }
-                    ImGuiEx.HelpMarker("Relic Grind\n" +
-                                       "-> Automatically select which missions that are best to finish up your relic\n" +
-                                       "-> These are weighed based on what is needed to complete the tool to the next step\n" +
-                                       "-> If you want to only do certain missions, enable the option and select which ones you want to do");
-                    if (ImGui.RadioButton("Provisional Grind", provisionalMode))
+                    if (relicMode)
+                        ImGui.SetItemDefaultFocus();
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.SetTooltip(("Relic Grind\n" +
+                                          "-> Automatically select which missions that are best to finish up your relic\n" +
+                                          "-> These are weighed based on what is needed to complete the tool to the next step\n" +
+                                          "-> If you want to only do certain missions, enable the option and select which ones you want to do").Loc());
+                    }
+
+                    if (ImGui.Selectable("Provisional".Loc() + "###ICEModeProvisionalGrind", provisionalMode))
                     {
                         C.XPRelicGrind = false;
                         C.GrindProvisionals = true;
                         C.Save();
                     }
-                    ImGuiEx.HelpMarker("Provisional Grind\n" +
-                                       "-> Grind provisional missions [Weather | Timed | Sequence] that you have enabled\n" +
-                                       "-> Use this to grind all classes. You can set the priority for which classes and " +
-                                       "types of missions that you want to do\n" +
-                                       "-> Useful if you're aiming to grind out score/tokens across all classes, or want to do specific missions at certain times");
+                    if (provisionalMode)
+                        ImGui.SetItemDefaultFocus();
+                    if (ImGui.IsItemHovered())
+                    {
+                        ImGui.SetTooltip(("Provisional Grind\n" +
+                                          "-> Grind provisional missions [Weather | Timed | Sequence] that you have enabled\n" +
+                                          "-> Use this to grind all classes. You can set the priority for which classes and " +
+                                          "types of missions that you want to do\n" +
+                                          "-> Useful if you're aiming to grind out score/tokens across all classes, or want to do specific missions at certain times").Loc());
+                    }
 
-                    ImGui.EndPopup();
+                    ImGui.EndCombo();
                 }
 
                 uint currentJobId = Player.JobId;
@@ -125,7 +148,7 @@ namespace ICE.Ui.MainUi.ModeSelect
 
                 using (ImRaii.Disabled(SchedulerMain.State != IceState.Idle || !usingSupportedJob))
                 {
-                    if (ImGui.Button("Start", new Vector2(150 * scale, 0)))
+                    if (ImGui.Button("Start".Loc() + "###ICEModeSelectStart", new Vector2(150 * scale, 0)))
                     {
                         SchedulerMain.EnablePlugin();
                     }
@@ -139,7 +162,7 @@ namespace ICE.Ui.MainUi.ModeSelect
                     using (ImRaii.PushColor(ImGuiCol.ButtonHovered, new Vector4(0.9f, 0.3f, 0.3f, 1.0f)))
                     using (ImRaii.PushColor(ImGuiCol.ButtonActive, new Vector4(0.7f, 0.1f, 0.1f, 1.0f)))
                     {
-                        if (ImGui.Button("Stop", new Vector2(150 * scale, 0)))
+                        if (ImGui.Button("Stop".Loc() + "###ICEModeSelectStop", new Vector2(150 * scale, 0)))
                         {
                             SchedulerMain.DisablePlugin();
                         }
@@ -147,34 +170,32 @@ namespace ICE.Ui.MainUi.ModeSelect
                 }
             }
 
-            if (ImGui.BeginTable("modeSelect_TableHeader", 4, ImGuiTableFlags.SizingFixedFit, Vector2.Zero))
+            // 「設好就不會再動」的設定整組收進這個分節，預設收合；常用的三個篩選
+            // （隱藏不支援／只顯示所選職業／只顯示未金星）在下面的篩選列。
+            if (ImGui_Tools.PageSection("Mission Page Settings".Loc(), "ICESecMissionPage")
+                && ImGui.BeginTable("modeSelect_TableHeader", 3, ImGuiTableFlags.SizingFixedFit, Vector2.Zero))
             {
-                ImGui.TableSetupColumn("Class Selector");
-                ImGui.TableSetupColumn("Other Settings");
+                ImGui.TableSetupColumn("Class Selector".Loc());
+                ImGui.TableSetupColumn("Other Settings".Loc());
 
                 ImGui.TableNextRow();
                 ImGui.TableSetColumnIndex(0);
 
-                bool tableSettingExpanded = modeSelect_Tools.DrawCompactCategoryHeader("Table Settings", FontAwesomeIcon.Table);
+                bool tableSettingExpanded = modeSelect_Tools.DrawCompactCategoryHeader("Table Settings".Loc(), FontAwesomeIcon.Table, id: "cat_ModeTableSettings");
 
                 ImGui.TableNextColumn();
-                bool missionSettingExpanded = modeSelect_Tools.DrawCompactCategoryHeader("Mission Settings", FontAwesomeIcon.UserCog);
+                bool missionSettingExpanded = modeSelect_Tools.DrawCompactCategoryHeader("Mission Settings".Loc(), FontAwesomeIcon.UserCog, id: "cat_ModeMissionSettings");
 
                 bool relicGrindExpanded = false;
                 if (C.XPRelicGrind)
                 {
                     ImGui.TableNextColumn();
-                    relicGrindExpanded = modeSelect_Tools.DrawCompactCategoryHeader("Relic Grind Settings", FontAwesomeIcon.ArrowUpRightDots);
+                    relicGrindExpanded = modeSelect_Tools.DrawCompactCategoryHeader("Relic Grind Settings".Loc(), FontAwesomeIcon.ArrowUpRightDots, id: "cat_ModeRelicGrindSettings");
                 }
 
-                bool completionExpanded = false;
-                if (C.ShowCompletionWindow)
-                {
-                    ImGui.TableNextColumn();
-                    completionExpanded = modeSelect_Tools.DrawCompactCategoryHeader("Completion Table Settings", FontAwesomeIcon.Trophy);
-                }
+                // 📌 「只顯示所選職業」與「只顯示未金星」在篩選列（只在完成度檢視下出現），不在這張表裡。
 
-                bool showNextColumn = tableSettingExpanded || missionSettingExpanded || (relicGrindExpanded && C.XPRelicGrind) || (completionExpanded && C.ShowCompletionWindow);
+                bool showNextColumn = tableSettingExpanded || missionSettingExpanded || (relicGrindExpanded && C.XPRelicGrind);
 
                 if (showNextColumn)
                 {
@@ -195,32 +216,14 @@ namespace ICE.Ui.MainUi.ModeSelect
                     {
                         ImGui.TableNextColumn();
 
-                        bool relicTurnin = C.TurninRelic;
-                        if (ImGui.Checkbox($"Turnin if relic is complete##RelicTurnin_RelicGrind", ref relicTurnin))
-                        {
-                            if (relicTurnin)
-                                C.GrindProvisionals = false;
-
-                            C.TurninRelic = relicTurnin;
-                            C.Save();
-                        }
-                        ImGui.SameLine();
-                        ImGui.TextDisabled("?");
-                        if (ImGui.IsItemHovered())
-                        {
-                            ImGui.SetTooltip("THIS IS YOUR HEADS UP ON HOW THIS WORKS. If I change this in the future, this tooltip will also change.\n" +
-                                             "1: This will check for your current CLASS [not menu class, actual current class] for relic turnin.\n" +
-                                             "2: You must not have the tool eqipped for this to run full auto. \n" +
-                                             "\t- This is due to the fact that I cba coding this in at this time. (might change my mind in the future *shrugs*)\n" +
-                                             "3: This will take prio over \"Stop @ Relic Turnin\", in the sense that if you have both enabled, it will turnin vs stop. And continue about it's day\n" +
-                                             "4: If you're on a crafting class, it will return you back to the stop you were crafting post turnin. \n" +
-                                             "\t- This is optional, you can disable it at your own free will, I just like this so I can just go back to an isolated area of my choosing");
-                        }
+                        // 同一個「宇宙工具完成就自動繳交」開關在任務設定欄也有一份，
+                        // 兩邊共用 Settings_TableColumns 的單一實作（控制項 id 各自保留）。
+                        Settings_TableColumns.DrawRelicTurninCheckbox("RelicGrind");
 
                         ImGui.Separator();
 
                         bool EnableRelicXp = C.XPRelicGrind;
-                        if (ImGui.Checkbox("Auto-Pick For Relic XP", ref EnableRelicXp))
+                        if (ImGui.Checkbox("Auto-Pick For Relic XP".Loc() + "###ICEAutoPickForRelicXP", ref EnableRelicXp))
                         {
                             if (EnableRelicXp)
                             {
@@ -233,21 +236,46 @@ namespace ICE.Ui.MainUi.ModeSelect
                         ImGui.TextDisabled("?");
                         if (ImGui.IsItemHovered())
                         {
-                            ImGui.SetTooltip("Please note. This will ONLY grind for relic Exp under the basic mission tab. \n" +
-                                               "This will NOT work (even with missions selected) on the Sequence/Timed/Weather/Critical Missions");
+                            ImGui.SetTooltip(("By default this only grinds relic Exp under the basic mission tab.\n" +
+                                               "Use the two options below to also consider the Critical and Provisional " +
+                                               "[Sequence/Timed/Weather] tabs.").Loc());
                         }
                         if (EnableRelicXp)
                         {
                             bool OnlySelected = C.XPRelicOnlyEnabled;
-                            if (ImGui.Checkbox("Only selected missions", ref OnlySelected))
+                            if (ImGui.Checkbox("Only selected missions".Loc() + "###ICEXPRelicOnlyEnabled", ref OnlySelected))
                             {
                                 C.XPRelicOnlyEnabled = OnlySelected;
                                 C.Save();
                             }
+
+                            bool includeCritical = C.XPRelicIncludeCritical;
+                            if (ImGui.Checkbox("Also check Critical missions".Loc() + "###ICEXPRelicIncludeCritical", ref includeCritical))
+                            {
+                                C.XPRelicIncludeCritical = includeCritical;
+                                C.Save();
+                            }
+                            ImGuiEx.HelpMarker(("Also look for relic XP missions on the Critical tab.\n" +
+                                                "Checked before the basic tab, same order as Standard mode.\n" +
+                                                "Only missions for your CURRENT job are considered - relic XP goes to the " +
+                                                "tool of the mission's job, so taking another job's mission levels the wrong tool.").Loc());
+
+                            bool includeProvisional = C.XPRelicIncludeProvisional;
+                            if (ImGui.Checkbox("Also check Provisional missions".Loc() + "###ICEXPRelicIncludeProvisional", ref includeProvisional))
+                            {
+                                C.XPRelicIncludeProvisional = includeProvisional;
+                                C.Save();
+                            }
+                            ImGuiEx.HelpMarker(("Also look for relic XP missions on the Provisional tab " +
+                                                "[Sequence/Timed/Weather].\n" +
+                                                "These are only available under their own conditions (weather, time window, " +
+                                                "or a finished prerequisite mission), so most cycles will still fall through " +
+                                                "to the basic tab.\n" +
+                                                "Only missions for your CURRENT job are considered.").Loc());
                             if (C.ShowManualMode)
                             {
                                 bool IgnoreManual = C.XPRelicIgnoreManual;
-                                if (ImGui.Checkbox("Ignore Manual Mode Missions", ref IgnoreManual))
+                                if (ImGui.Checkbox("Ignore Manual Mode Missions".Loc() + "###ICEXPRelicIgnoreManual", ref IgnoreManual))
                                 {
                                     C.XPRelicIgnoreManual = IgnoreManual;
                                     C.Save();
@@ -256,29 +284,12 @@ namespace ICE.Ui.MainUi.ModeSelect
                         }
                     }
 
-                    if (C.ShowCompletionWindow && completionExpanded)
-                    {
-                        ImGui.TableNextColumn();
-                        bool showSelectedJobOnly = C.ShowSelectedJobOnly;
-                        if (ImGui.Checkbox("Show only selected job", ref showSelectedJobOnly))
-                        {
-                            C.ShowSelectedJobOnly = showSelectedJobOnly;
-                            if (showSelectedJobOnly)
-                                C.ShowCompletionOnlyJob = false;
-                            C.Save();
-                        }
-
-                        bool nonGold = C.ShowCompletion_MissingGold;
-                        if (ImGui.Checkbox("Show Only Non-Gold Missions", ref nonGold))
-                        {
-                            C.ShowCompletion_MissingGold = nonGold;
-                            C.Save();
-                        }
-                    }
                 }
 
                 ImGui.EndTable();
             }
+
+            DrawFilterRow(scale);
 
             using (var bodyChild = ImRaii.Child("##modeSelect_Body", new Vector2(0, -1), true, ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse))
             {
@@ -383,23 +394,23 @@ namespace ICE.Ui.MainUi.ModeSelect
 
                     if (C.GrindProvisionals)
                     {
-                        ImGui_Tools.DrawCategoryButton($"All Enabled [{allEnabled}]", "main_AllEnabled");
-                        ImGui_Tools.DrawCategoryButton($"Sequence [{sequenceEnabled}]", "main_Sequence");
-                        ImGui_Tools.DrawCategoryButton($"Weather [{weatherEnabled}]", "main_Weather");
-                        ImGui_Tools.DrawCategoryButton($"Timed [{timedEnabled}]", "main_Timed");
+                        ImGui_Tools.DrawCategoryButton("All Enabled [??]".Loc(allEnabled), "main_AllEnabled");
+                        ImGui_Tools.DrawCategoryButton("Sequence [??]".Loc(sequenceEnabled), "main_Sequence");
+                        ImGui_Tools.DrawCategoryButton("Weather [??]".Loc(weatherEnabled), "main_Weather");
+                        ImGui_Tools.DrawCategoryButton("Timed [??]".Loc(timedEnabled), "main_Timed");
                         ImGui_Tools.EndCategoryButtonRow();
                     }
                     else
                     {
-                        ImGui_Tools.DrawCategoryButton($"All Enabled [{allEnabled}]", "main_AllEnabled");
-                        ImGui_Tools.DrawCategoryButton($"Critical [{criticalEnabled}]", "main_Critical");
-                        ImGui_Tools.DrawCategoryButton($"Sequence [{sequenceEnabled}]", "main_Sequence");
-                        ImGui_Tools.DrawCategoryButton($"Weather [{weatherEnabled}]", "main_Weather");
-                        ImGui_Tools.DrawCategoryButton($"Timed [{timedEnabled}]", "main_Timed");
-                        ImGui_Tools.DrawCategoryButton($"A Rank [{aRankEnabled}]", "main_ARank");
-                        ImGui_Tools.DrawCategoryButton($"B Rank [{bRankEnabled}]", "main_BRank");
-                        ImGui_Tools.DrawCategoryButton($"C Rank [{cRankEnabled}]", "main_CRank");
-                        ImGui_Tools.DrawCategoryButton($"D Rank [{dRankEnabled}]", "main_DRank", spacingAfter: 0);
+                        ImGui_Tools.DrawCategoryButton("All Enabled [??]".Loc(allEnabled), "main_AllEnabled");
+                        ImGui_Tools.DrawCategoryButton("Critical [??]".Loc(criticalEnabled), "main_Critical");
+                        ImGui_Tools.DrawCategoryButton("Sequence [??]".Loc(sequenceEnabled), "main_Sequence");
+                        ImGui_Tools.DrawCategoryButton("Weather [??]".Loc(weatherEnabled), "main_Weather");
+                        ImGui_Tools.DrawCategoryButton("Timed [??]".Loc(timedEnabled), "main_Timed");
+                        ImGui_Tools.DrawCategoryButton("A Rank [??]".Loc(aRankEnabled), "main_ARank");
+                        ImGui_Tools.DrawCategoryButton("B Rank [??]".Loc(bRankEnabled), "main_BRank");
+                        ImGui_Tools.DrawCategoryButton("C Rank [??]".Loc(cRankEnabled), "main_CRank");
+                        ImGui_Tools.DrawCategoryButton("D Rank [??]".Loc(dRankEnabled), "main_DRank", spacingAfter: 0);
                         ImGui_Tools.EndCategoryButtonRow();
                     }
                 }
@@ -408,8 +419,8 @@ namespace ICE.Ui.MainUi.ModeSelect
                 {
                     if (ImGui.BeginTable("Mission Info | Extra Details", 2, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.Resizable, Vector2.Zero))
                     {
-                        ImGui.TableSetupColumn("Mission Selection Viewer", ImGuiTableColumnFlags.WidthFixed, 200f);
-                        ImGui.TableSetupColumn("Specific Mission Info", ImGuiTableColumnFlags.WidthStretch);
+                        ImGui.TableSetupColumn("Mission Selection Viewer".Loc(), ImGuiTableColumnFlags.WidthFixed, 200f);
+                        ImGui.TableSetupColumn("Specific Mission Info".Loc(), ImGuiTableColumnFlags.WidthStretch);
 
                         ImGui.TableNextRow();
                         ImGui.TableSetColumnIndex(0);
@@ -427,6 +438,82 @@ namespace ICE.Ui.MainUi.ModeSelect
                 else
                 {
                     MissionTableInfo();
+                }
+            }
+        }
+
+        /// <summary>
+        /// 這一列只裝「會改變你現在看到什麼」的控制項，所以永遠可見、就在任務表正上方；
+        /// 「設好就不會再動」的東西留在上面的「任務頁設定」分節裡。
+        /// 🔴 這裡**不能**直接寫 <c>C.ShowCompletionWindow</c> —— 那個值每一幀都會被
+        /// <c>MainWindow.MainBody()</c> 依側欄選取項覆寫回去，直接寫會在下一幀被靜默還原
+        /// （看起來就是「點了沒反應」）。
+        /// </summary>
+        private static void DrawFilterRow(float scale)
+        {
+            float scrollbarSize = ImGui.GetStyle().ScrollbarSize;
+            float rowHeight = ImGui.GetFrameHeight() + scrollbarSize + 4 * scale;
+
+            using (var filterRow = ImRaii.Child("##modeSelect_FilterRow", new Vector2(0, rowHeight), false, ImGuiWindowFlags.HorizontalScrollbar))
+            {
+                if (!filterRow.Success)
+                    return;
+
+                bool completionView = SelectableSidebar.currentSelection == "modeSelect_Completion";
+                if (ImGui.RadioButton("Mission List".Loc() + "###ICEViewMissionList", !completionView))
+                    SelectableSidebar.currentSelection = "modeSelect_Standard";
+                ImGui.SameLine(0, 6 * scale);
+                if (ImGui.RadioButton("Completion".Loc() + "###ICEViewCompletion", completionView))
+                    SelectableSidebar.currentSelection = "modeSelect_Completion";
+
+                ImGui.SameLine(0, 14 * scale);
+
+                ImGui.SetNextItemWidth(180 * scale);
+                var needle = MissionNameFilter;
+                if (ImGui.InputTextWithHint("###ICEMissionSearch", "Search by name or ID".Loc(), ref needle, 64))
+                    MissionNameFilter = needle;
+
+                // 清除鈕只在真的有在篩選時出現 —— 它同時是「現在有東西被藏起來」的指示：
+                // 任務表突然變短的時候，這顆按鈕就在旁邊，不必去猜是不是壞了。
+                if (!string.IsNullOrEmpty(MissionNameFilter))
+                {
+                    ImGui.SameLine(0, 4 * scale);
+                    if (ImGuiEx.IconButton(FontAwesomeIcon.Times, "ICEMissionSearchClear"))
+                        MissionNameFilter = string.Empty;
+                    if (ImGui.IsItemHovered())
+                        ImGui.SetTooltip("Clear".Loc());
+                }
+
+                ImGui.SameLine(0, 14 * scale);
+
+                bool hideUnsupported = C.HideUnsupportedMissions;
+                if (ImGui.Checkbox("Hide Unsupported Missions".Loc() + "###ICEHideUnsupportedMissions", ref hideUnsupported))
+                {
+                    C.HideUnsupportedMissions = hideUnsupported;
+                    C.Save();
+                }
+
+                // 這兩個只在完成度檢視下有作用（任務表的列迴圈也是這樣判的），
+                // 所以也只在那時候出現。
+                if (C.ShowCompletionWindow)
+                {
+                    ImGui.SameLine(0, 14 * scale);
+                    bool showSelectedJobOnly = C.ShowSelectedJobOnly;
+                    if (ImGui.Checkbox("Show only selected job".Loc() + "###ICEShowSelectedJobOnly", ref showSelectedJobOnly))
+                    {
+                        C.ShowSelectedJobOnly = showSelectedJobOnly;
+                        if (showSelectedJobOnly)
+                            C.ShowCompletionOnlyJob = false;
+                        C.Save();
+                    }
+
+                    ImGui.SameLine(0, 14 * scale);
+                    bool nonGold = C.ShowCompletion_MissingGold;
+                    if (ImGui.Checkbox("Show Only Non-Gold Missions".Loc() + "###ICEShowCompletionMissingGold", ref nonGold))
+                    {
+                        C.ShowCompletion_MissingGold = nonGold;
+                        C.Save();
+                    }
                 }
             }
         }
@@ -473,7 +560,7 @@ namespace ICE.Ui.MainUi.ModeSelect
                         }
                         else
                         {
-                            ImGui.Text("HEY. ENABLE SOME MISSIONS SO WE CAN DISPLAY SOMETHING HERE");
+                            ImGui.Text("HEY. ENABLE SOME MISSIONS SO WE CAN DISPLAY SOMETHING HERE".Loc());
                         }
                     }
                     if (enabledTabs["main_Critical"])

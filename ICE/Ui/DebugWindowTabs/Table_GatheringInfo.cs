@@ -48,7 +48,7 @@ namespace ICE.Ui.DebugWindowTabs
                     ImGui.Text($"[{entry.Key}]");
 
                     ImGui.TableNextColumn();
-                    ImGui.Text($"{entry.Value.Name}");
+                    ImGui.Text(MissionSupport.NameWithMarker(entry.Key, entry.Value.Name));
 
                     foreach (var item in entry.Value.Gathering_Min)
                     {

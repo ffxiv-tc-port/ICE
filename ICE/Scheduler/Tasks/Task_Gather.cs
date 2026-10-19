@@ -5,6 +5,7 @@ using ECommons.GameHelpers;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.UI;
 using FFXIVClientStructs.FFXIV.Component.GUI;
+using ICE.Resources.GatheringRoutes;
 using ICE.Utilities.Cosmic_Helper;
 using ICE.Utilities.GatheringHelper;
 using Microsoft.VisualBasic.ApplicationServices;
@@ -18,8 +19,25 @@ namespace ICE.Scheduler.Tasks
     internal static class Task_Gather
     {
 
+        // 剛採完的採集點就是這一幀的 activeGatherNode；離開採集狀態時回頭確認它是否已採光。
+        private static uint activeGatherNodeId;
+        private static uint activeGatherMissionId;
+        private static bool activeGatherWindowOpened;
+
+        // 採集接近角。
+        private const float GatheringRange = 3.5f;
+        private const float GatherApproachTolerance = 0.5f;
+        private static uint approachNodeId;
+        private static Vector3 approachCenter;
+        private static Vector3 approachPosition;
+
         public static void Enqueue()
         {
+            // 剛結束一次限量採集點的採集，先把它記進耗盡集合；若整條路線都採光了，
+            //     RecordCompletedLimitedNode 會直接把狀態切到 ScoreCheck 並清佇列，這裡就不再往下排。
+            if (!Svc.Condition[ConditionFlag.Gathering] && RecordCompletedLimitedNode())
+                return;
+
             if (GenericHelpers.TryGetAddonMaster<Gathering>("Gathering", out var gather) && gather.IsAddonReady || GenericHelpers.TryGetAddonMaster<GatheringMasterpiece>("GatheringMasterpiece", out var collectable) && collectable.IsAddonReady)
             {
                 IceLogging.Debug("Current in a gathering session");
@@ -30,7 +48,13 @@ namespace ICE.Scheduler.Tasks
             {
                 IceLogging.Debug("Not currently gathering, starting fresh instead");
                 P.TaskManager.EnqueueDelay(100);
-                if (CosmicHelper.SheetMissionDict[CosmicHelper.CurrentLunarMission].Attributes.HasFlag(MissionAttributes.ReducedItems))
+
+                // 這裡是 Enqueue（跑在 SchedulerMain.Tick 上、不在任務內），
+                // 例外會直接冒到 Framework.Update 而且每個 tick 重來一次，所以先過 CurrentMissionUnavailable。
+                if (SchedulerMain.CurrentMissionUnavailable("[Task_Gather: Enqueue]", out var enqueueMission))
+                    return;
+
+                if (enqueueMission.Attributes.HasFlag(MissionAttributes.ReducedItems))
                 {
                     Task_CheckScore.Enqueue();
                     P.TaskManager.Enqueue(() => CheckReduceMission(), "Checking to see if we need to reduce items");
@@ -43,8 +67,10 @@ namespace ICE.Scheduler.Tasks
                 }
                 P.TaskManager.Enqueue(() => Mission_Settings.ResetCollectableState());
                 P.TaskManager.Enqueue(() => UseFood());
-                P.TaskManager.Enqueue(() => CheckCurrentLocation(), "Checking to see if gathering flags needs updated");
-                P.TaskManager.Enqueue(() => PathandCheckNode());
+                // PathandCheckNode 是 vnav 走去採集點（分鐘級），CheckCurrentLocation 也可能
+                // 等 navmesh 建圖。用預設 30 秒 + AbortOnTimeout 等於每 30 秒把整個佇列砍一次。
+                P.TaskManager.Enqueue(() => CheckCurrentLocation(), "Checking to see if gathering flags needs updated", Utils.TaskConfig);
+                P.TaskManager.Enqueue(() => PathandCheckNode(), "Pathing to the gathering node", Utils.TaskConfig);
             }
         }
 
@@ -53,71 +79,91 @@ namespace ICE.Scheduler.Tasks
             ThrottleMessage("- - - Check Gather Locations Task - - -", "[Check Gather Locations]");
 
             var zoneId = Player.Territory;
-            var missionEntry = CosmicHelper.CurrentMissionInfo;
+            if (SchedulerMain.CurrentMissionUnavailable("[Check Gather Locations]", out var missionEntry))
+                return true;
+
             var missionFlag = missionEntry.MapPosition;
             var gatherInfo = GatheringRouteLoader.GetRoute(zoneId, missionFlag);
 
-            if (gatherInfo != null)
+            // ⚠️ 查不到路線時不能一路掉到最後的 `return false`（這個任務永遠不會完成；TaskConfig 是
+            //    timeLimitMS 30 分鐘 + abortOnTimeout: false，失敗形式是「靜靜地卡住半小時」）。
+            //    真正會講話的守衛在下一個任務 PathandCheckNode 裡，所以這裡放行讓它去講。
+            if (gatherInfo == null || gatherInfo.Count == 0)
             {
-                if (Mission_Settings.previousMap != missionFlag)
-                {
-                    // We're currently at a whole new area. So going to check the gathering nodes to see which one we're closest to
-                    Mission_Settings.previousMap = missionFlag;
-                    var closestNodeIndex = gatherInfo.Select((node, index) => new { Node = node, Index = index })
-                                                     .Where(x => Svc.Objects.Any(obj => obj.ObjectKind == ObjectKind.GatheringPoint && obj.IsTargetable && obj.BaseId == x.Node.NodeId))
-                                                     .OrderBy(x =>
-                                                     {
-                                                         var gameObject = Svc.Objects.First(obj => obj.BaseId == x.Node.NodeId);
-                                                         return Player.DistanceTo(gameObject.Position);
-                                                     })
-                                                     .Select(x => x.Index)
-                                                     .FirstOrDefault(0);
+                if (EzThrottler.Throttle("ICE: gather route missing (CheckCurrentLocation)", 5000))
+                    IceLogging.Info($"任務 {CosmicHelper.CurrentLunarMission} 在區域 {zoneId} 座標 {missionFlag} " +
+                                    "找不到採集路線，這一步先放行，由下一步回報。", "[Check Gather Locations]");
+                return true;
+            }
 
-                    Mission_Settings.nodeCounter = closestNodeIndex;
+            if (Mission_Settings.previousMap != missionFlag)
+            {
+                // We're currently at a whole new area. So going to check the gathering nodes to see which one we're closest to
+                Mission_Settings.previousMap = missionFlag;
+                Mission_Settings.nodeCounter = PickStartNodeIndex(gatherInfo, "[Check Gather Locations]");
+            }
+            else
+            {
+                // we're currently in a map location that has been previously recorded, so we're going to check to see if we're within range of any first
+                var closestDistance = gatherInfo.Where(x => Player.DistanceTo(x.Position) < 5).FirstOrDefault();
+                if (closestDistance == null)
+                {
+                    // 離所有採集點都還很遠：不能沿用上一輪留下來的索引 ——
+                    // 那個索引跟「玩家現在站在哪」完全無關，人被傳送或走遠之後就會往回跑。
+                    if (C.GatherPickClosestNode &&
+                        TrySelectClosestNode(gatherInfo, excludeNodeId: 0, "[Check Gather Locations]", out var reselected))
+                    {
+                        Mission_Settings.nodeCounter = reselected;
+                        return true;
+                    }
+
+                    // going to rely on the index to tell us where we should be
+                    if (Mission_Settings.nodeCounter >= gatherInfo.Count)
+                    {
+                        // resetting it back to 0 because we're outside the normal index array
+                        Mission_Settings.nodeCounter = 0;
+                    }
+                    return true;
+
                 }
                 else
                 {
-                    // we're currently in a map location that has been previously recorded, so we're going to check to see if we're within range of any first
-                    var closestDistance = gatherInfo.Where(x => Player.DistanceTo(x.Position) < 5).FirstOrDefault();
-                    if (closestDistance == null)
+                    // We're currently close to a node, time to check and see if it's a viable node, or if we need to pathfind to the next
+                    var nodeId = closestDistance.NodeId;
+                    var closestNode = Svc.Objects.Where(x => x.BaseId == nodeId && x.IsTargetable).FirstOrDefault();
+
+                    if (closestNode != null)
                     {
-                        // We're currently to far from any node. going to rely on the index to tell us where we should be
-                        if (Mission_Settings.nodeCounter >= gatherInfo.Count)
+                        // Node is targetable, set the counter to this node's index
+                        var currentNodeIndex = gatherInfo.FindIndex(x => x.NodeId == nodeId);
+                        if (currentNodeIndex >= 0)
                         {
-                            // resetting it back to 0 because we're outside the normal index array
-                            Mission_Settings.nodeCounter = 0;
+                            Mission_Settings.nodeCounter = currentNodeIndex;
                         }
                         return true;
-
                     }
                     else
                     {
-                        // We're currently close to a node, time to check and see if it's a viable node, or if we need to pathfind to the next
-                        var nodeId = closestDistance.NodeId;
-                        var closestNode = Svc.Objects.Where(x => x.BaseId == nodeId && x.IsTargetable).FirstOrDefault();
-
-                        if (closestNode != null)
+                        // 🔴 腳下這個採集點剛採完（或還沒重生）：不要無條件 nodeCounter++ 跳到「路線檔裡的下一個」——
+                        //    那是檔案順序，跟距離毫無關係。路線是環狀的（PathandCheckNode 會遞增並回繞），從哪一個點接下去都合法，
+                        //    所以挑最近而且還採得到的那一個。
+                        //    ⚠️ 一定要把腳下這個點排除掉，否則「全部都不可採」時會選回自己＝原地打轉。
+                        if (C.GatherPickClosestNode &&
+                            TrySelectClosestNode(gatherInfo, excludeNodeId: nodeId, "[Check Gather Locations]", out var nextNode))
                         {
-                            // Node is targetable, set the counter to this node's index
-                            var currentNodeIndex = gatherInfo.FindIndex(x => x.NodeId == nodeId);
-                            if (currentNodeIndex >= 0)
-                            {
-                                Mission_Settings.nodeCounter = currentNodeIndex;
-                            }
+                            Mission_Settings.nodeCounter = nextNode;
                             return true;
                         }
-                        else
-                        {
-                            // Node is not targetable, increment to next node
-                            Mission_Settings.nodeCounter++;
 
-                            // Check if we're out of bounds and wrap back to 0
-                            if (Mission_Settings.nodeCounter >= gatherInfo.Count)
-                            {
-                                Mission_Settings.nodeCounter = 0;
-                            }
-                            return true;
+                        // Node is not targetable, increment to next node
+                        Mission_Settings.nodeCounter++;
+
+                        // Check if we're out of bounds and wrap back to 0
+                        if (Mission_Settings.nodeCounter >= gatherInfo.Count)
+                        {
+                            Mission_Settings.nodeCounter = 0;
                         }
+                        return true;
                     }
                 }
             }
@@ -125,12 +171,153 @@ namespace ICE.Scheduler.Tasks
             return false;
         }
 
+        /// <summary>
+        /// 從路線裡挑出「離玩家最近、而且現在還採得到」的採集點索引。
+        /// </summary>
+        /// <param name="route">呼叫端必須先保證非空。</param>
+        /// <param name="excludeNodeId">要排除的採集點 id（0＝不排除）。腳下那個剛採完的點要從這裡排掉。</param>
+        /// <param name="index">挑到的索引；回傳 <c>false</c> 時為 -1。</param>
+        /// <returns>挑得到就 <c>true</c>。<b>挑不到一律回 false 讓呼叫端沿用原本的行為</b>，不自己亂猜。</returns>
+        /// <remarks>⚠️ ObjectTable 的物件只在這一次呼叫（同一幀）內使用，<b>不存起來跨幀用</b>。</remarks>
+        private static bool TrySelectClosestNode(List<GathNodeInfo> route, uint excludeNodeId, string handle, out int index)
+        {
+            // 第一順位：載入了而且現在可以採 —— 用實際物件座標。
+            var live = route.Select((node, i) => new
+                            {
+                                Index = i,
+                                Node = node,
+                                Obj = Svc.Objects.FirstOrDefault(o => o.ObjectKind == ObjectKind.GatheringPoint
+                                                                  && o.IsTargetable
+                                                                  && o.BaseId == node.NodeId)
+                            })
+                            .Where(x => x.Node.NodeId != excludeNodeId && x.Obj != null
+                                        && !Mission_Settings.ExhaustedGatheringNodes.Contains(x.Node.NodeId))
+                            .OrderBy(x => Player.DistanceTo(x.Obj!.Position))
+                            .FirstOrDefault();
+
+            if (live != null)
+            {
+                index = live.Index;
+                IceLogging.Info($"挑最近的採集點：選索引 {index}（採集點 {live.Node.NodeId}，" +
+                                $"距離 {Player.DistanceTo(live.Obj!.Position):N1}，已載入且可採）。", handle);
+                return true;
+            }
+
+            // 第二順位：還沒載入的點（離太遠所以不在 ObjectTable 裡）—— 用路線檔的靜態座標。
+            var unloaded = route.Select((node, i) => new
+                                {
+                                    Index = i,
+                                    Node = node,
+                                    Loaded = Svc.Objects.Any(o => o.ObjectKind == ObjectKind.GatheringPoint
+                                                               && o.BaseId == node.NodeId)
+                                })
+                                .Where(x => x.Node.NodeId != excludeNodeId && !x.Loaded
+                                            && !Mission_Settings.ExhaustedGatheringNodes.Contains(x.Node.NodeId))
+                                .OrderBy(x => Player.DistanceTo(x.Node.Position))
+                                .FirstOrDefault();
+
+            if (unloaded != null)
+            {
+                index = unloaded.Index;
+                IceLogging.Info($"挑最近的採集點：可採的點都不在 ObjectTable 裡，改用路線檔座標挑最近 —— " +
+                                $"選索引 {index}（採集點 {unloaded.Node.NodeId}，" +
+                                $"距離 {Player.DistanceTo(unloaded.Node.Position):N1}，尚未載入）。", handle);
+                return true;
+            }
+
+            // 路線上每一個點都已載入而且都不可採（整條路線剛被採光）。
+            // 這裡回 false 而不是硬挑一個，讓呼叫端沿用原本的行為 —— 硬挑最近的
+            // 只會選回腳下那個剛採完的點，那是原地打轉而不是前進。
+            index = -1;
+            IceLogging.Info($"挑最近的採集點：這條路線上 {route.Count} 個點目前都採不到，" +
+                            "沿用原本的挑點方式。", handle);
+            return false;
+        }
+
+        /// <summary>
+        /// 換到新的任務旗標時，決定「從路線上的哪一個採集點開始跑」。
+        /// </summary>
+        /// <param name="route">呼叫端必須先保證非空。</param>
+        private static int PickStartNodeIndex(List<GathNodeInfo> route, string handle)
+        {
+            // 新的挑點邏輯優先；它挑不到時原封不動走下面原本的兩段退路。
+            if (C.GatherPickClosestNode && TrySelectClosestNode(route, excludeNodeId: 0, handle, out var picked))
+                return picked;
+
+            // ⚠️ ObjectTable 的物件只在這一次呼叫（同一幀）內使用，不存起來跨幀用。
+            var live = route.Select((node, index) => new
+                            {
+                                Index = index,
+                                Node = node,
+                                Obj = Svc.Objects.FirstOrDefault(o => o.ObjectKind == ObjectKind.GatheringPoint
+                                                                  && o.IsTargetable
+                                                                  && o.BaseId == node.NodeId)
+                            })
+                            .Where(x => x.Obj != null
+                                        && !Mission_Settings.ExhaustedGatheringNodes.Contains(x.Node.NodeId))
+                            .OrderBy(x => Player.DistanceTo(x.Obj!.Position))
+                            .ToList();
+
+            if (live.Count > 0)
+            {
+                var best = live[0];
+                IceLogging.Info($"挑起始採集點：ObjectTable 命中 {live.Count}/{route.Count} 個，" +
+                                $"選索引 {best.Index}（採集點 {best.Node.NodeId}，" +
+                                $"距離 {Player.DistanceTo(best.Obj!.Position):N1}）。", handle);
+                return best.Index;
+            }
+
+            // 優先排除已採光的限量節點；若全數採光（不該走到這裡，會先被耗盡收尾攔下）則退回不過濾，避免 .First() 例外。
+            var notExhausted = route.Select((node, index) => new { Index = index, Node = node })
+                                    .Where(x => !Mission_Settings.ExhaustedGatheringNodes.Contains(x.Node.NodeId))
+                                    .OrderBy(x => Player.DistanceTo(x.Node.Position))
+                                    .ToList();
+            var fallback = notExhausted.Count > 0
+                ? notExhausted[0]
+                : route.Select((node, index) => new { Index = index, Node = node })
+                       .OrderBy(x => Player.DistanceTo(x.Node.Position))
+                       .First();
+
+            IceLogging.Info($"挑起始採集點：ObjectTable 一個都沒命中（共 {route.Count} 個點，" +
+                            "採集點還沒載入或目前不可選取），改用路線檔的座標挑最近 —— " +
+                            $"選索引 {fallback.Index}（採集點 {fallback.Node.NodeId}，" +
+                            $"距離 {Player.DistanceTo(fallback.Node.Position):N1}）。", handle);
+            return fallback.Index;
+        }
+
         public static bool? PathandCheckNode()
         {
+            const string pathHandle = "[Task_Gather: PathandCheckNode]";
+
             var zoneId = Player.Territory;
-            var missionEntry = CosmicHelper.CurrentMissionInfo;
+            if (SchedulerMain.CurrentMissionUnavailable(pathHandle, out var missionEntry))
+                return true;
+
             var missionFlag = missionEntry.MapPosition;
             var gatherInfo = GatheringRouteLoader.GetRoute(zoneId, missionFlag);
+
+            // ⚠️ 兩個都要守：GetRoute 查不到路線時回 null，
+            //    而 nodeCounter 是跨任務保留的索引，換了任務／路線變短就會越界。
+            //    兩者都只會在任務裡丟例外 → 表現成「卡住不動」而且沒有訊息。
+            if (gatherInfo == null || gatherInfo.Count == 0)
+            {
+                if (EzThrottler.Throttle("ICE: gather route missing log", 5000))
+                    IceLogging.ChatError($"任務 {CosmicHelper.CurrentLunarMission} 在區域 {zoneId} 座標 {missionFlag} " +
+                                         "找不到採集路線，無法自動前往採集點。", "[ICE]");
+                SchedulerMain.AbortToStateCheck();
+                return true;
+            }
+
+            // 限量任務且整條路線已採光時，直接收手去驗分（避免對著採光的節點原地打轉）。
+            if (missionEntry.Attributes.HasFlag(MissionAttributes.Limited) && Mission_Settings.GatheringNodesDepleted)
+                return FinishDepletedLimitedRoute(gatherInfo);
+
+            if (Mission_Settings.nodeCounter < 0 || Mission_Settings.nodeCounter >= gatherInfo.Count)
+            {
+                IceLogging.Info($"採集點索引 {Mission_Settings.nodeCounter} 超出這條路線的範圍" +
+                                $"（共 {gatherInfo.Count} 個點），歸零重來。", pathHandle);
+                Mission_Settings.nodeCounter = 0;
+            }
 
             var location = gatherInfo[Mission_Settings.nodeCounter];
             if (!Task_NavmeshMove.NavToDestination(location.LandZone, distance: 1))
@@ -143,13 +330,17 @@ namespace ICE.Scheduler.Tasks
             {
                 if (CosmicHandler.IsMissionTimedOut())
                 {
-                    IceLogging.Info($"We've managed to time out the mission. Going to attempt to turnin, and abandon if not", "[Gathering: Open Gathering Menu]");
-                    SchedulerMain.State = IceState.AbandonMission;
+                    // 逾時不無條件放棄：走 ScoreCheck 先驗分再決定交件/放棄。
+                    IceLogging.Info("Mission timed out, checking score before turning in or abandoning", "[Gathering: Open Gathering Menu]");
+                    SchedulerMain.State = IceState.ScoreCheck;
                     P.TaskManager.Tasks.Clear();
                     return true;
                 }
                 else if (Svc.Condition[ConditionFlag.Gathering] && GenericHelpers.TryGetAddonMaster<Gathering>("Gathering", out var gather) && gather.IsAddonReady || GenericHelpers.TryGetAddonMaster<GatheringMasterpiece>("GatheringMasterpiece", out var collectable) && collectable.IsAddonReady)
                 {
+                    // 記錄「這一幀正在採的節點」，離開採集狀態時 RecordCompletedLimitedNode 用它判斷採光。
+                    SetActiveGatherNode(location.NodeId);
+                    activeGatherWindowOpened = true;
                     Mission_Settings.CollectableStep = 0;
 
                     IceLogging.Info($"Gathering window is now visible, continuing onto GatheringInteraction Task", "[Gathering: OpenGatheringMenu]");
@@ -171,7 +362,11 @@ namespace ICE.Scheduler.Tasks
                         }
                         else
                         {
-                            // Node doesn't exist/isn't targetable. 
+                            // Node doesn't exist/isn't targetable.
+                            // 對限量任務而言，走到這個點卻不可選取＝它已採光，記進耗盡集合。
+                            //     若整條路線都採光了，MarkLimitedNodeExhausted 會切到 ScoreCheck 並回 true。
+                            if (MarkLimitedNodeExhausted(location.NodeId, gatherInfo))
+                                return true;
                             IceLogging.Info($"The current node doesn't exist, continuing onto the next", "[Gathering: OpenGatheringMenu]");
                             return true;
                         }
@@ -181,19 +376,201 @@ namespace ICE.Scheduler.Tasks
 
             return false;
         }
+
+        // - - - 限量採集點耗盡追蹤的輔助方法 - - -
+
+        private static void SetActiveGatherNode(uint nodeId)
+        {
+            var missionId = CosmicHelper.CurrentLunarMission;
+            if (activeGatherNodeId == nodeId && activeGatherMissionId == missionId)
+                return;
+
+            activeGatherNodeId = nodeId;
+            activeGatherMissionId = missionId;
+            activeGatherWindowOpened = false;
+        }
+
+        private static void ClearActiveGatherNode()
+        {
+            activeGatherNodeId = 0;
+            activeGatherMissionId = 0;
+            activeGatherWindowOpened = false;
+        }
+
+        /// <summary>
+        /// 剛採完一個限量採集點（採集視窗開過、現在已離開採集狀態、且該節點已不可選取）就把它記進耗盡集合。
+        /// 只對限量任務生效——一般任務的節點會重生，不能當耗盡。回 <c>true</c>＝整條路線已採光、狀態已切到
+        /// ScoreCheck，呼叫端（Enqueue）要直接 return。
+        /// </summary>
+        private static bool RecordCompletedLimitedNode()
+        {
+            if (activeGatherNodeId == 0
+                || !activeGatherWindowOpened
+                || Svc.Condition[ConditionFlag.Gathering]
+                || CosmicHelper.CurrentLunarMission == 0)
+                return false;
+
+            if (activeGatherMissionId != CosmicHelper.CurrentLunarMission)
+            {
+                // 換任務了，上一個任務殘留的 activeGatherNode 一律作廢，不能拿去記到新任務頭上。
+                ClearActiveGatherNode();
+                return false;
+            }
+
+            if (!CosmicHelper.SheetMissionDict.TryGetValue(CosmicHelper.CurrentLunarMission, out var missionEntry)
+                || !missionEntry.Attributes.HasFlag(MissionAttributes.Limited))
+            {
+                ClearActiveGatherNode();
+                return false;
+            }
+
+            // 🔴 節點身分比對用 BaseId。
+            //    節點還可選取＝還沒採光（可能只是暫時關了視窗），不記。
+            if (Svc.Objects.Any(obj => obj.ObjectKind == ObjectKind.GatheringPoint
+                                    && obj.BaseId == activeGatherNodeId
+                                    && obj.IsTargetable))
+                return false;
+
+            var completedNodeId = activeGatherNodeId;
+            ClearActiveGatherNode();
+            var gatherInfo = GatheringRouteLoader.GetRoute(Player.Territory, missionEntry.MapPosition);
+            if (gatherInfo == null || gatherInfo.Count == 0)
+                return false;
+            return MarkLimitedNodeExhausted(completedNodeId, gatherInfo);
+        }
+
+        /// <summary>
+        /// 把一個限量採集點記進耗盡集合；若整條路線都採光了就收手走 ScoreCheck。
+        /// 回 <c>true</c>＝路線已採光、狀態已切到 ScoreCheck。
+        /// </summary>
+        private static bool MarkLimitedNodeExhausted(uint nodeId, List<GathNodeInfo> gatherInfo)
+        {
+            if (!CosmicHelper.SheetMissionDict.TryGetValue(CosmicHelper.CurrentLunarMission, out var missionEntry)
+                || !missionEntry.Attributes.HasFlag(MissionAttributes.Limited)
+                || !Mission_Settings.ExhaustedGatheringNodes.Add(nodeId))
+                return false;
+
+            Mission_Settings.nodeTotal = Mission_Settings.ExhaustedGatheringNodes.Count;
+            IceLogging.Info($"限量採集點 {nodeId} 已採光（{Mission_Settings.ExhaustedGatheringNodes.Count}/{gatherInfo.Count}）。",
+                            "[Gathering: Limited Nodes]");
+
+            if (!gatherInfo.All(routeNode => Mission_Settings.ExhaustedGatheringNodes.Contains(routeNode.NodeId)))
+                return false;
+
+            return FinishDepletedLimitedRoute(gatherInfo);
+        }
+
+        /// <summary>
+        /// 整條限量路線都採光時的收尾：停下導航、切到 ScoreCheck 由驗分決策決定交件或放棄。
+        /// </summary>
+        private static bool FinishDepletedLimitedRoute(List<GathNodeInfo> gatherInfo)
+        {
+            Mission_Settings.GatheringNodesDepleted = true;
+            if (P.Navmesh.IsRunning())
+                P.Navmesh.Stop();
+
+            IceLogging.Info($"這條路線的 {gatherInfo.Count} 個限量採集點都採光了，改去驗分決定交件/放棄。",
+                            "[Gathering: Limited Nodes]");
+            SchedulerMain.State = IceState.ScoreCheck;
+            P.TaskManager.Tasks.Clear();
+            return true;
+        }
+
+        // - - - 採集接近角 - - -
+
+        /// <summary>
+        /// 依採集點的允許接近角（radius_start/end）與距離（min/max_distance）算出一個「從允許方向靠近」的點。
+        /// 純函式，資料全來自路線 yaml。<b>不驗證這個點在不在導航網格上</b>——那由
+        /// <see cref="TryResolveApproachOnMesh"/> 負責，且找不到就退回原本的落點（fail-open）。
+        /// </summary>
+        /// <remarks>
+        /// 出處：cycleapple api13-tw 的 <c>Task_Gather.GetGatherApproachPosition</c>。
+        /// </remarks>
+        internal static Vector3 GetGatherApproachPosition(GathNodeInfo node, Vector3 center)
+        {
+            if (approachNodeId == node.NodeId && Vector3.DistanceSquared(approachCenter, center) <= 0.25f)
+                return approachPosition;
+
+            var angle = GetClosestAllowedAngle(center, node.RadiusStart, node.RadiusEnd);
+            var maxDistance = MathF.Min(node.MaxDistance, GatheringRange - GatherApproachTolerance);
+            var minDistance = MathF.Min(node.MinDistance, maxDistance);
+            var distance = minDistance + Random.Shared.NextSingle() * (maxDistance - minDistance);
+            var radians = (180f - angle) * (MathF.PI / 180f);
+
+            approachNodeId = node.NodeId;
+            approachCenter = center;
+            approachPosition = new Vector3(
+                center.X + distance * MathF.Sin(radians),
+                center.Y,
+                center.Z + distance * MathF.Cos(radians));
+            return approachPosition;
+        }
+
+        private static float GetClosestAllowedAngle(Vector3 center, float minAngle, float maxAngle)
+        {
+            var playerAngle = 180f - MathF.Atan2(Player.Position.X - center.X, Player.Position.Z - center.Z) * (180f / MathF.PI);
+            playerAngle = NormalizeAngle(playerAngle);
+            minAngle = NormalizeAngle(minAngle);
+            maxAngle = NormalizeAngle(maxAngle);
+
+            if (MathF.Abs(minAngle - maxAngle) < 0.01f || IsAngleInRange(playerAngle, minAngle, maxAngle))
+                return playerAngle;
+
+            return AngularDistance(playerAngle, minAngle) <= AngularDistance(playerAngle, maxAngle) ? minAngle : maxAngle;
+        }
+
+        private static float NormalizeAngle(float angle) => (angle % 360f + 360f) % 360f;
+
+        private static bool IsAngleInRange(float angle, float minAngle, float maxAngle)
+            => minAngle <= maxAngle ? angle >= minAngle && angle <= maxAngle : angle >= minAngle || angle <= maxAngle;
+
+        private static float AngularDistance(float first, float second)
+            => MathF.Abs((second - first + 540f) % 360f - 180f);
+
+        /// <summary>
+        /// 把接近點吸附到導航網格上。找不到就回 <c>false</c>，讓呼叫端退回原本的落點。
+        /// </summary>
+        /// <remarks>
+        /// 🔴 <b>fail-open 必須</b>：角度資料是國際服作者標的、台服未驗，算出來的接近點很可能落在
+        /// 牆裡／水裡／網格外——絕不能讓它成為必經路徑，否則採集任務會靜默卡在一個到不了的點。
+        /// </remarks>
+        internal static bool TryResolveApproachOnMesh(Vector3 approach, out Vector3 resolved)
+        {
+            resolved = approach;
+            if (!P.Navmesh.Installed)
+                return false;
+            try
+            {
+                var nearest = P.Navmesh.NearestPoint(approach, 2f, 5f);
+                if (nearest == null)
+                    return false;
+                resolved = nearest.Value;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
         public static unsafe bool? GatheringInteraction()
         {
-            var missionInfo = CosmicHelper.CurrentMissionInfo;
+            if (SchedulerMain.CurrentMissionUnavailable("[Task_Gather: Gathering Interaction]", out var missionInfo))
+                return true;
+
             bool collectableItem = missionInfo.Attributes.HasFlag(MissionAttributes.Collectables);
             bool reduceItems = missionInfo.Attributes.HasFlag(MissionAttributes.ReducedItems);
-            var configId = C.MissionConfig[CosmicHelper.CurrentLunarMission].GProfileId;
-            if (C.GatherProfiles.TryGetValue(configId, out var gatherConfig))
+            // MissionConfig 的鍵集合跟 SheetMissionDict 不同（前者被 MissionTimer 按需補上），
+            // 所以要分開守；查不到就退回預設採集設定檔。
+            var configId = C.MissionConfig.TryGetValue(CosmicHelper.CurrentLunarMission, out var gatherMissionConfig)
+                ? gatherMissionConfig.GProfileId
+                : 0;
+            if (!C.GatherProfiles.TryGetValue(configId, out var gatherConfig) &&
+                !C.GatherProfiles.TryGetValue(0, out gatherConfig))
             {
-
-            }
-            else
-            {
-                gatherConfig = C.GatherProfiles[0];
+                // GatherProfiles 用 TryGetValue：設定檔裡沒有 0 號設定檔時直接索引就是 KeyNotFoundException。
+                IceLogging.ChatError("找不到任何可用的採集設定檔（連預設的 0 號都沒有），無法自動採集。", "[ICE]");
+                SchedulerMain.AbortToStateCheck();
+                return true;
             }
             var gathActions = GatheringUtil.GathActionDict;
 
@@ -239,7 +616,10 @@ namespace ICE.Scheduler.Tasks
                                 {
                                     if (item.IsCollectable)
                                     {
-                                        if (EzThrottler.Throttle("Swapping to collectable menu"))
+                                        // 採集窗按後不關（直到耐久歸 0），屬多次互動窗：逃生口 15 幀，key 帶道具 ID。
+                                        // 守衛擋下時與節流擋下同形：這一輪不採、下一輪再來（節流已被消耗，後面的項目同幀也不會再過）。
+                                        if (EzThrottler.Throttle("Swapping to collectable menu")
+                                            && AddonPressGuard.TryBeginPress("採集：切到收藏品採集", "Gathering", gather, $"Gather|{item.ItemID}", AddonPressGuard.RoutineRePressEscapeFrames))
                                         {
                                             item.Gather();
                                             Mission_Settings.item_collectableId = item.ItemID;
@@ -270,13 +650,16 @@ namespace ICE.Scheduler.Tasks
                                     return false;
                                 }
 
-                                foreach (var item in CosmicHelper.CurrentMissionInfo.Gathering_Min.OrderByDescending(x => x.Value))
+                                // 用方法開頭守衛拿到的 missionInfo，不要再讀一次。
+                                foreach (var item in missionInfo.Gathering_Min.OrderByDescending(x => x.Value))
                                 {
                                     if (PlayerHelper.GetItemCount(item.Key, out var count) && count < item.Value)
                                     {
                                         if (EzThrottler.Throttle("Gathering Item"))
                                         {
-                                            gather.GatheredItems.Where(x => x.ItemID == item.Key).FirstOrDefault().Gather();
+                                            var target = gather.GatheredItems.Where(x => x.ItemID == item.Key).FirstOrDefault();
+                                            if (AddonPressGuard.TryBeginPress("採集：採集任務道具", "Gathering", gather, $"Gather|{item.Key}", AddonPressGuard.RoutineRePressEscapeFrames))
+                                                target.Gather();
                                         }
                                         return false;
                                     }
@@ -285,7 +668,10 @@ namespace ICE.Scheduler.Tasks
                                 if (EzThrottler.Throttle("Gathering item for score", 100))
                                 {
                                     // if we're here, then we just need to gather for score. So... gathering for score lol
-                                    gather.GatheredItems.Where(x => x.ItemID != 0).FirstOrDefault().Gather();
+                                    // 100ms 是刻意的連按；守衛只擋「同一件在窗走完生命週期前 15 幀內再按」，實際節奏由採集動畫決定。
+                                    var scoreItem = gather.GatheredItems.Where(x => x.ItemID != 0).FirstOrDefault();
+                                    if (AddonPressGuard.TryBeginPress("採集：為分數採集", "Gathering", gather, $"Gather|{scoreItem.ItemID}", AddonPressGuard.RoutineRePressEscapeFrames))
+                                        scoreItem.Gather();
                                 }
                                 return false;
                             }
@@ -606,6 +992,9 @@ namespace ICE.Scheduler.Tasks
 
                 if (step == 0)
                 {
+                    // 狀態 3911 ＝「強化洞察」，由任務指令槽上的 Action 41307「極致強化洞察」賦予
+                    // （所以下面按的是 GeneralAction 27，不是 41307）。對照表在
+                    // GatheringUtil.GathCollectableBuffs["CollectorsHigh"]。
                     if (!PlayerHelper.HasStatusId(3911) && GatheringUtil.CollectStandardCharges() > 0)
                     {
                         if (EzThrottler.Throttle("Using special buff", 100))
@@ -745,8 +1134,13 @@ namespace ICE.Scheduler.Tasks
         public static bool? CheckReduceMission()
         {
             IceLogging.Info($"Current itemId: {Mission_Settings.item_collectableId}", "[Gather: Check Reduce Mission]");
+
+            // ⚠️ 這裡的 hasCollectable 讀到 0 只是「不做精選」，不是破壞性判斷，所以不必擋換區。
+            if (SchedulerMain.CurrentMissionUnavailable("[Gather: Check Reduce Mission]", out var reduceMission))
+                return true;
+
             bool hasCollectable = PlayerHelper.GetItemCount(Mission_Settings.item_collectableId, out var count) && count > 0;
-            bool isReducableMission = CosmicHelper.CurrentMissionInfo.Attributes.HasFlag(MissionAttributes.ReducedItems);
+            bool isReducableMission = reduceMission.Attributes.HasFlag(MissionAttributes.ReducedItems);
             if (hasCollectable && isReducableMission)
             {
                 P.TaskManager.InsertMulti(
@@ -780,13 +1174,18 @@ namespace ICE.Scheduler.Tasks
                 {
                     if (EzThrottler.Throttle("Desynthing the item"))
                     {
-                        if (!Player.IsBusy)
+                        // 分解後視窗多半留著顯示結果、不一定關：當多次互動窗處理（逃生口 15 幀、走到寫 Debug），
+                        // 只擋「同一位址同參數組在 15 幀內再送」。
+                        if (!Player.IsBusy
+                            && AddonPressGuard.TryBeginPress("分解：分解道具", "PurifyItemSelector", desynthWindow, AddonPressGuard.BuildPressKey(true, 12, 0), AddonPressGuard.RoutineRePressEscapeFrames))
                             ECommons.Automation.Callback.Fire(desynthWindow, true, 12, 0);
                     }
                 }
                 else if (GenericHelpers.TryGetAddonMaster<WKSMissionInfomation>("WKSMissionInfomation", out var missionInfo) && missionInfo.IsAddonReady)
                 {
-                    if (EzThrottler.Throttle("Opening the desynth window"))
+                    // WKSMissionInfomation 按「分解」後不關（開出分解視窗），屬多次互動窗：逃生口 15 幀。
+                    if (EzThrottler.Throttle("Opening the desynth window")
+                        && AddonPressGuard.TryBeginPress("分解：開啟分解視窗", "WKSMissionInfomation", missionInfo, "StellerReduction", AddonPressGuard.RoutineRePressEscapeFrames))
                     {
                         missionInfo.StellerReduction();
                     }

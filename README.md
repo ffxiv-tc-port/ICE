@@ -1,28 +1,48 @@
-# Ices Cosmic Exploration (ICE)
+# ICE（Ice's Cosmic Exploration）
 
-Repo: `https://puni.sh/api/repository/ice`
+[Ices-Cosmic-Exploration](https://github.com/LeontopodiumNivale14/Ices-Cosmic-Exploration) 的台服移植版，宇宙探索自動化插件：自動接取與回報任務、自動採集、釣魚與製作、宇宙信用點數購物與宇宙好運道，並提供疊加層與機甲行動的資訊顯示。
 
-Welcome to the moon plugin that makes that dreadful grind of the moon into something that can be automated and made so much simplier.  
-The overall purpose of this is to help you re-roll and grind out certain Cosmic Exploration missinos. From anywhere on trying to get gold on every mission for that title, to grinding out relic experience so you get your crafter/gathering tools. Or even if you're grinding up to 500k points on each and every class.
+## 功能
 
-<img width="621" height="394" alt="image" src="https://github.com/user-attachments/assets/722c3e44-74d2-49d3-964a-de21e6a2cf87" />
+- **任務自動化**：在 `/ice start` 之後自動接取、執行、回報宇宙探索任務，挑不到想要的任務時放棄重骰（可設連續重骰上限）；提供「標準模式」（依你勾選的任務與優先順序）與「宇宙工具」模式（挑最能推進宇宙工具經驗值的任務）
+- **任務優先順序**：可設定階級挑選順序、沒金星的優先、依表格排序挑任務、金星率過低的往後排等規則；取得金星後可自動停用該任務
+- **自動採集**：搭配 [vnavmesh](https://github.com/awgil/ffxiv_navmesh) 自動導航採集，採集路線與採集配置檔可自訂
+- **自動釣魚**：搭配 [AutoHook](https://github.com/InitialDet/AutoHook) 完成釣魚任務
+- **自動製作**：搭配 [Artisan](https://github.com/PunishXIV/Artisan) 完成製作任務
+- **月球與職業自動選擇**：自動選擇月球，並依任務自動切換生產／採集職業
+- **宇宙信用點數購物與宇宙好運道**：自動購買設定好的商店道具（可設定已學會就不買）；宇宙好運道可依權重自動轉，也能在設定頁手動跑一次
+- **停止條件**：達到指定等級、探索成果、宇宙信用點數、月球信用點數或宇宙工具完成時自動停止
+- **疊加層**：顯示目前任務、正要領取的任務、評價與金星進度、宇宙工具經驗值
+- **機甲行動資訊**：技能範圍、技能冷卻、proc 提示、事件狀態與進度、下次機甲事件時間、目標標示，以及報名開放時的聊天通知（預設關）。**全部只有顯示**——不施放技能、不自動走位、不自動報名
 
-Features:  
-✔️ Re-roll until you get the missions that you would like to grind  
-✔️ Allow it to automatically chose which one is most optimal with "Relic XP Grind" and find the missions that fit your relic experience needs so you can finish those tools  
-✔️ Select at what point you would like to turn in a mission (Bronze, Silver, Gold) to select when you would like to turnin  
-✔️ Be able to prioritize what classes you would like to farm with priority farm mode, and cycle through classes/mission types for weather/timed/sequence missions
+部分功能依需求選用 Artisan、AutoHook、vnavmesh，插件內建安裝按鈕可一鍵從台服插件庫取得。
 
-Requirements: 
-### Crafting
-- Artisan | Repo: `https://github.com/PunishXIV/Artisan`
+## 指令
 
-### Fishing
-- Autohook | Repo: `https://github.com/InitialDet/AutoHook`
-- How to auto-accept collectables: `https://github.com/PunishXIV/AutoHook/blob/main/AcceptCollectable.md`
+- `/ice`（別名 `/icecosmic`）：開關主視窗；`/ice s` 開啟設定頁；`/ice help` 在聊天視窗列出指令
+- `/ice start`／`/ice stop`：開始／停止自動執行
+- `/ice add|remove|toggle|only <任務 ID…>`：啟用／停用／切換／只啟用指定任務；`/ice clear` 停用全部任務
+- `/ice flag <任務 ID>`：在地圖上標出該任務的採集範圍
 
-### Gathering
-Just need navmesh
-- Vnavmesh | Repo: `https://github.com/awgil/ffxiv_navmesh`
+## 台服版的修改
 
-There is an in plugin window that goes over the specifics of each kind/will also show give you buttons to install plugins if you don't have them already. 
+- 介面繁體中文化（依台服官方譯名），必要插件頁的安裝按鈕改指向台服插件庫。
+- 機甲行動資訊顯示（上面列的那些）為台服版新增，全部只讀不代操。
+- 疊加層加上任務目標進度、待領取任務、評價進度與任務類型標籤。
+- 宇宙信用點數商店改從遊戲資料讀取，任務分數表補上台服的任務，效率排序不再失準。
+- 任務挑選新增「沒金星的優先」「依表格排序挑任務」、可調整的階級順序與連續重骰上限。
+- 角色還沒解鎖收藏品或精選時，在任務表與聊天視窗提醒要完成哪個支線任務。
+- 執行期間暫停 AutoRetainer；借用 AutoHook 開關與 vnavmesh 導航設定時，跑完或卸載後還原你的設定。
+- 搭配 TataruPraise：交件拿到金星時誇獎，自動化停下時請塔塔露說一聲。
+- 修正多處按遊戲視窗時重按正在關閉的視窗造成遊戲崩潰，以及任務被遊戲取消時的連鎖錯誤。
+- 多處降低記憶體用量。
+
+## 需要搭配的插件
+
+- 選用：Artisan（製作任務）、vnavmesh（採集導航）、AutoHook（釣魚任務）、AutoRetainer、TataruPraise
+
+## 授權
+
+依照原專案授權條款發布，詳見 [LICENSE](LICENSE)。
+
+原作者：[LeontopodiumNivale14](https://github.com/LeontopodiumNivale14)

@@ -4,8 +4,8 @@ job: MIN
 flag:
   x: -552
   y: 651
-author: Puni.sh Community
-date_modified: 2025-12-15T02:28:29.8287623Z
+author: "Puni.sh Community; angle data: Leontopodium Nivale"
+date_modified: 2026-06-08T12:44:36.5558356Z
 nodes:
 - node_id: 35345
   position:
@@ -16,10 +16,10 @@ nodes:
     x: -488.41
     y: 11.44
     z: 628.36
-  radius_start: 0
-  radius_end: 360
+  radius_start: 136
+  radius_end: 275
   min_distance: 1
-  max_distance: 5
+  max_distance: 2
 - node_id: 35346
   position:
     x: -512.41
@@ -29,10 +29,10 @@ nodes:
     x: -512.62
     y: 11
     z: 608.52
-  radius_start: 0
-  radius_end: 360
+  radius_start: 117
+  radius_end: 246
   min_distance: 1
-  max_distance: 5
+  max_distance: 2
 - node_id: 35348
   position:
     x: -608.06
@@ -42,10 +42,10 @@ nodes:
     x: -606.68
     y: 15.76
     z: 623.76
-  radius_start: 0
-  radius_end: 360
+  radius_start: 331
+  radius_end: 118
   min_distance: 1
-  max_distance: 5
+  max_distance: 2
 - node_id: 35347
   position:
     x: -606.76
@@ -55,10 +55,10 @@ nodes:
     x: -605.44
     y: 16.33
     z: 629.94
-  radius_start: 0
-  radius_end: 360
+  radius_start: 23
+  radius_end: 198
   min_distance: 1
-  max_distance: 5
+  max_distance: 2
 - node_id: 35349
   position:
     x: -562.71
@@ -68,10 +68,10 @@ nodes:
     x: -563.47
     y: 22.85
     z: 690.47
-  radius_start: 0
-  radius_end: 360
+  radius_start: 260
+  radius_end: 44
   min_distance: 1
-  max_distance: 5
+  max_distance: 2
 - node_id: 35350
   position:
     x: -558.18
@@ -81,7 +81,7 @@ nodes:
     x: -557.52
     y: 22.55
     z: 692.53
-  radius_start: 0
-  radius_end: 360
+  radius_start: 346
+  radius_end: 114
   min_distance: 1
-  max_distance: 5
+  max_distance: 2

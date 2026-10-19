@@ -1,5 +1,7 @@
-﻿using ICE.Config;
+﻿using Dalamud.Interface.Utility.Raii;
+using ICE.Config;
 using ICE.Utilities.Cosmic_Helper;
+using ICE.Utilities.ImGuiTools;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -10,12 +12,14 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table;
 
 public static class Settings_TableColumns
 {
-    private static string[] missionSortOptions = ["Id", "Name", "Cosmo Credits", "Lunar Credits", "Exp I", "Exp II", "Exp III", "Exp IV", "Exp V", "Map Location", "Class Score"];
+    // ⚠️ 索引即 C.TableSortOption 的值，也是 modeSelect_TableInfo.SortByTableOption 的 switch case。
+    //    只能往尾端加，不要插中間 —— 既有使用者存的是數字，插中間會靜默改掉他們選的排序。
+    private static string[] missionSortOptions => ["Id", "Name".Loc(), "Cosmo Credits".Loc(), "Lunar Credits".Loc(), "Exp I".Loc(), "Exp II".Loc(), "Exp III".Loc(), "Exp IV".Loc(), "Exp V".Loc(), "Map Location".Loc(), "Class Score".Loc(), "Effective Score/Min".Loc()];
 
     public static void ColumnSettings()
     {
         int missionSelectedOption = C.TableSortOption;
-        if (ImGui.BeginCombo("Sort By", missionSortOptions[missionSelectedOption]))
+        if (ImGui.BeginCombo("Sort By".Loc() + "###ICETableSortOption", missionSortOptions[missionSelectedOption]))
         {
             for (int i = 0; i < missionSortOptions.Length; i++)
             {
@@ -36,23 +40,24 @@ public static class Settings_TableColumns
             }
             ImGui.EndCombo();
         }
+        ImGuiEx.HelpMarker(
+            ("'Effective Score/Min' ranks by your own recorded results, including the time lost to abandoned runs. " +
+            "Missions with no records yet count as 0 and sort last, so run a few rounds on a normal order first to build up data.\n" +
+            "A silver turn-in is worth 80% of a gold one (4x vs 5x), so a fast silver can beat a slow gold - this order reflects that automatically.\n" +
+            "Every other option ranks by fixed sheet data and needs no history.").Loc());
 
-        bool hideUnsupported = C.HideUnsupportedMissions;
-        if (ImGui.Checkbox("Hide Unsupported Missions", ref hideUnsupported))
-        {
-            C.HideUnsupportedMissions = hideUnsupported;
-            C.Save();
-        }
+        // 📌「隱藏尚未支援的任務」在任務頁的篩選列上（modeSelect_Standard.DrawFilterRow）：
+        //    它是每天都會切的顯示篩選，不該躺在一個預設收合的設定欄裡。
 
         bool showExtraInfo = C.ShowExtraMissionInfo;
-        if (ImGui.Checkbox("Show Extra Mission Info Side-Window", ref showExtraInfo))
+        if (ImGui.Checkbox("Show Extra Mission Info Side-Window".Loc() + "###ICEShowExtraMissionInfo", ref showExtraInfo))
         {
             C.ShowExtraMissionInfo = showExtraInfo;
             C.Save();
         }
 
         bool autoShowToken = C.Auto_ShowTokens;
-        if (ImGui.Checkbox("Auto Hide/Show Planet Tokens", ref autoShowToken))
+        if (ImGui.Checkbox("Auto Hide/Show Planet Tokens".Loc() + "###ICEAutoShowTokens", ref autoShowToken))
         {
             C.Auto_ShowTokens = autoShowToken;
             C.Save();
@@ -61,7 +66,7 @@ public static class Settings_TableColumns
 
 
         bool showManualMode = C.ShowManualMode;
-        if (ImGui.Checkbox("Show Manual Mode Column", ref showManualMode))
+        if (ImGui.Checkbox("Show Manual Mode Column".Loc() + "###ICEShowManualMode", ref showManualMode))
         {
             C.ShowManualMode = showManualMode;
             if (!showManualMode)
@@ -73,8 +78,8 @@ public static class Settings_TableColumns
             }
             C.Save();
         }
-        ImGuiEx.HelpMarker("Only enable this if you want plan on doing missions YOURSELF. AND NOT AUTOMATING IT. " +
-                           "Or if you're letting a different plugin do all the automating of turning in, craftings, gathering... and not letting I.C.E. handle interacting with those plugins");
+        ImGuiEx.HelpMarker(("Only enable this if you want plan on doing missions YOURSELF. AND NOT AUTOMATING IT. " +
+                           "Or if you're letting a different plugin do all the automating of turning in, craftings, gathering... and not letting I.C.E. handle interacting with those plugins").Loc());
     }
 
     private static bool ApplyToAllClasses = true;
@@ -82,19 +87,19 @@ public static class Settings_TableColumns
     private static int SpecificClass = 8;
     private static int selectedClassIndex = 0;
 
-    private static readonly string[] classOptions = new[]
+    private static string[] classOptions => new[]
     {
-        "Carpenter (CRP)",      // 0
-        "Blacksmith (BSM)",     // 1
-        "Armorer (ARM)",        // 2
-        "Goldsmith (GSM)",      // 3
-        "Leatherworker (LTW)",  // 4
-        "Weaver (WVR)",         // 5
-        "Alchemist (ALC)",      // 6
-        "Culinarian (CUL)",     // 7
-        "Miner (MIN)",          // 8
-        "Botanist (BTN)",       // 9
-        "Fisher (FSH)"          // 10
+        "Carpenter (CRP)".Loc(),      // 0
+        "Blacksmith (BSM)".Loc(),     // 1
+        "Armorer (ARM)".Loc(),        // 2
+        "Goldsmith (GSM)".Loc(),      // 3
+        "Leatherworker (LTW)".Loc(),  // 4
+        "Weaver (WVR)".Loc(),         // 5
+        "Alchemist (ALC)".Loc(),      // 6
+        "Culinarian (CUL)".Loc(),     // 7
+        "Miner (MIN)".Loc(),          // 8
+        "Botanist (BTN)".Loc(),       // 9
+        "Fisher (FSH)".Loc()          // 10
     };
 
     private static readonly int[] classIds = new[]
@@ -120,59 +125,67 @@ public static class Settings_TableColumns
     public static void GeneralMissionSettings()
     {
         bool onlyGrabMission = C.OnlyGrabMission;
-        if (ImGui.Checkbox($"Only grab mission", ref onlyGrabMission))
+        if (ImGui.Checkbox("Only grab mission".Loc() + "###ICEOnlyGrabMission", ref onlyGrabMission))
         {
             C.OnlyGrabMission = onlyGrabMission;
             C.Save();
         }
 
         bool removeGold = C.RemoveAfterGold;
-        if (ImGui.Checkbox("Remove Mission Upon Gold Completion", ref removeGold))
+        if (ImGui.Checkbox("Remove Mission Upon Gold Completion".Loc() + "###ICERemoveAfterGold", ref removeGold))
         {
             C.RemoveAfterGold = removeGold;
             C.Save();
         }
 
-        ImGui.Checkbox("Stop after current mission", ref Mission_Settings.StopAfterCurrent);
-        bool relicTurnin = C.TurninRelic;
-        if (ImGui.Checkbox($"Turnin if relic is complete##RelicTurnin_GeneralSetting", ref relicTurnin))
+        // 緊急任務例外。縮排一格掛在上面那項底下，上面關著時整項變灰（它只在那時有意義）。
+        using (ImRaii.Disabled(!removeGold))
         {
-            if (relicTurnin)
-                C.GrindProvisionals = false;
-
-            C.TurninRelic = relicTurnin;
-            C.Save();
-        }
-        ImGui.SameLine();
-        ImGui.TextDisabled("?");
-        if (ImGui.IsItemHovered())
-        {
-            ImGui.SetTooltip("THIS IS YOUR HEADS UP ON HOW THIS WORKS. If I change this in the future, this tooltip will also change.\n" +
-                             "1: This will check for your current CLASS [not menu class, actual current class] for relic turnin.\n" +
-                             "2: You must not have the tool eqipped for this to run full auto. \n" +
-                             "\t- This is due to the fact that I cba coding this in at this time. (might change my mind in the future *shrugs*)\n" +
-                             "3: This will take prio over \"Stop @ Relic Turnin\", in the sense that if you have both enabled, it will turnin vs stop. And continue about it's day\n" +
-                             "4: If you're on a crafting class, it will return you back to the stop you were crafting post turnin. \n" +
-                             "\t- This is optional, you can disable it at your own free will, I just like this so I can just go back to an isolated area of my choosing");
-        }
-        if (ImGui.Button("Quick Apply Turnins"))
-        {
-            ImGui.OpenPopup("Quick Apply_Mission Turnins");
+            ImGui.Indent();
+            bool keepCritical = C.RemoveAfterGoldKeepCritical;
+            if (ImGui.Checkbox("Keep Critical missions enabled".Loc() + "###ICERemoveAfterGoldKeepCritical", ref keepCritical))
+            {
+                C.RemoveAfterGoldKeepCritical = keepCritical;
+                C.Save();
+            }
+            ImGui.SameLine();
+            ImGui.TextDisabled("?");
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            {
+                ImGui_Tools.TooltipInDisabled(("Critical (emergency) missions stay in the pool even after you gold them.\n" +
+                                  "Those missions only show up during a Red Alert - magnetic storm, meteor shower " +
+                                  "or spore mist - so once the golded ones are removed there can be nothing left " +
+                                  "to take when an alert actually starts.\n" +
+                                  "Off by default: behaviour is unchanged unless you turn this on.").Loc());
+            }
+            ImGui.Unindent();
         }
 
-        if (ImGui.BeginPopup("Quick Apply_Mission Turnins"))
+        ImGui.Checkbox("Stop after current mission".Loc() + "###ICEGeneralStopAfterCurrent", ref Mission_Settings.StopAfterCurrent);
+
+        DrawRelicTurninCheckbox("GeneralSetting");
+
+        // ⚠️ 篩選條件只有一份（QuickApplyTargetCount / 實際套用共用 IsQuickApplyTarget），
+        //    預覽數字與真正會被改到的筆數不可能對不上。
+        // 📌 套用之後區塊**不會**自己收起來：留著才看得到套用後的筆數，
+        //    也方便接著換一個職業再套一次。
+        if (ImGui.TreeNode("Quick Apply Turnins".Loc() + "###ICEQuickApplyTurnins"))
         {
-            if (ImGui.RadioButton("Apply to all classes", ApplyToAllClasses))
+            if (ImGui.RadioButton("Apply to all classes".Loc() + "###ICEApplyToAllClasses", ApplyToAllClasses))
             {
                 ApplyToAllClasses = true;
                 ApplyToSpecicClass = false;
             }
 
-            if (ImGui.RadioButton("Apply to specific class", ApplyToSpecicClass))
+            if (ImGui.RadioButton("Apply to specific class".Loc() + "###ICEApplyToSpecificClass", ApplyToSpecicClass))
             {
                 ApplyToAllClasses = false;
                 ApplyToSpecicClass = true;
             }
+            // 🔴 一定要指定寬度：畫在表格欄位裡而沒指定寬度的控制項會回頭去問「欄位有多寬」，
+            //    而這個表格是依內容自動決定欄寬的 —— 兩邊互相參照會讓欄寬在每一幀之間跳動。
+            //    用字型大小當基準，使用者調 UI 縮放時會跟著縮放。
+            ImGui.SetNextItemWidth(ImGui.GetFontSize() * 12f);
             if (ImGui.Combo("##ClassSelector", ref selectedClassIndex, classOptions, classOptions.Length))
             {
                 // Update SpecificClass when selection changes
@@ -180,10 +193,10 @@ public static class Settings_TableColumns
                 IceLogging.Debug($"Selected class: {classOptions[selectedClassIndex]}, ID: {SpecificClass}");
             }
             ImGui.Separator();
-            ImGui.Text("Select Turnin Options");
+            ImGui.Text("Select Turnin Options".Loc());
             ImGui.Dummy(new Vector2(0, 2));
 
-            if (ImGui.Checkbox("Auto", ref AnyTurnin))
+            if (ImGui.Checkbox("Auto".Loc() + "###ICEQuickTurninAuto", ref AnyTurnin))
             {
                 if (AnyTurnin)
                 {
@@ -201,25 +214,27 @@ public static class Settings_TableColumns
                     }
                 }
 
-                C.Save();
+                // 📌 這裡刻意不呼叫 C.Save()：這一格與下面的金／銀／銅三格都是
+                //    **純畫面暫存**（static 欄位，不在設定檔裡），要等按下「套用」才會
+                //    寫進任何一個任務的設定。
             }
-            ImGuiEx.HelpMarker("This option will strive to get the best result, but will turn in any result if necessary without stopping.");
+            ImGuiEx.HelpMarker("This option will strive to get the best result, but will turn in any result if necessary without stopping.".Loc());
 
             ImGui.Separator();
 
-            if (ImGui.Checkbox("Gold", ref TurninGold))
+            if (ImGui.Checkbox("Gold".Loc() + "###ICEQuickTurninGold", ref TurninGold))
             {
                 if (AnyTurnin && TurninGold)
                     AnyTurnin = false;
 
             }
-            if (ImGui.Checkbox("Silver", ref TurninSilver))
+            if (ImGui.Checkbox("Silver".Loc() + "###ICEQuickTurninSilver", ref TurninSilver))
             {
                 if (AnyTurnin && TurninSilver)
                     AnyTurnin = false;
 
             }
-            if (ImGui.Checkbox("Bronze", ref TurninBronze))
+            if (ImGui.Checkbox("Bronze".Loc() + "###ICEQuickTurninBronze", ref TurninBronze))
             {
                 if (AnyTurnin && TurninBronze)
                     AnyTurnin = false;
@@ -231,37 +246,95 @@ public static class Settings_TableColumns
 
             ImGui.Separator();
 
-            if (ImGui.Button("Apply"))
+            // 按下去之前先講清楚會動到幾筆。這一行刻意畫在按鈕正上方而不是塞進 tooltip：
+            // 「會改掉幾百個任務的設定」屬於按下去之前一定要看到的資訊，不是起疑才查的。
+            ImGui.TextUnformatted("Will apply to ?? missions".Loc(QuickApplyTargetCount()));
+
+            if (ImGui.Button("Apply".Loc() + "###ICEQuickApplyConfirm"))
             {
                 var amountApplied = 0;
                 foreach (var mission in C.MissionConfig)
                 {
-                    if (CosmicHelper.SheetMissionDict.TryGetValue(mission.Key, out var sheetInfo))
-                    {
-                        if (ApplyToSpecicClass && !sheetInfo.Jobs.Contains((uint)SpecificClass))
-                            continue;
+                    if (!IsQuickApplyTarget(mission.Key))
+                        continue;
 
-                        if (sheetInfo.Attributes.HasFlag(MissionAttributes.ScoreTimeRemaining))
-                            continue;
-
-                        if (C.MissionConfig.TryGetValue(mission.Key, out var config))
-                        {
-                            config.AutoTurnin = AnyTurnin;
-                            config.TurninGold = TurninGold;
-                            config.TurninSilver = TurninSilver;
-                            config.TurninBronze = TurninBronze;
-                        }
-                        amountApplied += 1;
-                    }
+                    var config = mission.Value;
+                    config.AutoTurnin = AnyTurnin;
+                    config.TurninGold = TurninGold;
+                    config.TurninSilver = TurninSilver;
+                    config.TurninBronze = TurninBronze;
+                    amountApplied += 1;
                 }
                 C.SaveDebounced();
 
-                Notify.Success($"Applied settings to: {amountApplied} missions, just for you buddy.");
-                ImGui.CloseCurrentPopup();
+                Notify.Success("Applied settings to: ?? missions, just for you buddy.".Loc(amountApplied));
             }
 
-
-            ImGui.EndPopup();
+            ImGui.TreePop();
         }
+    }
+
+    /// <summary>
+    /// 「宇宙工具完成就自動繳交」的勾選項。
+    /// 🔴 這個開關在畫面上有**兩個**入口（任務設定欄、宇宙工具設定欄），兩邊都呼叫這一支：
+    /// 「勾起來時順手關掉限定任務模式」這個副作用與整段 tooltip 只寫一次。兩份會漂移，而漂移的失敗形式是
+    /// 「同一個開關在 A 處會關掉限定任務、在 B 處不會」這種沒人查得出來的怪 bug。
+    /// </summary>
+    public static void DrawRelicTurninCheckbox(string idSuffix)
+    {
+        bool relicTurnin = C.TurninRelic;
+        if (ImGui.Checkbox("Turnin if relic is complete".Loc() + "##RelicTurnin_" + idSuffix, ref relicTurnin))
+        {
+            if (relicTurnin)
+                C.GrindProvisionals = false;
+
+            C.TurninRelic = relicTurnin;
+            C.Save();
+        }
+        ImGui.SameLine();
+        ImGui.TextDisabled("?");
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip(("THIS IS YOUR HEADS UP ON HOW THIS WORKS. If I change this in the future, this tooltip will also change.\n" +
+                             "1: This will check for your current CLASS [not menu class, actual current class] for relic turnin.\n" +
+                             "2: You must not have the tool eqipped for this to run full auto. \n" +
+                             "\t- This is due to the fact that I cba coding this in at this time. (might change my mind in the future *shrugs*)\n" +
+                             "3: This will take prio over \"Stop @ Relic Turnin\", in the sense that if you have both enabled, it will turnin vs stop. And continue about it's day\n" +
+                             "4: If you're on a crafting class, it will return you back to the stop you were crafting post turnin. \n" +
+                             "\t- This is optional, you can disable it at your own free will, I just like this so I can just go back to an isolated area of my choosing").Loc());
+        }
+    }
+
+    /// <summary>
+    /// 「快速套用回報設定」會不會動到這個任務。
+    /// 🔴 預覽筆數與實際套用**只能有這一份判定** —— 兩邊各寫一次的話，
+    /// 條件哪天改了只改一邊，失敗形式是「預覽說 120 筆、實際改了 300 筆」這種
+    /// 使用者按下去才發現、而且無法復原的靜默錯誤。
+    /// 判定內容：查不到任務資料的跳過、
+    /// 選了特定職業就只算該職業的、計時計分（ScoreTimeRemaining）的任務永遠跳過。
+    /// </summary>
+    private static bool IsQuickApplyTarget(uint missionId)
+    {
+        if (!CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var sheetInfo))
+            return false;
+
+        if (ApplyToSpecicClass && !sheetInfo.Jobs.Contains((uint)SpecificClass))
+            return false;
+
+        if (sheetInfo.Attributes.HasFlag(MissionAttributes.ScoreTimeRemaining))
+            return false;
+
+        return true;
+    }
+
+    private static int QuickApplyTargetCount()
+    {
+        var count = 0;
+        foreach (var mission in C.MissionConfig)
+        {
+            if (IsQuickApplyTarget(mission.Key))
+                count += 1;
+        }
+        return count;
     }
 }
