@@ -451,68 +451,93 @@ namespace ICE.Utilities
                 return;
 
             // 同名的窗只掃一次；先收集再刪：不能在列舉集合的同時改它。
-            Dictionary<string, HashSet<nint>?>? liveByName = null;
-            List<PressKey>? gone = null;
+            liveScanGeneration++;
+            goneScratch.Clear();
 
             foreach (var (key, rec) in Pressed)
             {
-                var live = LiveAddresses(key.AddonName, ref liveByName);
+                var live = LiveAddresses(key.AddonName);
                 if (live != null && rec.Listed && !live.Contains(key.Address))
-                    (gone ??= []).Add(key);
+                    goneScratch.Add(key);
             }
 
-            if (gone != null)
-            {
-                foreach (var key in gone)
-                    Pressed.Remove(key);
-            }
+            foreach (var key in goneScratch)
+                Pressed.Remove(key);
 
-            List<PressSlot>? unlocked = null;
+            unlockedScratch.Clear();
             foreach (var slot in Finalizing)
             {
-                var live = LiveAddresses(slot.AddonName, ref liveByName);
+                var live = LiveAddresses(slot.AddonName);
                 if (live != null && !live.Contains(slot.Address))
-                    (unlocked ??= []).Add(slot);
+                    unlockedScratch.Add(slot);
             }
 
-            if (unlocked != null)
-            {
-                foreach (var slot in unlocked)
-                    Finalizing.Remove(slot);
-            }
+            foreach (var slot in unlockedScratch)
+                Finalizing.Remove(slot);
 
             ReleaseHiddenPersistent();
         }
 
-        private static HashSet<nint>? LiveAddresses(string addonName, ref Dictionary<string, HashSet<nint>?>? liveByName)
+        /// <summary>某窗名這一輪掃到的位址；只在框架執行緒用。Generation 對不上＝這一輪還沒掃。</summary>
+        private sealed class LiveScan
         {
-            liveByName ??= new(StringComparer.Ordinal);
-            if (!liveByName.TryGetValue(addonName, out var live))
-            {
-                live = CollectLive(addonName);
-                liveByName[addonName] = live;
-            }
-
-            return live;
+            public readonly HashSet<nint> Addresses = [];
+            public long Generation = -1;
+            public bool Known;
         }
 
+        // 每次呼叫重用的暫存（同 evictScratch）：表裡有紀錄時這條路每幀都走。
+        private static readonly Dictionary<string, LiveScan> liveScratch = new(StringComparer.Ordinal);
+        private static long liveScanGeneration;
+        private static readonly List<PressKey> goneScratch = [];
+        private static readonly List<PressSlot> unlockedScratch = [];
+        private static readonly List<PressSlot> slotScratch = [];
+        private static readonly List<PressSlot> staleScratch = [];
+
         /// <returns>同名清單上的全部位址；掃滿 <see cref="MaxAddonIndex"/> 仍沒掃到空格時回 <see langword="null"/>（＝不知道）。</returns>
-        private static HashSet<nint>? CollectLive(string addonName)
+        private static HashSet<nint>? LiveAddresses(string addonName)
         {
-            var live = new HashSet<nint>();
+            if (!liveScratch.TryGetValue(addonName, out var scan))
+            {
+                scan = new LiveScan();
+                liveScratch[addonName] = scan;
+            }
+
+            if (scan.Generation != liveScanGeneration)
+            {
+                scan.Generation = liveScanGeneration;
+                scan.Addresses.Clear();
+                scan.Known = false;
+                for (var i = 1; i <= MaxAddonIndex; i++)
+                {
+                    var addon = (nint)Svc.GameGui.GetAddonByName(addonName, i).Address;
+                    if (addon == 0)
+                    {
+                        scan.Known = true;
+                        break;
+                    }
+                    scan.Addresses.Add(addon);
+                }
+            }
+
+            return scan.Known ? scan.Addresses : null;
+        }
+
+        /// <summary>同名清單裡找得到這個位址；掃滿 <see cref="MaxAddonIndex"/> 仍沒掃到空格＝不知道，回 false。</summary>
+        private static bool IsListed(string addonName, nint address)
+        {
+            var found = false;
             for (var i = 1; i <= MaxAddonIndex; i++)
             {
                 var addon = (nint)Svc.GameGui.GetAddonByName(addonName, i).Address;
                 if (addon == 0)
-                    return live;
-                live.Add(addon);
+                    return found;
+                if (addon == address)
+                    found = true;
             }
 
-            return null;
+            return false;
         }
-
-        private static bool IsListed(string addonName, nint address)
-            => CollectLive(addonName) is { } live && live.Contains(address);
 
         /// <summary>這一幀在同名清單裡對某個位址的觀察。</summary>
         /// <remarks>🔴 零值必須是「不解除、不放行」的答案。</remarks>
@@ -559,33 +584,31 @@ namespace ICE.Utilities
             if (Pressed.Count == 0 && HiddenSince.Count == 0)
                 return;
 
-            List<PressSlot>? slots = null;
+            var slots = slotScratch;
+            slots.Clear();
             foreach (var key in Pressed.Keys)
             {
                 if (!PersistentAddons.Contains(key.AddonName))
                     continue;
                 var slot = new PressSlot(key.AddonName, key.Address);
-                if (!(slots ??= []).Contains(slot))
+                if (!slots.Contains(slot))
                     slots.Add(slot);
             }
 
             if (HiddenSince.Count > 0)
             {
-                List<PressSlot>? stale = null;
+                staleScratch.Clear();
                 foreach (var slot in HiddenSince.Keys)
                 {
-                    if (slots == null || !slots.Contains(slot))
-                        (stale ??= []).Add(slot);
+                    if (!slots.Contains(slot))
+                        staleScratch.Add(slot);
                 }
 
-                if (stale != null)
-                {
-                    foreach (var slot in stale)
-                        HiddenSince.Remove(slot);
-                }
+                foreach (var slot in staleScratch)
+                    HiddenSince.Remove(slot);
             }
 
-            if (slots == null)
+            if (slots.Count == 0)
                 return;
 
             var frame = GuardTick;
