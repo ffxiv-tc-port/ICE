@@ -129,9 +129,22 @@ namespace ICE.Scheduler.Tasks
             [1319] = 48148, // Auxesia
         };
 
+        /// <summary>已經警告過「宇宙探索區卻查不到信用點道具」的區域。只在框架執行緒讀寫。</summary>
+        private static readonly HashSet<uint> missingCreditTerritoryWarned = [];
+
         /// <summary>目前區域的信用點道具 ID；不在表內的區域回 false。</summary>
         internal static bool TryGetCosmoCreditItemId(out uint itemId)
-            => CreditItemByTerritory.TryGetValue(Player.Territory, out itemId);
+        {
+            var territory = Player.Territory;
+            if (CreditItemByTerritory.TryGetValue(territory, out itemId))
+                return true;
+
+            // 只在 ICE 認得的宇宙探索區才警告：被傳送離開月面時查不到是正常的。
+            if (PlayerHelper.IsInCosmicZone() && missingCreditTerritoryWarned.Add(territory))
+                IceLogging.Warning($"目前區域 {territory} 是宇宙探索區，但信用點道具對照表裡沒有它；月靈點上限停手與轉盤在這裡會略過。" +
+                                   "（新開放的星球要在 Task_Gamba 的對照表補上。）這一行每個區域只寫一次。", "[宇宙探索]");
+            return false;
+        }
 
         public static void Enqueue()
         {
