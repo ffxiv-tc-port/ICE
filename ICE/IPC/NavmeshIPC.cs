@@ -69,8 +69,27 @@ public class NavmeshIPC
     // 端點名寫死成字面值，理由同 PathfindAndMoveToRpc。
     [EzIPC("Nav.PathfindCancelAll")] private readonly Action PathfindCancelAllRpc;
 
-    /// <summary>ICE 自己送過 <see cref="PathfindAndMoveTo"/>、還沒在停止時收回。只在框架執行緒讀寫。</summary>
+    /// <summary>ICE 自己送過 <see cref="PathfindAndMoveTo"/>，而且 SimpleMove 從那之後一直在算。只在框架執行緒讀寫。</summary>
+    /// <remarks>送出當下 SimpleMove 就已是「進行中」；之後只要觀察到一次「沒在算」，ICE 那一筆就結束了，再看到的進行中是別人的。</remarks>
     internal bool IssuedPathfind;
+
+    /// <summary>每幀呼叫：ICE 送出的尋路算完（或 vnavmesh 不在了）就清掉 <see cref="IssuedPathfind"/>。沒送過時不做任何 IPC。</summary>
+    public void ObserveOwnPathfind()
+    {
+        if (!IssuedPathfind)
+            return;
+        bool inProgress;
+        try
+        {
+            inProgress = PathfindInProgress();
+        }
+        catch (Exception)
+        {
+            inProgress = false;
+        }
+        if (!inProgress)
+            IssuedPathfind = false;
+    }
 
     /// <summary>
     /// 停止時取消 ICE 自己送出、可能還在算的尋路：SimpleMove 算完才開始走，算的期間 <c>Path.IsRunning</c> 是 false，
@@ -81,6 +100,18 @@ public class NavmeshIPC
         if (!IssuedPathfind)
             return;
         IssuedPathfind = false;
+        // 這一幀才算完的話，進行中的已經不是 ICE 的。查不到就照舊取消。
+        bool stillOurs;
+        try
+        {
+            stillOurs = PathfindInProgress();
+        }
+        catch (Exception)
+        {
+            stillOurs = true;
+        }
+        if (!stillOurs)
+            return;
         try
         {
             PathfindCancelAllRpc();

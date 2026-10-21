@@ -224,6 +224,8 @@ public sealed partial class ICE : IDalamudPlugin
         // 🔴 同樣放在 Player.Available 的判斷**外面**：租約會逾時（提供端 5 分鐘），
         //    跨區載入那幾十秒不能停止續租，否則容許值會在導航中途跳回使用者的值。
         Navmesh?.RenewToleranceLease();
+        // 停止時只取消「確定還是 ICE 自己的」尋路；放外面的理由同上（跨區時尋路照樣會算完）。
+        Navmesh?.ObserveOwnPathfind();
         // 宇宙製作的臨時求解器覆寫：任務結束／被遊戲端取消／離開宇宙探索區時還給 Artisan。
         // 📌 沒有覆寫在身上時第一行就回去，不做任何 IPC，也不讀遊戲結構。
         // 🔴 同樣放在 Player.Available 的判斷**外面**：登出／跨區時任務會歸 0，
