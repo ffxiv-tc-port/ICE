@@ -233,9 +233,9 @@ namespace ICE.Scheduler.Tasks
                     IceLogging.Info("You have enabled self repair, and you are need in repair. throwing in task to repair self", handle);
                     P.TaskManager.EnqueueMulti
                     (
-                        new(Task_Repair.OpenSelfRepair, "Opening the self repair window"),
-                        new(Task_Repair.SelfRepair, "Executing the self repair"),
-                        new(Task_Repair.CloseRepair, "Closing Self Repair")
+                        new(Task_Repair.OpenSelfRepair, "Opening the self repair window", Utils.TaskConfig),
+                        new(Task_Repair.SelfRepair, "Executing the self repair", Utils.TaskConfig),
+                        new(Task_Repair.CloseRepair, "Closing Self Repair", Utils.TaskConfig)
                     );
                 }
 
@@ -257,9 +257,9 @@ namespace ICE.Scheduler.Tasks
                     IceLogging.Info("You have enabled self repair, and you are need in repair. throwing in task to repair self", "[Task_DualClass | Check Gather State]");
                     P.TaskManager.EnqueueMulti
                     (
-                        new(Task_Repair.OpenSelfRepair, "Opening the self repair window"),
-                        new(Task_Repair.SelfRepair, "Executing the self repair"),
-                        new(Task_Repair.CloseRepair, "Closing Self Repair")
+                        new(Task_Repair.OpenSelfRepair, "Opening the self repair window", Utils.TaskConfig),
+                        new(Task_Repair.SelfRepair, "Executing the self repair", Utils.TaskConfig),
+                        new(Task_Repair.CloseRepair, "Closing Self Repair", Utils.TaskConfig)
                     );
                 }
 

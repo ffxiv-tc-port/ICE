@@ -41,10 +41,17 @@ namespace ICE.Scheduler.Tasks
         /// <summary>這一輪自動化裡已放棄自行修理（缺暗物質、修理等級不夠等）。<see cref="ResetSelfRepairState"/> 歸零。</summary>
         internal static bool SelfRepairGaveUp;
 
-        /// <summary>這次自行修理開始嘗試的時刻（<see cref="Environment.TickCount64"/>）；0＝沒在嘗試。跨佇列中止累計。</summary>
+        /// <summary>這次自行修理開始嘗試的時刻（<see cref="Environment.TickCount64"/>）；0＝沒在嘗試。跨佇列中止累計，
+        /// 但兩次判定隔超過 <see cref="SelfRepairGapResetMs"/> 就當成新的一次重新計時。</summary>
         private static long selfRepairSince;
 
+        /// <summary>上一次 <see cref="SelfRepairExpired"/> 被呼叫的時刻。</summary>
+        private static long selfRepairLastCheck;
+
         private const long SelfRepairGiveUpMs = 120_000;
+
+        // 嘗試中每幀都會判定；隔這麼久沒判定＝上一次已經結束（例如裝備在別處修好、佇列被清掉）。
+        private const long SelfRepairGapResetMs = 60_000;
 
         internal static void ResetSelfRepairState()
         {
@@ -59,6 +66,9 @@ namespace ICE.Scheduler.Tasks
                 return true;
 
             var now = Environment.TickCount64;
+            if (selfRepairSince != 0 && now - selfRepairLastCheck > SelfRepairGapResetMs)
+                selfRepairSince = 0;
+            selfRepairLastCheck = now;
             if (selfRepairSince == 0)
             {
                 selfRepairSince = now;
