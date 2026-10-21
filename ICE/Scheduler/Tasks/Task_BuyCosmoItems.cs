@@ -453,18 +453,24 @@ namespace ICE.Scheduler.Tasks
             var names = Shop_Cosmocredits.CosmocreditShopNames;
             if (names.Count > 0)
             {
-                for (int i = 0; i < entryTexts.Length; i++)
+                // 先找完全相等，再找「選項文字包含店名」。
+                // 不比「店名包含選項文字」：短選項（例如只寫「交易」）會被任何較長的店名吃掉。
+                // 保留「包含店名」：對不到會退回第二項（台服是空白商店），而選項是否帶店名以外的字離線證不了。
+                for (int pass = 0; pass < 2; pass++)
                 {
-                    var text = entryTexts[i];
-                    if (string.IsNullOrWhiteSpace(text))
-                        continue;
-
-                    foreach (var name in names)
+                    for (int i = 0; i < entryTexts.Length; i++)
                     {
-                        if (string.IsNullOrWhiteSpace(name))
+                        var text = entryTexts[i];
+                        if (string.IsNullOrWhiteSpace(text))
                             continue;
-                        if (text == name || text.Contains(name) || name.Contains(text))
-                            return i;
+
+                        foreach (var name in names)
+                        {
+                            if (string.IsNullOrWhiteSpace(name))
+                                continue;
+                            if (pass == 0 ? text == name : text.Contains(name))
+                                return i;
+                        }
                     }
                 }
             }
