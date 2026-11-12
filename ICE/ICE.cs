@@ -67,12 +67,15 @@ public sealed partial class ICE : IDalamudPlugin
 
     public ICE(IDalamudPluginInterface pi, Dalamud.Game.ISigScanner sigScanner)
     {
-        // 改版會移動的位移在任何初始化之前驗：對不上就擲例外讓插件載入失敗，不留半套狀態。
-        MechaPilotTicketLayout.Resolve(sigScanner);
+        // 改版會移動的位移：對不上只停用駕駛申請書那一列（讀取端看 Available），不讓整個插件載入失敗。
+        var pilotTicketResolved = MechaPilotTicketLayout.Resolve(sigScanner);
 
         P = this;
         ECommonsMain.Init(pi, P, Module.DalamudReflector, ECommons.Module.ObjectFunctions);
-        PluginLog.Information($"[ICE] 機甲行動駕駛申請書旗標位移：資料已到 0x{MechaPilotTicketLayout.ReadyOffset:X}、持有 0x{MechaPilotTicketLayout.HeldOffset:X}");
+        if (pilotTicketResolved)
+            PluginLog.Information($"[ICE] 機甲行動駕駛申請書旗標位移：資料已到 0x{MechaPilotTicketLayout.ReadyOffset:X}、持有 0x{MechaPilotTicketLayout.HeldOffset:X}");
+        else
+            PluginLog.Warning($"[ICE] {MechaPilotTicketLayout.FailureReason}");
         // 讓「呼叫了對方沒有的 IPC 方法」不再完全靜默。
         // 訂閱越早越好：事件只在 IPC **呼叫**當下才被查閱，在這裡訂閱就涵蓋往後所有呼叫。
         EzIpcFailureLog.Enable();

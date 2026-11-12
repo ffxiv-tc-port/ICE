@@ -274,6 +274,19 @@ namespace ICE.Ui
             ImGui.TextUnformatted("Pilot Application".Loc());
             ImGui.SameLine();
 
+            // 位移推不出來（改版）＝這一列停用；與「?」（資料還沒到）是兩回事，要分開畫。
+            if (!MechaPilotTicketLayout.Available)
+            {
+                ImGui.TextColored(ImGuiColors.DalamudGrey3, "Unavailable".Loc());
+                if (ImGui.IsItemHovered())
+                {
+                    ImGui.SetTooltip(("ICE could not locate this data in the current game version (probably moved by a game update), " +
+                                      "so this row is turned off until ICE is updated.\n" +
+                                      "Every other feature works as usual.").Loc());
+                }
+                return true;
+            }
+
             switch (MechaOpsMonitor.PilotTicketHeld)
             {
                 case true:

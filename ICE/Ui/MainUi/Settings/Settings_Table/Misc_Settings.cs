@@ -885,7 +885,8 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 ImGui.SetTooltip(("In a Cosmic Exploration zone, keeps Stellar Sprint up while you are moving.\n" +
                                   "Crafters and gatherers get Stellar Sprint (the 1-second-recast one). " +
                                   "Any other job falls back to the ordinary Sprint, exactly as before.\n" +
-                                  "It never fires while mounted, casting, gathering, crafting, in a cutscene, or between areas.").Loc());
+                                  "It never fires while mounted, casting, gathering, crafting, in a cutscene, or between areas.\n" +
+                                  "It also pauses while you are taking part in a mecha event, or whenever ICE cannot tell whether you are.").Loc());
             }
 
             bool DisableLunarAura = C.RemoveStellarStatus;

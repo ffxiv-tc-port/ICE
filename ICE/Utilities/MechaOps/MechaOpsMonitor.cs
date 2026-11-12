@@ -96,6 +96,15 @@ internal sealed record MechaEventDetail(
     }
 }
 
+/// <summary><see cref="MechaOpsMonitor.GetParticipation"/> 的答案；只有 NotParticipating 代表「確定不在事件中」。</summary>
+internal enum MechaParticipation
+{
+    NoFreshSample = 0,
+    Unreadable = 1,
+    Participating = 2,
+    NotParticipating = 3,
+}
+
 /// <summary>
 /// 機甲行動偵察＋繪製快照的生產者。
 /// 掛在 Framework.Update（ICE.Tick）；遊戲結構一律在這裡讀，
@@ -183,6 +192,63 @@ internal static unsafe class MechaOpsMonitor
     /// </summary>
     public static MechaEmergencyState? Emergency => emergency;
     private static MechaEmergencyState? emergency;
+
+    /// <summary>上一次走進 <see cref="ReadEventFlags"/> 的時刻；0＝離開宇宙區後還沒取樣。</summary>
+    private static long eventFlagsSampledTick;
+
+    /// <summary>事件旗標取樣節流是 250 ms；超過這個歲數就不再當成「現況」。</summary>
+    private const long ParticipationMaxSampleAgeMs = 1000;
+
+    /// <summary>
+    /// 本機玩家現在有沒有在參與機甲事件。只讀本類別已發布的快照，不另外碰遊戲結構。
+    /// 契約：要據此決定「做不做自動動作」的呼叫端，<see cref="MechaParticipation.NotParticipating"/>
+    /// 以外一律當成在事件中（判斷不出來＝不動）。<paramref name="reason"/> 是常數字串，給診斷用。
+    /// </summary>
+    public static MechaParticipation GetParticipation(out string reason)
+    {
+        if (eventFlagsSampledTick == 0
+            || Environment.TickCount64 - eventFlagsSampledTick > ParticipationMaxSampleAgeMs)
+        {
+            reason = "機甲事件狀態還沒取樣或取樣已過期";
+            return MechaParticipation.NoFreshSample;
+        }
+
+        if (!EventFlagsValid)
+        {
+            reason = "讀不到機甲事件模組";
+            return MechaParticipation.Unreadable;
+        }
+
+        if (activeCandidates.Count > 0)
+        {
+            reason = "熱鍵列上有機甲技能";
+            return MechaParticipation.Participating;
+        }
+
+        if ((EventFlags & (WKSEventModuleFlag.IsJoined | WKSEventModuleFlag.PilotCutscenePlaying)) != 0)
+        {
+            reason = "已加入機甲事件（模組旗標）";
+            return MechaParticipation.Participating;
+        }
+
+        if ((EventFlags & WKSEventModuleFlag.HasCurrentEvent) != 0)
+        {
+            if (eventDetail is not { } detail)
+            {
+                reason = "有機甲事件但讀不到事件內容";
+                return MechaParticipation.Unreadable;
+            }
+
+            if ((detail.Flags & WKSMechaEventFlag.IsParticipating) != 0)
+            {
+                reason = "正在參與機甲事件（事件旗標）";
+                return MechaParticipation.Participating;
+            }
+        }
+
+        reason = "";
+        return MechaParticipation.NotParticipating;
+    }
 
     private static string lastSignature = "";
     private static bool wasActive;
@@ -632,6 +698,7 @@ internal static unsafe class MechaOpsMonitor
     /// </summary>
     private static void ReadEventFlags()
     {
+        eventFlagsSampledTick = Environment.TickCount64;
         var wks = WKSManager.Instance();
         if (wks == null || wks->MechaEventModule == null)
         {
@@ -661,6 +728,9 @@ internal static unsafe class MechaOpsMonitor
     /// </summary>
     private static bool? ReadPilotTicket(WKSMechaEventModule* mod)
     {
+        if (!MechaPilotTicketLayout.Available)
+            return null;
+
         var readyOffset = MechaPilotTicketLayout.ReadyOffset;
         var heldOffset = MechaPilotTicketLayout.HeldOffset;
         if (readyOffset < 0 || heldOffset < 0
@@ -919,6 +989,7 @@ internal static unsafe class MechaOpsMonitor
     private static void Deactivate()
     {
         DeactivateSkills();
+        eventFlagsSampledTick = 0;
         EventFlags = 0;
         EventFlagsValid = false;
         PilotTicketHeld = null;

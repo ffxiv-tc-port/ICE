@@ -2,6 +2,7 @@ using Dalamud.Game.ClientState.Conditions;
 using ECommons.GameHelpers;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using ICE.Utilities.Cosmic_Helper;
+using ICE.Utilities.MechaOps;
 
 namespace ICE.Scheduler.Handlers;
 
@@ -45,10 +46,14 @@ internal static unsafe class StellarSprintHandler
     /// </summary>
     internal static void Tick()
     {
-        if (!C.MoonSprint)
+        if (!C.MoonSprint || !PlayerHelper.IsInCosmicZone())
+        {
+            noFreshSampleSince = 0;
             return;
+        }
 
-        if (!PlayerHelper.IsInCosmicZone())
+        // 🔴 機甲行動零自動化：參與中、或判斷不出是否參與中，都不放。
+        if (MechaGateBlocks())
             return;
 
         // 已經在衝刺狀態就什麼都不用做（這是本功能的終止條件）。
@@ -79,6 +84,51 @@ internal static unsafe class StellarSprintHandler
             return;
 
         UseSprint();
+    }
+
+    /// <summary>上一次寫進 log 的暫停原因；null＝目前沒有被機甲閘門擋著（或擋著但還沒記）。</summary>
+    private static string? loggedPauseReason;
+
+    /// <summary>「還沒取樣／取樣過期」開始的時刻；0＝目前不是這個狀態。</summary>
+    private static long noFreshSampleSince;
+
+    /// <summary>剛進區或剛讀完畫面的幾百毫秒必然還沒取樣，持續這麼久才記一筆。</summary>
+    private const long NoFreshSampleLogAfterMs = 5000;
+
+    /// <summary>機甲閘門：true＝這一幀不放衝刺。log 只在暫停原因改變時寫一次。</summary>
+    private static bool MechaGateBlocks()
+    {
+        var state = MechaOpsMonitor.GetParticipation(out var reason);
+        if (state == MechaParticipation.NotParticipating)
+        {
+            noFreshSampleSince = 0;
+            if (loggedPauseReason != null)
+            {
+                loggedPauseReason = null;
+                IceLogging.Info("已確認不在機甲事件中，恢復自動宇宙衝刺。", "[Stellar Sprint]");
+            }
+            return false;
+        }
+
+        if (state == MechaParticipation.NoFreshSample)
+        {
+            var now = Environment.TickCount64;
+            if (noFreshSampleSince == 0)
+                noFreshSampleSince = now;
+            if (now - noFreshSampleSince < NoFreshSampleLogAfterMs)
+                return true;
+        }
+        else
+        {
+            noFreshSampleSince = 0;
+        }
+
+        if (reason != loggedPauseReason)
+        {
+            loggedPauseReason = reason;
+            IceLogging.Info($"機甲事件中（或判斷不出是否在機甲事件中），暫停自動宇宙衝刺：{reason}。", "[Stellar Sprint]");
+        }
+        return true;
     }
 
     private static void UseSprint()
