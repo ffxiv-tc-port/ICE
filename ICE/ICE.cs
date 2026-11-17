@@ -310,7 +310,7 @@ public sealed partial class ICE : IDalamudPlugin
         }
         else if (firstArg.ToLower() == "stop")
         {
-            SchedulerMain.DisablePlugin();
+            SchedulerMain.DisablePlugin(byUser: true);
         }
         else if (firstArg.ToLower() == "start")
         {

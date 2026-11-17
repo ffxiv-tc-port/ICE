@@ -1,6 +1,7 @@
 ﻿using ECommons.Automation.NeoTaskManager;
 using System.Diagnostics.CodeAnalysis;
 using ECommons.GameHelpers;
+using ICE.IPC;
 using ICE.Utilities.Cosmic_Helper;
 using static ICE.Enums.IceState;
 
@@ -31,7 +32,8 @@ namespace ICE.Scheduler
 
             return true;
         }
-        internal static bool DisablePlugin()
+        /// <param name="byUser">使用者按下的停止（UI 停止鈕、<c>/ice stop</c>）：vnavmesh 刻意全停。其餘（含 IPC、離開區域、流程自己中止）只停 ICE 自己的移動。</param>
+        internal static bool DisablePlugin(bool byUser = false)
         {
             IceLogging.Debug("Stopping the plugin state", "[Schedular - Disable Plugin]");
             P.TaskManager.Abort();
@@ -42,9 +44,14 @@ namespace ICE.Scheduler
             Task_FindMission.ClearTargetMission();
             if (P.Navmesh.Installed)
             {
-                P.Navmesh.CancelOwnPathfind();
-                if (P.Navmesh.IsRunning())
-                    P.Navmesh.Stop();
+                if (byUser)
+                    VnavOwnPath.StopAllByUser(P.Navmesh);
+                else
+                {
+                    var r = P.Navmesh.StopOwn();
+                    if (r.HadIssued)
+                        IceLogging.Info($"停止 ICE 自己的移動：{r.Why}（取消算路={r.CancelledPathfind}、停止路徑={r.StoppedPath}）", "[Schedular - Disable Plugin]");
+                }
             }
 
             // 具名壓制租約還回去：ICE 停了就沒有理由再擋著 AutoRetainer。

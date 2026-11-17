@@ -8,11 +8,15 @@ using System.Threading.Tasks;
 #nullable disable
 namespace ICE.IPC;
 
-public class NavmeshIPC
+public class NavmeshIPC : IVnavPort
 {
     public const string Name = "vnavmesh";
     public const string Repo = "https://raw.githubusercontent.com/ffxiv-tc-port/DalamudPluginsTC/main/repo.json";
-    public NavmeshIPC() => EzIPC.Init(this, Name);
+    public NavmeshIPC()
+    {
+        EzIPC.Init(this, Name);
+        own = new VnavOwnPath(this, () => System.Environment.TickCount64);
+    }
     public bool Installed => Utils.HasPlugin(Name);
 
     [EzIPC("Nav.%m")] public readonly Func<bool> IsReady;
@@ -47,7 +51,7 @@ public class NavmeshIPC
     /// </para>
     public bool PathfindAndMoveTo(Vector3 destination, bool fly)
     {
-        IssuedPathfind = true;
+        own.NoteIssued(destination);
         try
         {
             return PathfindAndMoveToRpc(destination, fly);
@@ -68,59 +72,30 @@ public class NavmeshIPC
 
     // 端點名寫死成字面值，理由同 PathfindAndMoveToRpc。
     [EzIPC("Nav.PathfindCancelAll")] private readonly Action PathfindCancelAllRpc;
+    [EzIPC("Nav.PathfindNumQueued")] private readonly Func<int> PathfindNumQueuedRpc;
+    [EzIPC("Path.ListWaypoints")] private readonly Func<List<Vector3>> ListWaypointsRpc;
 
-    /// <summary>ICE 自己送過 <see cref="PathfindAndMoveTo"/>，而且 SimpleMove 從那之後一直在算。只在框架執行緒讀寫。</summary>
-    /// <remarks>送出當下 SimpleMove 就已是「進行中」；之後只要觀察到一次「沒在算」，ICE 那一筆就結束了，再看到的進行中是別人的。</remarks>
-    internal bool IssuedPathfind;
+    /// <summary>ICE 自己送出的移動（<see cref="PathfindAndMoveTo"/>）。只在框架執行緒讀寫。</summary>
+    private readonly VnavOwnPath own;
 
-    /// <summary>每幀呼叫：ICE 送出的尋路算完（或 vnavmesh 不在了）就清掉 <see cref="IssuedPathfind"/>。沒送過時不做任何 IPC。</summary>
-    public void ObserveOwnPathfind()
-    {
-        if (!IssuedPathfind)
-            return;
-        bool inProgress;
-        try
-        {
-            inProgress = PathfindInProgress();
-        }
-        catch (Exception)
-        {
-            inProgress = false;
-        }
-        if (!inProgress)
-            IssuedPathfind = false;
-    }
+    /// <summary>ICE 送出的移動還沒結束（還在算，或在走而且終點是 ICE 最後送的目的地）。</summary>
+    internal bool IssuedPathfind => own.HasIssued;
+
+    /// <summary>每幀呼叫：ICE 那一筆移動結束或被別人換掉就放手。沒送過時不做任何 IPC。</summary>
+    public void ObserveOwnPathfind() => own.Observe();
 
     /// <summary>
-    /// 停止時取消 ICE 自己送出、可能還在算的尋路：SimpleMove 算完才開始走，算的期間 <c>Path.IsRunning</c> 是 false，
-    /// 只送 <c>Path.Stop</c> 停不住。沒送過就不碰（不取消別的插件的尋路）。
+    /// 只停 ICE 自己發起的移動：算路要「只剩這一筆」且送出 30 秒內才取消（vnavmesh 只有全域取消），
+    /// 在走的路徑要終點對得上才停。問不到 vnavmesh 一律不動手。
     /// </summary>
-    public void CancelOwnPathfind()
-    {
-        if (!IssuedPathfind)
-            return;
-        IssuedPathfind = false;
-        // 這一幀才算完的話，進行中的已經不是 ICE 的。查不到就照舊取消。
-        bool stillOurs;
-        try
-        {
-            stillOurs = PathfindInProgress();
-        }
-        catch (Exception)
-        {
-            stillOurs = true;
-        }
-        if (!stillOurs)
-            return;
-        try
-        {
-            PathfindCancelAllRpc();
-        }
-        catch (Exception e)
-        {
-            IceLogging.Info($"{Name} 的「Nav.PathfindCancelAll」呼叫失敗（多半是舊版 vnavmesh 沒有這個端點），只送了停止移動：{e.GetType().Name}: {e.Message}", NavFaultHandle);
-        }
-    }
+    internal VnavOwnPath.StopResult StopOwn() => own.StopOwn();
+
+    bool IVnavPort.PathIsRunning() => IsRunning();
+    bool IVnavPort.SimpleMoveInProgress() => PathfindInProgress();
+    int IVnavPort.NavPathfindNumQueued() => PathfindNumQueuedRpc();
+    IReadOnlyList<Vector3> IVnavPort.PathWaypoints() => ListWaypointsRpc();
+    void IVnavPort.PathStop() => Stop();
+    void IVnavPort.NavPathfindCancelAll() => PathfindCancelAllRpc();
 
     [EzIPC("Path.%m")] public readonly Action<List<Vector3>, bool> MoveTo;
     [EzIPC("Path.%m")] public readonly Action Stop;
