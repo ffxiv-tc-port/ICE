@@ -469,9 +469,9 @@ namespace ICE.Ui.DebugWindowTabs
 
         private static string MoonName(uint territoryId)
         {
-            if (territoryId == 1237)
+            if (territoryId == CosmicZones.SinusArdorum)
                 return "Sinus Ardorum";
-            else if (territoryId == 1291)
+            else if (territoryId == CosmicZones.Phaenna)
                 return "Phaenna";
             else
             {

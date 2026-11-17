@@ -324,10 +324,10 @@ namespace ICE.Ui.MainUi.ModeSelect
                         continue;
 
 
-                    if (!sinusEnabled && territoryId == 1237)
+                    if (!sinusEnabled && territoryId == CosmicZones.SinusArdorum)
                         continue;
 
-                    if (!phaennaEnabled && territoryId == 1291)
+                    if (!phaennaEnabled && territoryId == CosmicZones.Phaenna)
                         continue;
 
                     if (C.GrindProvisionals)

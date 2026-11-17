@@ -28,8 +28,8 @@ public class PlayerHelper
     }
 
     public static bool IsInCosmicZone() => IsInSinusArdorum() || IsInPhaenna();
-    public static bool IsInSinusArdorum() => IsInZone(1237);
-    public static bool IsInPhaenna() => IsInZone(1291);
+    public static bool IsInSinusArdorum() => IsInZone(CosmicZones.SinusArdorum);
+    public static bool IsInPhaenna() => IsInZone(CosmicZones.Phaenna);
     public static bool IsInZone(uint zoneID) => Svc.ClientState.TerritoryType == zoneID;
     private static IPlayerCharacter Object => Svc.Objects.LocalPlayer;
     private static unsafe float AnimationLock => ActionManager.Instance()->AnimationLock;

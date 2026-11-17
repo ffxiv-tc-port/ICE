@@ -123,8 +123,8 @@ namespace ICE.Scheduler.Tasks
         // 區域 → 信用點道具。刻意不讀 WKSManager 的未具名欄位：那個偏移換版就會移動。
         private static readonly Dictionary<uint, uint> CreditItemByTerritory = new()
         {
-            [1237] = 45691, // Sinus Ardorum
-            [1291] = 48146, // Phaenna
+            [CosmicZones.SinusArdorum] = 45691, // Sinus Ardorum
+            [CosmicZones.Phaenna] = 48146, // Phaenna
             [1310] = 48147, // Oizys
             [1319] = 48148, // Auxesia
         };
@@ -185,7 +185,7 @@ namespace ICE.Scheduler.Tasks
                 return true;
             }
 
-            if (Player.DistanceTo(npcEntry.NpcLocation) <= 6.75f)
+            if (Player.DistanceTo(npcEntry.NpcLocation) <= NpcApproach.ArrivedRange)
             {
                 if (!P.Navmesh.IsReady())
                 {
@@ -193,7 +193,7 @@ namespace ICE.Scheduler.Tasks
                 }
                 else if (P.Navmesh.IsRunning())
                 {
-                    if (Player.DistanceTo(npcEntry.NpcLocation) < 5)
+                    if (Player.DistanceTo(npcEntry.NpcLocation) < NpcApproach.StopRange)
                     {
                         IceLogging.Debug("Pathing to NPC has reached the distance thresh, stopping");
                         P.Navmesh.Stop();
@@ -214,7 +214,7 @@ namespace ICE.Scheduler.Tasks
                 }
                 else if (!P.Navmesh.IsRunning())
                 {
-                    if (EzThrottler.Throttle("Pathing to repair NPC"))
+                    if (EzThrottler.Throttle(NpcApproach.PathingThrottleKey))
                     {
                         IceLogging.Debug($"Pathing to: {npcEntry.Name}");
 

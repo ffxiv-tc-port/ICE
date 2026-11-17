@@ -34,7 +34,7 @@ namespace ICE.Ui.DebugWindowTabs
                     int _radius = markerRow.Unknown3.ToInt();
                     IceLogging.Debug($"X: {_x} Y: {_y} Radius: {_radius}");
 
-                    Utils.SetGatheringRing(1237, _x, _y, _radius);
+                    Utils.SetGatheringRing(CosmicZones.SinusArdorum, _x, _y, _radius);
                 }
             }
             ImGui.SetNextItemWidth(125);

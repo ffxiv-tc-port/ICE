@@ -423,7 +423,7 @@ public sealed partial class ICE : IDalamudPlugin
             IceLogging.Info($"Successfully loaded {routes.Count} zones with {routes.Sum(x => x.Value.Count)} total routes");
 
             // Test getting a specific route
-            var testRoute = GatheringRouteLoader.GetRoute(1237, new Vector2(-690f, -752f));
+            var testRoute = GatheringRouteLoader.GetRoute(CosmicZones.SinusArdorum, new Vector2(-690f, -752f));
             if (testRoute != null)
             {
                 IceLogging.Info($"Test route loaded successfully with {testRoute.Count} nodes");

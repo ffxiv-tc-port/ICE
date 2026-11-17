@@ -15,8 +15,8 @@ namespace ICE.Scheduler.Handlers
                 new(JobPairs first, JobPairs second)[]
                 {
                     (
-                        ("ARM/GSM", 1237, 22.6f, 14.9f),
-                        ("BSM/LTW/MIN", 1237, 16.3f, 24.4f)
+                        ("ARM/GSM", CosmicZones.SinusArdorum, 22.6f, 14.9f),
+                        ("BSM/LTW/MIN", CosmicZones.SinusArdorum, 16.3f, 24.4f)
                     )
                 }
             },
@@ -25,12 +25,12 @@ namespace ICE.Scheduler.Handlers
                 new(JobPairs first, JobPairs second)[]
                 {
                     (
-                        ("CUL/BTN/FSH", 1237, 24.5f, 16.8f),
-                        ("CRP/LTW/WVR", 1237, 29.0f, 35.4f)
+                        ("CUL/BTN/FSH", CosmicZones.SinusArdorum, 24.5f, 16.8f),
+                        ("CRP/LTW/WVR", CosmicZones.SinusArdorum, 29.0f, 35.4f)
                     ),
                     (
-                        ("BSM/ALC", 1237, 32.2f, 22.2f),
-                        ("CRP/WVR/BTN", 1237, 36.0f, 23.4f)
+                        ("BSM/ALC", CosmicZones.SinusArdorum, 32.2f, 22.2f),
+                        ("CRP/WVR/BTN", CosmicZones.SinusArdorum, 36.0f, 23.4f)
                     )
                 }
             },
@@ -39,12 +39,12 @@ namespace ICE.Scheduler.Handlers
                 new(JobPairs first, JobPairs second)[]
                 {
                     (
-                        ("ARM/GSM/ALC", 1237, 24.9f, 33.1f),
-                        ("MIN/FSH", 1237, 19.2f, 15.0f)
+                        ("ARM/GSM/ALC", CosmicZones.SinusArdorum, 24.9f, 33.1f),
+                        ("MIN/FSH", CosmicZones.SinusArdorum, 19.2f, 15.0f)
                     ),
                     (
-                        ("CRP/GSM/WVR", 1237, 19.8f, 36.8f),
-                        ("CUL/MIN/FSH", 1237, 12.3f, 20.0f)
+                        ("CRP/GSM/WVR", CosmicZones.SinusArdorum, 19.8f, 36.8f),
+                        ("CUL/MIN/FSH", CosmicZones.SinusArdorum, 12.3f, 20.0f)
                     )
                 }
             },

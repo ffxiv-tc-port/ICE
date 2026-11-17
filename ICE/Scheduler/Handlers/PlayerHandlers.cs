@@ -317,11 +317,11 @@ internal static unsafe class PlayerHandlers
         string mapName;
         switch (territoryId)
         {
-            case 1291:
+            case CosmicZones.Phaenna:
                 selectedMap = PhaennaMapV2;
                 mapName = nameof(PhaennaMapV2);
                 break;
-            case 1237:
+            case CosmicZones.SinusArdorum:
                 selectedMap = SinusMapV2;
                 mapName = nameof(SinusMapV2);
                 break;

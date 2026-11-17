@@ -53,7 +53,7 @@ internal static class NpcData // Renamed the class to avoid conflict
 
     public static Dictionary<uint, List<NPCInfo>> MoonNpcs = new() // Use NPCInfo instead of NpcInfo
     {
-        [1237] = new List<NPCInfo>
+        [CosmicZones.SinusArdorum] = new List<NPCInfo>
         {
             new NPCInfo // Repair | Gil Gear Vendor
             {
@@ -108,7 +108,7 @@ internal static class NpcData // Renamed the class to avoid conflict
         //    🔴 上面 [1237] 的每個 NPC 都帶 AlternateNpcIds，因為**同一個 NPC 會依據據點的建設階段換成不同的 DataId**，
         //    而上游只寫死了國際服當時那一階的值。這裡的 [1291] **沒有任何 AlternateNpcIds**，
         //    所以台服開放 Phaenna 時幾乎一定會再中一次同一顆雷。
-        [1291] = new List<NPCInfo>
+        [CosmicZones.Phaenna] = new List<NPCInfo>
         {
             new NPCInfo()
             {

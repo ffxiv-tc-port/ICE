@@ -34,7 +34,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
             if (ImGui.Button("Get Sinus Forecast".Loc()))
             {
-                List<WeatherForecast> forecast = WeatherForecastHandler.GetTerritoryForecast(1237);
+                List<WeatherForecast> forecast = WeatherForecastHandler.GetTerritoryForecast(CosmicZones.SinusArdorum);
                 Func<WeatherForecast, string> formatTime = (forecast) => WeatherForecastHandler.FormatForecastTime(forecast.Time);
 
                 Svc.Chat.Print(new Dalamud.Game.Text.XivChatEntry()

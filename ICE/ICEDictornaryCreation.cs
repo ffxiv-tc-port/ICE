@@ -76,14 +76,14 @@ public sealed partial class ICE
             //    是排程器（傳送、導航、釣點/採集點查表）真的會拿去用的值，不是純顯示。
             //    台服沒有第二顆星的資料可以驗證這個分界，所以**這裡刻意不動它**；
             //    改成在載入時把分配結果印一行 Information 出來 —— 見 ReportMissionTerritorySplit()。
-            uint territoryId = 1237;
+            uint territoryId = CosmicZones.SinusArdorum;
             if (keyId < 545)
             {
-                territoryId = 1237;
+                territoryId = CosmicZones.SinusArdorum;
             }
             else
             {
-                territoryId = 1291;
+                territoryId = CosmicZones.Phaenna;
             }
             // TODO: Make this set the correct territoryId once new planets are added and we figure out where it is.
 
@@ -705,7 +705,7 @@ public sealed partial class ICE
             byTerritory[info.TerritoryId] = byTerritory.GetValueOrDefault(info.TerritoryId) + 1;
 
         // ⚠️ 這兩個一定要列出來，即使是 0。理由見上面的 remarks。
-        uint[] known = [1237, 1291];
+        uint[] known = [CosmicZones.SinusArdorum, CosmicZones.Phaenna];
         var parts = known.Select(id => $"{id} {byTerritory.GetValueOrDefault(id)} 筆").ToList();
         parts.AddRange(byTerritory.Where(x => !known.Contains(x.Key))
                                   .OrderBy(x => x.Key)

@@ -583,7 +583,7 @@ public static unsafe partial class GatheringUtil
 
     public static Dictionary<uint, Dictionary<Vector2, List<FisherSpotInfo>>> MoonFishingLocations = new()
     {
-        [1237] = new()
+        [CosmicZones.SinusArdorum] = new()
         {
             [new Vector2(-673f, 497f)] = new()
             {
@@ -1023,7 +1023,7 @@ public static unsafe partial class GatheringUtil
                 },
             },
         },
-        [1291] = new()
+        [CosmicZones.Phaenna] = new()
         {
             [new Vector2(-700f, -652f)] = new()
             {

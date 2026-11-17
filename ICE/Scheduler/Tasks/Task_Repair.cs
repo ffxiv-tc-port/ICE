@@ -88,8 +88,8 @@ namespace ICE.Scheduler.Tasks
             // 各月面的據點中心（世界座標）。不認得的區域回 null（見下面的 fail-open）。
             Vector3? hubCenter = Player.Territory switch
             {
-                1237 => new Vector3(2.84f, 1.55f, -0.06f),   // 渴望灣 / Sinus Ardorum
-                1291 => new Vector3(339.90f, 52.60f, -412.10f), // Phaenna（台服尚未開放）
+                CosmicZones.SinusArdorum => new Vector3(2.84f, 1.55f, -0.06f),   // 渴望灣 / Sinus Ardorum
+                CosmicZones.Phaenna => new Vector3(339.90f, 52.60f, -412.10f), // Phaenna（台服尚未開放）
                 _ => null,
             };
 
@@ -142,11 +142,11 @@ namespace ICE.Scheduler.Tasks
                 IceLogging.Debug($"NPC: {npcEntry.Name} | {npcEntry.NpcId} | Zone: {zoneId}");
             }
 
-            if (Player.DistanceTo(npcEntry.NpcLocation) <= 6.75f)
+            if (Player.DistanceTo(npcEntry.NpcLocation) <= NpcApproach.ArrivedRange)
             {
                 if (P.Navmesh.IsRunning())
                 {
-                    if (Player.DistanceTo(npcEntry.NpcLocation) < 5)
+                    if (Player.DistanceTo(npcEntry.NpcLocation) < NpcApproach.StopRange)
                     {
                         IceLogging.Info("Pathing to NPC has reached the distance thresh, stopping");
                         P.Navmesh.Stop();
@@ -163,7 +163,7 @@ namespace ICE.Scheduler.Tasks
             {
                 if (!P.Navmesh.IsRunning())
                 {
-                    if (EzThrottler.Throttle("Pathing to repair NPC"))
+                    if (EzThrottler.Throttle(NpcApproach.PathingThrottleKey))
                     {
                         IceLogging.Debug($"Pathing to: {npcEntry.Name}");
 

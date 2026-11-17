@@ -267,7 +267,7 @@ namespace ICE.Scheduler.Tasks
                 return true;
             }
 
-            if (Player.DistanceTo(npcEntry.NpcLocation) <= 6.75f)
+            if (Player.DistanceTo(npcEntry.NpcLocation) <= NpcApproach.ArrivedRange)
             {
                 if (P.Navmesh.Installed)
                 {
@@ -275,7 +275,7 @@ namespace ICE.Scheduler.Tasks
                     {
                         if (P.Navmesh.IsRunning())
                         {
-                            if (Player.DistanceTo(npcEntry.NpcLocation) < 5)
+                            if (Player.DistanceTo(npcEntry.NpcLocation) < NpcApproach.StopRange)
                             {
                                 IceLogging.Debug("Pathing to NPC has reached the distance thresh, stopping");
                                 P.Navmesh.Stop();
@@ -302,7 +302,7 @@ namespace ICE.Scheduler.Tasks
                     {
                         if (!P.Navmesh.IsRunning())
                         {
-                            if (EzThrottler.Throttle("Pathing to repair NPC"))
+                            if (EzThrottler.Throttle(NpcApproach.PathingThrottleKey))
                             {
                                 IceLogging.Debug($"Pathing to: {npcEntry.Name}");
 
