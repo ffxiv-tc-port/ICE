@@ -317,8 +317,7 @@ namespace ICE.Scheduler.Tasks
                         ? " " + "Some enabled missions were skipped because ICE cannot run them - see the message above.".Loc()
                         : string.Empty),
                     "[ICE]");
-                SchedulerMain.State = IceState.Idle;
-                TataruPraiseIPC.NotifyNeedsHelp("這個職業在這個區域沒有可跑的任務");
+                SchedulerMain.StopWithNotice("這個職業在這個區域沒有可跑的任務", needsHelp: true);
                 SchedulerMain.DisablePlugin();
             }
 
@@ -1762,8 +1761,7 @@ namespace ICE.Scheduler.Tasks
                         "[Check Reroll]");
                     consecutiveRerolls = 0;
                     triedJobsThisSweep.Clear();
-                    SchedulerMain.State = IceState.Idle;
-                    TataruPraiseIPC.NotifyNeedsHelp("連續重骰仍然找不到可接的任務");
+                    SchedulerMain.StopWithNotice("連續重骰仍然找不到可接的任務", needsHelp: true);
                     P.TaskManager.Tasks.Clear();
 
                     if (C.PlaySoundAlert)
