@@ -1,5 +1,4 @@
-﻿using ECommons.Automation.LegacyTaskManager;
-using ECommons.GameHelpers;
+﻿using ECommons.GameHelpers;
 using ECommons.UIHelpers.AddonMasterImplementations;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.UI;
@@ -10,8 +9,6 @@ namespace ICE.Scheduler.Handlers
 {
     internal static unsafe class GenericManager
     {
-        internal static TaskManager taskManager = new();
-        static TaskManager TaskManager => taskManager;
         private static bool? ConfirmOrAbort(AddonRequest* addon)
         {
             // AtkComponentButton.IsEnabled 解的是 OwnerNode(0xA8),不是 AtkResNode(0xA0)。
