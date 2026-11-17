@@ -991,7 +991,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
                 var mountSheet = Svc.Data.GetExcelSheet<Mount>();
 
-                foreach (var mountItem in mountSheet)
+                foreach (var mountItem in Utils.MountUnlockQueryMissing() ? Enumerable.Empty<Mount>() : mountSheet)
                 {
                     //Checking to see if the current mount is unlocked
                     if (!PlayerState.Instance()->IsMountUnlocked(mountItem.RowId)) continue;

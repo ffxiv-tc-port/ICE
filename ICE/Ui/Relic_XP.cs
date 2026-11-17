@@ -14,7 +14,8 @@ namespace ICE.Ui
         public static unsafe void DrawRelicXP(uint selectedJob)
         {
             var wksManager = WKSManager.Instance();
-            if (wksManager == null || wksManager->ResearchModule == null || !wksManager->ResearchModule->IsLoaded)
+            if (wksManager == null || wksManager->ResearchModule == null || !wksManager->ResearchModule->IsLoaded
+                || GameFunctionGuard.ResearchAnalysisMissing())
                 return;
 
             var job = selectedJob;

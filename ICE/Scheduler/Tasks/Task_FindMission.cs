@@ -748,7 +748,8 @@ namespace ICE.Scheduler.Tasks
                 var maxStage = CosmicHelper.MaxRelicLevel;
 
                 var wksManager = WKSManager.Instance();
-                if (wksManager == null || wksManager->ResearchModule == null || !wksManager->ResearchModule->IsLoaded)
+                if (wksManager == null || wksManager->ResearchModule == null || !wksManager->ResearchModule->IsLoaded
+                    || GameFunctionGuard.ResearchAnalysisMissing())
                     return null;
 
                 var job = Player.JobId;

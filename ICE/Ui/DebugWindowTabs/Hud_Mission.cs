@@ -209,7 +209,8 @@ namespace ICE.Ui.DebugWindowTabs
             if (GenericHelpers.TryGetAddonMaster<WKSMission>("WKSMission", out var x) && x.IsAddonReady)
             {
                 var wksManager = WKSManager.Instance();
-                if (wksManager == null || wksManager->ResearchModule == null || !wksManager->ResearchModule->IsLoaded)
+                if (wksManager == null || wksManager->ResearchModule == null || !wksManager->ResearchModule->IsLoaded
+                    || GameFunctionGuard.ResearchAnalysisMissing())
                     return 0;
 
                 var job = Player.JobId;

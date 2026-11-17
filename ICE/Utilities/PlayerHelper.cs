@@ -307,6 +307,10 @@ public class PlayerHelper
         if (unlockLink == 0)
             return null;
 
+        if (GameFunctionGuard.Missing(UIState.MemberFunctionPointers.IsUnlockLinkUnlockedOrQuestCompleted is null,
+                "UIState.IsUnlockLinkUnlockedOrQuestCompleted", "掌握的新判定改回「不知道」，仍以舊判定為準。"))
+            return null;
+
         // 📌 UIState.Instance() 沒有判空：CS 宣告是 [StaticAddress(sig, 3)] **沒有** isPointer:true
         //    ⇒ 解出來的就是物件本身的位址（lea），永不為 null，判空是死碼。
         //    （上游那一版寫了 `uiState != null`，那一行在我方這份 CS pin 上不會有任何作用。）

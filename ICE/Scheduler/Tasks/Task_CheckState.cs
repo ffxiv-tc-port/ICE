@@ -401,7 +401,8 @@ namespace ICE.Scheduler.Tasks
             XPTable = new();
 
             var wksManager = WKSManager.Instance();
-            if (wksManager == null || wksManager->ResearchModule == null || !wksManager->ResearchModule->IsLoaded)
+            if (wksManager == null || wksManager->ResearchModule == null || !wksManager->ResearchModule->IsLoaded
+                || GameFunctionGuard.ResearchAnalysisMissing())
             {
                 return false;
             }

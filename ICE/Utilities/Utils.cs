@@ -274,9 +274,13 @@ public static unsafe class Utils
         agent->AddGatheringTempMarker(x, y, radius, tooltip: tooltip);
         agent->OpenMap(map.RowId, territoryId, tooltip, MapType.GatheringLog);
     }
+    internal static unsafe bool MountUnlockQueryMissing()
+        => GameFunctionGuard.Missing(PlayerState.MemberFunctionPointers.IsMountUnlocked is null,
+            "PlayerState.IsMountUnlocked", "判斷不出坐騎解鎖了沒，改用隨機坐騎，坐騎選單只列隨機坐騎。");
+
     public static unsafe void MountAction()
     {
-        bool useMount = C.MountId != 0 && PlayerState.Instance()->IsMountUnlocked(C.MountId);
+        bool useMount = C.MountId != 0 && !MountUnlockQueryMissing() && PlayerState.Instance()->IsMountUnlocked(C.MountId);
 
         if (!Player.IsCasting && !Player.Mounting)
         {

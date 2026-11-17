@@ -24,7 +24,8 @@ namespace ICE.Ui.DebugWindowTabs
         public static unsafe void Draw()
         {
             var wksManager = WKSManager.Instance();
-            if (wksManager == null || wksManager->ResearchModule == null || !wksManager->ResearchModule->IsLoaded)
+            if (wksManager == null || wksManager->ResearchModule == null || !wksManager->ResearchModule->IsLoaded
+                || GameFunctionGuard.ResearchAnalysisMissing())
                 return;
 
             if (ImGui.BeginTable("Relic Info", 15, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.Borders))

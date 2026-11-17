@@ -19,7 +19,7 @@ namespace ICE.Scheduler.Handlers
 
         internal static unsafe void Tick()
         {
-            if (!PlayerHelper.IsInCosmicZone()) return;
+            if (!PlayerHelper.IsInCosmicZone() || WeatherFunctionsMissing()) return;
 
             Weather currWeather = GetCurrentWeather();
             var CorrectFirstWeather = true;
@@ -41,11 +41,17 @@ namespace ICE.Scheduler.Handlers
 
         internal static void RefreshForecast()
         {
-            if (!PlayerHelper.IsInCosmicZone()) return;
+            if (!PlayerHelper.IsInCosmicZone() || WeatherFunctionsMissing()) return;
             
             _lastProcessed = DateTime.Now;
             GetForecast();
         }
+
+        // 這裡每幀都會走到（在宇宙區域時）；位址沒解出時 CS 包裝會擲例外，所以先問。
+        private static unsafe bool WeatherFunctionsMissing()
+            => GameFunctionGuard.Missing(WeatherManager.MemberFunctionPointers.GetCurrentWeather is null
+                                         || WeatherManager.MemberFunctionPointers.GetWeatherForDaytime is null,
+                                         "WeatherManager（天氣查詢）", "天氣預報不會顯示。");
 
         private static unsafe Weather GetCurrentWeather()
         {
@@ -56,7 +62,7 @@ namespace ICE.Scheduler.Handlers
 
         internal static unsafe uint GetCurrentWeatherId()
         {
-            if (!PlayerHelper.IsInCosmicZone()) return default;
+            if (!PlayerHelper.IsInCosmicZone() || WeatherFunctionsMissing()) return default;
 
             Weather currWeather = GetCurrentWeather();
             return currWeather.RowId;
@@ -76,6 +82,8 @@ namespace ICE.Scheduler.Handlers
 
         internal static unsafe void GetForecast()
         {
+            if (WeatherFunctionsMissing()) return;
+
             previousZoneForecast = Svc.ClientState.TerritoryType;
 
             WeatherManager* wm = WeatherManager.Instance();
@@ -101,6 +109,7 @@ namespace ICE.Scheduler.Handlers
         internal static unsafe List<WeatherForecast> GetTerritoryForecast(ushort territoryId)
         {
             List<WeatherForecast> territoryForecast = [];
+            if (WeatherFunctionsMissing()) return territoryForecast;
 
             WeatherManager* wm = WeatherManager.Instance();
             byte weatherId = wm->GetWeatherForDaytime(territoryId, 0);

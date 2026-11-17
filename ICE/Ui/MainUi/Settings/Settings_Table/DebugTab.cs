@@ -39,7 +39,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
                 Svc.Chat.Print(new Dalamud.Game.Text.XivChatEntry()
                 {
-                    Message = $"Sinus Ardorum Weather - {forecast[0].Name}",
+                    Message = $"Sinus Ardorum Weather - {(forecast.Count > 0 ? forecast[0].Name : "?")}",
                     Type = Dalamud.Game.Text.XivChatType.Echo,
                 });
                 for (int i = 1; i < forecast.Count; i++)

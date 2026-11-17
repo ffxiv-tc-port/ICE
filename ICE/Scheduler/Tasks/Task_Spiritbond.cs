@@ -48,6 +48,10 @@ namespace ICE.Scheduler.Tasks
         // 同步上游：任務 638 為精選材料（萃取）解鎖任務；完成後才允許萃取。
         public static bool SpiritbondUnlocked()
         {
+            if (GameFunctionGuard.Missing(QuestManager.MemberFunctionPointers.IsQuestComplete is null,
+                    "QuestManager.IsQuestComplete", "判斷不出精選解鎖了沒，當成未解鎖、不會自動精選。"))
+                return false;
+
             return QuestManager.IsQuestComplete(638);
         }
 
