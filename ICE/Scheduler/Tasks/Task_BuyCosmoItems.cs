@@ -267,59 +267,7 @@ namespace ICE.Scheduler.Tasks
                 return true;
             }
 
-            if (Player.DistanceTo(npcEntry.NpcLocation) <= NpcApproach.ArrivedRange)
-            {
-                if (P.Navmesh.Installed)
-                {
-                    if (P.Navmesh.IsReady())
-                    {
-                        if (P.Navmesh.IsRunning())
-                        {
-                            if (Player.DistanceTo(npcEntry.NpcLocation) < NpcApproach.StopRange)
-                            {
-                                IceLogging.Debug("Pathing to NPC has reached the distance thresh, stopping");
-                                P.Navmesh.Stop();
-                                return true;
-                            }
-                        }
-                        else
-                        {
-                            IceLogging.Debug($"Distance to the npc is correct, commending repair");
-                            return true;
-                        }
-                    }
-                    else
-                    {
-                        Utils.VnavBuildInfo();
-                    }
-                }
-            }
-            else
-            {
-                if (P.Navmesh.Installed)
-                {
-                    if (P.Navmesh.IsReady())
-                    {
-                        if (!P.Navmesh.IsRunning())
-                        {
-                            if (EzThrottler.Throttle(NpcApproach.PathingThrottleKey))
-                            {
-                                IceLogging.Debug($"Pathing to: {npcEntry.Name}");
-
-                                Vector3 randomPoint = RandomUtil.GetRandomPointInBounds(npcEntry.Corner1, npcEntry.Corner2, npcEntry.Corner3, npcEntry.Corner4, npcEntry.NpcLocation.Y);
-                                IceLogging.DestinationLogs.Log(randomPoint);
-                                P.Navmesh.PathfindAndMoveTo(randomPoint, false);
-                            }
-                        }
-                    }
-                    else
-                    {
-                        Utils.VnavBuildInfo();
-                    }
-                }
-            }
-
-            return false;
+            return NpcApproach.Step(npcEntry, requireNavmeshInstalled: true);
         }
 
         private static bool? TalkToCreditNPC()
