@@ -8,7 +8,8 @@ namespace ICE.Config
 {
     public class MissionConfigs : IYamlConfig
     {
-        // Last edited version: 1
+        // 新檔從 9 起算，不是最新的 12：載入時 ConfigMigrator 會照跑 9→12 的步驟
+        // （補採集增益、任務 1000 改用內建預設、機甲滑桿搬家）。改成 12＝新使用者少跑這幾步。
         public int ConfigVersion { get; set; } = 9;
 
         #region Safety Settings

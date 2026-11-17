@@ -8,8 +8,8 @@ namespace ICE.Utilities.Cosmic_Helper;
 
 // 必須是 public：MissionConfigs 是 public，而它有一個型別為
 // IceLogging.LogLevel 的設定屬性 —— 巢狀列舉跟著外層類別的可及性，不放寬會 CS0053。
-// ⚠️ 設定屬性必須是 public，YamlDotNet 只序列化 public 屬性；改成 internal 的話
-//    設定「存得下去但讀不回來」，而且不會報錯。
+// ⚠️ 設定成員必須是 public：YamlDotNet 只讀寫 public 的屬性與欄位（公開欄位也會存）；
+//    改成 internal 的話既不寫進檔、也讀不回來（每次載入都是初始值），而且不會報錯。
 public static class IceLogging
 {
     // 🔴 快取的理由：沒帶 prefix 的呼叫點每一次 log 都要 `new StackFrame(3).GetMethod()`（一次完整的堆疊走訪）。
