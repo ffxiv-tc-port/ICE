@@ -267,6 +267,8 @@ public sealed partial class ICE : IDalamudPlugin
         // 守衛的 AddonLifecycle 監聽器：本 pin 卸載時會自動拆，但仍主動拆乾淨、不留指向本組件的委派。
         GenericHelpers.Safe(AddonPressGuard.ForceTeardown);
         GenericHelpers.Safe(EzIpcFailureLog.Disable);
+        // 存檔在背景序列化，卸載當下可能還有沒落地的改動 ⇒ 這裡同步補寫一次。用欄位不用 C：C 沒載入過時會觸發載入。
+        GenericHelpers.Safe(() => missionConfigs?.FlushPendingSave());
         ECommonsMain.Dispose();
         PictoService.Dispose();
     }

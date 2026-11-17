@@ -594,16 +594,26 @@ namespace ICE.Config
 
         // 這份設定自己的存檔閘門。⚠️ 它**不是**用來擋 IOException 的（那一層是 YamlConfig 的 per-path SemaphoreSlim）；
         //    它擋的是兩個存檔先各自拍好快照、再排隊寫檔時，先拍的那份反而**後**寫，磁碟上留下比較舊的快照。
+        //    背景序列化也在這個閘門裡做 ⇒ 同一時間最多一份在序列化，排在後面的舊快照直接放棄、不白做。
         // ⚠️ 兩層閘門的取得順序永遠是「先 _saveGate 再 YamlConfig」（SaveAsync 與 SaveSync 都是），順序一致所以不會死結。
         private static readonly SemaphoreSlim _saveGate = new(1, 1);
 
-        // 快照序號。🔑 遞增這個動作與「序列化」在**同一個主執行緒的動作裡**完成，
+        // 快照序號。🔑 遞增這個動作與「拍快照」在**同一個主執行緒的動作裡**完成，
         // 所以序號的大小關係就是快照的新舊關係。_writtenSeq 是已經真的寫進磁碟的最大序號。
         private static long _snapshotSeq;
         private static long _writtenSeq;
 
+        // 存檔請求計數：_writtenRequest＝已寫進磁碟的快照涵蓋到第幾個請求。兩者不等＝還有沒落地的改動（卸載時要補寫）。
+        private static long _requestSeq;
+        private static long _writtenRequest;
+        private static volatile bool _shutDown;
+
+        // 背景序列化是否可用：null＝還沒稽核（第一次拍快照時在主執行緒上稽核一次）；false＝快照與本體共用了實例，
+        // 改回在主執行緒上序列化（舊做法，慢但安全）。
+        private static bool? _cloneSnapshotSafe;
+
         // Standard save. Deliberately routed through the debounced path: this config
-        // is ~330 KB, so a burst of saves is collapsed into one write. No caller can
+        // is several hundred KB, so a burst of saves is collapsed into one write. No caller can
         // observe the difference - Save() was already asynchronous. Anything that
         // genuinely needs the bytes on disk before continuing already has SaveSync().
         public void Save() => SaveDebounced();
@@ -613,6 +623,9 @@ namespace ICE.Config
         {
             lock (_saveLock)
             {
+                if (_shutDown)
+                    return;
+                Interlocked.Increment(ref _requestSeq);
                 _saveCts?.Cancel();
                 _saveCts = new CancellationTokenSource();
                 var cts = _saveCts;
@@ -636,18 +649,61 @@ namespace ICE.Config
             }
         }
 
+        private readonly record struct SaveSnapshotData(MissionConfigs? Copy, string? Yaml, long Seq, long Request);
+
         // Core async implementation
-        // 🔴🔴 快照必須在**遊戲主執行緒**上拍。序列化會走訪整個設定物件圖，而 MissionConfig 是裸 Dictionary、
-        //    GambaItemWeights 之類是裸 List，改動它們的是主執行緒；在執行緒池上序列化會擲
-        //    InvalidOperationException（Collection was modified），設定沒存到而畫面上什麼都看不出來。
-        // 📌 交回主執行緒的只有「序列化成字串」這一步，寫檔照舊留在背景。
-        // 📌 遊戲正在關閉時（IsFrameworkUnloading）RunOnFrameworkThread 就地執行，最後一次存檔不會弄丟。
+        // 🔴🔴 快照必須在**遊戲主執行緒**上拍：MissionConfig 是裸 Dictionary、GambaItemWeights 之類是裸 List，改動它們的是主執行緒。
+        // 📌 主執行緒上只做深拷貝（CloneForSave，不到 1 ms）；序列化（數十 ms、十幾 MiB 配置）與寫檔都在執行緒池上。
+        // 🔴 一定要經 Task.Run 換到執行緒池：RunOnFrameworkThread 的工作在主執行緒完成，await 的接續會直接內聯在主執行緒上跑。
         public async Task SaveAsync()
         {
-            var snapshot = await Svc.Framework.RunOnFrameworkThread(
-                () => (Yaml: YamlConfig.Serialize(this), Seq: Interlocked.Increment(ref _snapshotSeq)))
-                .ConfigureAwait(false);
+            if (_shutDown)
+                return;
 
+            var snapshot = await Svc.Framework.RunOnFrameworkThread(TakeSnapshot).ConfigureAwait(false);
+            if (snapshot.Copy == null && snapshot.Yaml == null)
+                return;
+
+            await Task.Run(() => WriteSnapshotAsync(snapshot)).ConfigureAwait(false);
+        }
+
+        private SaveSnapshotData TakeSnapshot()
+        {
+            if (_shutDown)
+                return default;
+
+            var request = Interlocked.Read(ref _requestSeq);
+            var seq = Interlocked.Increment(ref _snapshotSeq);
+            if (_cloneSnapshotSafe != false)
+            {
+                var clone = CloneForSave();
+                if (_cloneSnapshotSafe == null)
+                    _cloneSnapshotSafe = AuditSnapshot(clone);
+                if (_cloneSnapshotSafe == true)
+                    return new SaveSnapshotData(clone, null, seq, request);
+            }
+            return new SaveSnapshotData(null, YamlConfig.Serialize(this), seq, request);
+        }
+
+        private bool AuditSnapshot(MissionConfigs clone)
+        {
+            try
+            {
+                var shared = SaveSnapshot.FindShared(this, clone);
+                if (shared.Count == 0)
+                    return true;
+                PluginLog.Warning($"[MissionConfigs] 存檔快照與設定共用了實例，改回在主執行緒序列化（存檔時畫面會頓一下）：{string.Join("、", shared)}");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                PluginLog.Warning($"[MissionConfigs] 存檔快照稽核失敗，改回在主執行緒序列化：{ex}");
+                return false;
+            }
+        }
+
+        private static async Task WriteSnapshotAsync(SaveSnapshotData snapshot)
+        {
             await _saveGate.WaitAsync().ConfigureAwait(false);
             try
             {
@@ -655,13 +711,22 @@ namespace ICE.Config
                 if (snapshot.Seq < Interlocked.Read(ref _writtenSeq))
                     return;
 
-                await YamlConfig.WriteAsync(snapshot.Yaml, ConfigPath).ConfigureAwait(false);
-                Interlocked.Exchange(ref _writtenSeq, snapshot.Seq);
+                var yaml = snapshot.Yaml ?? YamlConfig.Serialize(snapshot.Copy!);
+                await YamlConfig.WriteAsync(yaml, ConfigPath).ConfigureAwait(false);
+                MarkWritten(snapshot.Seq, snapshot.Request);
             }
             finally
             {
                 _saveGate.Release();
             }
+        }
+
+        // 只在 _saveGate 裡呼叫。
+        private static void MarkWritten(long seq, long request)
+        {
+            Interlocked.Exchange(ref _writtenSeq, seq);
+            if (request > Interlocked.Read(ref _writtenRequest))
+                Interlocked.Exchange(ref _writtenRequest, request);
         }
 
         // Synchronous for migrations/critical paths
@@ -670,12 +735,75 @@ namespace ICE.Config
             _saveGate.Wait();
             try
             {
+                var request = Interlocked.Read(ref _requestSeq);
+                var seq = Interlocked.Increment(ref _snapshotSeq);
                 YamlConfig.SaveSync(this, ConfigPath);
+                MarkWritten(seq, request);
             }
             finally
             {
                 _saveGate.Release();
             }
+        }
+
+        /// <summary>卸載時呼叫：取消還在等防抖的存檔；有還沒寫進磁碟的存檔請求就在呼叫端執行緒同步寫一次。之後的存檔請求一律忽略。</summary>
+        /// <remarks>⚠️ 會等正在背景寫的那一份寫完（_saveGate），最多一次序列化＋寫檔的時間；只在卸載時呼叫。</remarks>
+        internal void FlushPendingSave()
+        {
+            lock (_saveLock)
+            {
+                _shutDown = true;
+                _saveCts?.Cancel();
+            }
+            if (Interlocked.Read(ref _requestSeq) > Interlocked.Read(ref _writtenRequest))
+                SaveSync();
+        }
+
+        /// <summary>存檔用的深拷貝：只在主執行緒上呼叫。回傳的物件圖不與本體共用任何集合或設定物件實例。</summary>
+        /// <remarks>🔴 新增集合或設定物件型別的成員時要在這裡補一行；漏了會被第一次存檔的 <see cref="SaveSnapshot.FindShared"/> 抓到並退回主執行緒序列化。</remarks>
+        internal MissionConfigs CloneForSave()
+        {
+            var c = SaveSnapshot.Shallow(this)!;
+            c.MechaShapeOverrides = SaveSnapshot.CopyDict(MechaShapeOverrides, SaveSnapshot.Shallow)!;
+            c.MechaAoeSkillToggles = SaveSnapshot.CopyDict(MechaAoeSkillToggles)!;
+            c.MissionPrio = SaveSnapshot.CopyList(MissionPrio)!;
+            c.RankPrio = SaveSnapshot.CopyList(RankPrio)!;
+            c.JobPrio = SaveSnapshot.CopyList(JobPrio)!;
+            c.ScoreKeeper = SaveSnapshot.CopyDict(ScoreKeeper)!;
+            c.GatherSettings = SaveSnapshot.CopyList(GatherSettings, CloneGatherProfile)!;
+            c.GatherProfiles = SaveSnapshot.CopyDict(GatherProfiles, CloneGatherProfile)!;
+            c.GambaItemWeights = SaveSnapshot.CopyList(GambaItemWeights, SaveSnapshot.Shallow)!;
+            c.ClassesUnlocked = SaveSnapshot.CopyDict(ClassesUnlocked)!;
+            c.CosmoShopping = SaveSnapshot.CopyDict(CosmoShopping, SaveSnapshot.Shallow)!;
+            c.CosmoShoppingOrder = SaveSnapshot.CopyList(CosmoShoppingOrder)!;
+            c.MissionConfig = SaveSnapshot.CopyDict(MissionConfig, CloneMissionSettings)!;
+            c.MissionPlaylists = SaveSnapshot.CopyDict(MissionPlaylists, l => SaveSnapshot.CopyList(l)!)!;
+            c.PostMissionCommands = SaveSnapshot.CopyList(PostMissionCommands, SaveSnapshot.Shallow)!;
+            c.DummyXP = SaveSnapshot.CopyDict(DummyXP, SaveSnapshot.Shallow)!;
+            return c;
+        }
+
+        private static MissionSettings CloneMissionSettings(MissionSettings s)
+        {
+            if (s == null)
+                return null!;
+            var c = SaveSnapshot.Shallow(s)!;
+            c.TurninRecords = SaveSnapshot.CopyList(s.TurninRecords, SaveSnapshot.Shallow)!;
+            c.Times = SaveSnapshot.CopyList(s.Times)!;
+            return c;
+        }
+
+        private static GatherProfile CloneGatherProfile(GatherProfile p)
+        {
+            if (p == null)
+                return null!;
+            var c = SaveSnapshot.Shallow(p)!;
+            if (p.GatherBuffs != null)
+            {
+                c.GatherBuffs = SaveSnapshot.Shallow(p.GatherBuffs)!;
+                c.GatherBuffs.Buffs = SaveSnapshot.CopyDict(p.GatherBuffs.Buffs, SaveSnapshot.Shallow)!;
+            }
+            return c;
         }
 
         #endregion
