@@ -1,4 +1,5 @@
 // 抄自 docs/architecture/templates/vnav-stop-own-path.md 的 VnavOwnPath 片段（決策表由 vnav_own_path_template_probe 驗）。
+// 跨 repo 同步：各 repo 各帶一份（ICE、ChilledLeves…），改一份就同步其他份：grep -rl "class VnavOwnPath"。
 using System;
 using System.Collections.Generic;
 using System.Numerics;
