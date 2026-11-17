@@ -152,7 +152,7 @@ namespace ICE.Ui
                             ImGui.BeginTooltip();
                             ImGui.Text($"[{mission.MissionId}]");
                             ImGui.SameLine(0, 2);
-                            // ⚠️ 來源是寫死的 PhaennaMapV2/SinusMapV2，跟 SheetMissionDict 沒有共同保證（台服的 Phaenna 任務列整列是空的），
+                            // ⚠️ 來源是寫死的 PhaennaMapV2/SinusMapV2，跟 SheetMissionDict 沒有共同保證，
                             //    所以名字一律走 TryGetValue。
                             ImGui.Text(CosmicHelper.SheetMissionDict.TryGetValue(mission.MissionId, out var timedEntry) ? GameTextUtil.StripGameIcons(timedEntry.Name) : "???");
                             ImGui.EndTooltip();
@@ -175,7 +175,7 @@ namespace ICE.Ui
                             ImGui.BeginTooltip();
                             ImGui.Text($"[{mission.MissionId}]");
                             ImGui.SameLine(0, 2);
-                            // ⚠️ 來源是寫死的 PhaennaMapV2/SinusMapV2，跟 SheetMissionDict 沒有共同保證（台服的 Phaenna 任務列整列是空的），
+                            // ⚠️ 來源是寫死的 PhaennaMapV2/SinusMapV2，跟 SheetMissionDict 沒有共同保證，
                             //    所以名字一律走 TryGetValue。
                             ImGui.Text(CosmicHelper.SheetMissionDict.TryGetValue(mission.MissionId, out var timedEntry) ? GameTextUtil.StripGameIcons(timedEntry.Name) : "???");
                             ImGui.EndTooltip();

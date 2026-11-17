@@ -958,6 +958,7 @@ MissionID,Class,MissionName,Score
 957,BTN,EX: Phaenna Glass,51
 958,BTN,EX: Mutated Fungi Survey,58
 959,BTN,EX: Capsule Chasm Survey,183
+960,BTN,EX: Hyper-aetheroconductivity Research,126
 961,BTN,EX+: Geothermal Survey,229
 962,BTN,EX+: Fine-grade Heat-resistant Materials,168
 963,BTN,EX+: Optical Noise Reduction Research,167
@@ -990,6 +991,7 @@ MissionID,Class,MissionName,Score
 990,FSH,Aquatic Glass Resource Distribution Survey,23
 991,FSH,EX: Red Cosmomaggot Field Test,57
 992,FSH,EX: Large River Resources,40
+993,FSH,EX: Capsule Pools Distribution Survey,91
 994,FSH,EX+: Large Saltpeter Shore Resources,168
 995,FSH,EX+: Stardust Bait Test,236
 996,FSH,Precision Lens Development Support,22
@@ -998,6 +1000,7 @@ MissionID,Class,MissionName,Score
 999,FSH,EX: Rare Aquatic Resources,105
 1000,FSH,EX: Elemental-esque River Specimens,67
 1001,FSH,Lower Soda-lime Float Distribution Survey,159
+1002,FSH,EX: Bubble Bursters Distribution Survey,106
 1003,FSH,EX+: Fusingway Flow Distribution Survey,380
 1004,FSH,EX+: Elemental-esque Saltpeter Shore Specimens,358
 1005,FSH,EX+: Elemental-esque Chasm Specimens,364
@@ -1005,28 +1008,35 @@ MissionID,Class,MissionName,Score
 1007,CRP,Wiring Repair Tools,215
 1008,CRP,Mutated Flora Samples,215
 1009,CRP,Glass Dust Cleaning Tools,215
+1010,BSM,Experimental Lightning Rod Materials,215
 1011,BSM,Vitreobotany Tools,215
 1012,BSM,Nozzle Parts,215
 1013,ARM,Upgrade Parts,215
 1014,ARM,Dust Tanks,215
 1015,ARM,Rover Plating,215
 1016,GSM,Precision Components,215
+1017,GSM,Electroconductive Wire,0
 1018,GSM,Spare Transport Parts,215
 1019,LTW,Wiring Repair Gloves,215
 1020,LTW,Reinforced Lumbering Boots,215
 1021,LTW,Dust-filtering Masks,215
 1022,WVR,Repair Cloth,215
+1023,WVR,Hanging Tool Pouches,215
 1024,WVR,Dust Filters,215
 1025,ALC,Wiring Repair Rubber,215
+1026,ALC,Experimental Storage Batteries,215
 1027,ALC,Surface Protectant,215
 1028,CUL,Hot Soup,215
+1029,CUL,Reconfiguration Lubricant,215
 1030,CUL,Water Quality Inspection Samples,215
+1031,MIN,Lightning Rod Materials,139
 1032,MIN,Rare Glass Resources,139
 1033,MIN,Metallic Materials,139
 1034,BTN,Supply Route Clearing,139
 1035,BTN,Glass Flora Samples,139
 1036,BTN,Mutated Flora,139
 1037,FSH,Soup Broth Ingredients,158
+1038,FSH,Oil-extractable Aquatic Life,212
 1039,FSH,Elemental-esque Specimen Acquisition,150
 ,CRP,Premium High-grade Paper,51
 ,LTW,Premium High-grade Paper,51

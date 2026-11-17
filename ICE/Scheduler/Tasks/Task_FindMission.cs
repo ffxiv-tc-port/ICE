@@ -1580,7 +1580,6 @@ namespace ICE.Scheduler.Tasks
                 // 🔴 MoonFishingLocations 是**寫死在原始碼裡的釣點座標表**（上游照國際服建的）：外層鍵是區域 ID、
                 //    內層鍵是任務的地圖旗標座標，而且是 Vector2 的**浮點數相等比對** —— 跟遊戲資料之間沒有任何共同保證，
                 //    所以兩層都用 TryGetValue（裸索引找不到鍵是丟例外、不是回 null）。
-                //    ⚠️ [1291] Phaenna 的 11 個旗標無法離線驗證（台服那些任務列目前整列是空的）。
                 if (!GatheringUtil.MoonFishingLocations.TryGetValue(territory, out var territorySpots)
                     || !territorySpots.TryGetValue(location, out var fishingHole)
                     || fishingHole.Count == 0)

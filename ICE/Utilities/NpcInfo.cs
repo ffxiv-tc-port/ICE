@@ -104,10 +104,8 @@ internal static class NpcData // Renamed the class to avoid conflict
                 Corner4 = new Vector3(13.96f, 1.69f, -17.90f),
             }
         },
-        // ⚠️ 第二顆星 Phaenna。整組資料都是上游照國際服寫的，台服**目前一筆也驗不了**（那些列尚未開放）。
-        //    🔴 上面 [1237] 的每個 NPC 都帶 AlternateNpcIds，因為**同一個 NPC 會依據據點的建設階段換成不同的 DataId**，
-        //    而上游只寫死了國際服當時那一階的值。這裡的 [1291] **沒有任何 AlternateNpcIds**，
-        //    所以台服開放 Phaenna 時幾乎一定會再中一次同一顆雷。
+        // 法恩娜的 NPC 在 ENpcResident 沒有依建設階段換 DataId 的同名分身（[1237] 有），所以不帶 AlternateNpcIds；
+        // ⚠️ 之後改版若加了分身，症狀是到了據點找不到 NPC（log 會列出設定的 DataId）。
         [CosmicZones.Phaenna] = new List<NPCInfo>
         {
             new NPCInfo()

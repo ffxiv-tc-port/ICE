@@ -89,7 +89,7 @@ namespace ICE.Scheduler.Tasks
             Vector3? hubCenter = Player.Territory switch
             {
                 CosmicZones.SinusArdorum => new Vector3(2.84f, 1.55f, -0.06f),   // 渴望灣 / Sinus Ardorum
-                CosmicZones.Phaenna => new Vector3(339.90f, 52.60f, -412.10f), // Phaenna（台服尚未開放）
+                CosmicZones.Phaenna => new Vector3(339.90f, 52.60f, -412.10f), // 法恩娜 / Phaenna
                 _ => null,
             };
 
