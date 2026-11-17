@@ -33,7 +33,7 @@ namespace ICE.Scheduler
 
             return true;
         }
-        /// <param name="byUser">使用者按下的停止（UI 停止鈕、<c>/ice stop</c>）：vnavmesh 刻意全停。其餘（含 IPC、離開區域、流程自己中止）只停 ICE 自己的移動。</param>
+        /// <param name="byUser">使用者按下的停止（UI 停止鈕、<c>/ice stop</c>）：維持舊行為——取消 ICE 自己還在算的尋路、路徑在走就 Path.Stop。其餘（含 IPC、離開區域、流程自己中止）只停 ICE 自己的移動。</param>
         internal static bool DisablePlugin(bool byUser = false)
         {
             IceLogging.Debug("Stopping the plugin state", "[Schedular - Disable Plugin]");
@@ -46,7 +46,11 @@ namespace ICE.Scheduler
             if (P.Navmesh.Installed)
             {
                 if (byUser)
-                    VnavOwnPath.StopAllByUser(P.Navmesh);
+                {
+                    P.Navmesh.CancelOwnPathfind();
+                    if (P.Navmesh.IsRunning())
+                        P.Navmesh.Stop();
+                }
                 else
                 {
                     var r = P.Navmesh.StopOwn();

@@ -52,6 +52,7 @@ public class NavmeshIPC : IVnavPort
     public bool PathfindAndMoveTo(Vector3 destination, bool fly)
     {
         own.NoteIssued(destination);
+        userStopIssuedPathfind = true;
         try
         {
             return PathfindAndMoveToRpc(destination, fly);
@@ -81,8 +82,58 @@ public class NavmeshIPC : IVnavPort
     /// <summary>ICE 送出的移動還沒結束（還在算，或在走而且終點是 ICE 最後送的目的地）。</summary>
     internal bool IssuedPathfind => own.HasIssued;
 
+    /// <summary>給使用者停止用的舊旗標：ICE 送過尋路、而且 SimpleMove 從那之後一直在算（看到一次「沒在算」就放）。只在框架執行緒讀寫。</summary>
+    private bool userStopIssuedPathfind;
+
     /// <summary>每幀呼叫：ICE 那一筆移動結束或被別人換掉就放手。沒送過時不做任何 IPC。</summary>
-    public void ObserveOwnPathfind() => own.Observe();
+    public void ObserveOwnPathfind()
+    {
+        if (userStopIssuedPathfind)
+        {
+            bool inProgress;
+            try
+            {
+                inProgress = PathfindInProgress();
+            }
+            catch (Exception)
+            {
+                inProgress = false;
+            }
+            if (!inProgress)
+                userStopIssuedPathfind = false;
+        }
+        own.Observe();
+    }
+
+    /// <summary>
+    /// 使用者按停止時用（行為同改成 VnavOwnPath 之前）：只取消 ICE 自己送出、可能還在算的尋路；
+    /// 沒送過或已算完就不碰（不取消別的插件的尋路）。查不到「還在算」時照舊取消。
+    /// </summary>
+    public void CancelOwnPathfind()
+    {
+        if (!userStopIssuedPathfind)
+            return;
+        userStopIssuedPathfind = false;
+        bool stillOurs;
+        try
+        {
+            stillOurs = PathfindInProgress();
+        }
+        catch (Exception)
+        {
+            stillOurs = true;
+        }
+        if (!stillOurs)
+            return;
+        try
+        {
+            PathfindCancelAllRpc();
+        }
+        catch (Exception e)
+        {
+            IceLogging.Info($"{Name} 的「Nav.PathfindCancelAll」呼叫失敗（多半是舊版 vnavmesh 沒有這個端點），只送了停止移動：{e.GetType().Name}: {e.Message}", NavFaultHandle);
+        }
+    }
 
     /// <summary>
     /// 只停 ICE 自己發起的移動：算路要「只剩這一筆」且送出 30 秒內才取消（vnavmesh 只有全域取消），
