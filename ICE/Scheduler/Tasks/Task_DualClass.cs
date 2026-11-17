@@ -278,16 +278,7 @@ namespace ICE.Scheduler.Tasks
             {
                 IceLogging.Info("Artisan is no longer running, continuing the process");
 
-                // 同 Task_Craft.WaitingForArtisan：「Artisan 不忙了」不等於「做出東西來了」。
-                CraftProgressGuard.OnArtisanStopped("[Task_DualClass: Waiting For Artisan]");
-                if (CraftProgressGuard.LimitReached)
-                {
-                    CraftProgressGuard.ReportAndStop("[Task_DualClass: Waiting For Artisan]");
-                    return true;
-                }
-
-                P.TaskManager.Tasks.Clear();
-                return true;
+                return CraftProgressGuard.FinishArtisanWait("[Task_DualClass: Waiting For Artisan]", clearQueue: true);
             }
             else
             {

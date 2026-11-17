@@ -31,15 +31,7 @@ namespace ICE.Scheduler.Tasks
             {
                 IceLogging.Info("Artisan is no longer running, continuing the process");
 
-                // 🔴 「Artisan 不忙了」不等於「做出東西來了」：用背包實際數量判斷有沒有進展，
-                //    連續失敗就退避，達上限就停下來並說明原因。
-                CraftProgressGuard.OnArtisanStopped("[Task Craft: Waiting For Artisan]");
-                if (CraftProgressGuard.LimitReached)
-                {
-                    CraftProgressGuard.ReportAndStop("[Task Craft: Waiting For Artisan]");
-                    return true;
-                }
-                return true;
+                return CraftProgressGuard.FinishArtisanWait("[Task Craft: Waiting For Artisan]", clearQueue: false);
             }
             else
             {

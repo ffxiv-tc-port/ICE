@@ -164,4 +164,23 @@ internal static class CraftProgressGuard
         }
         return $"item {itemId}";
     }
+
+    /// <summary>
+    /// 等 Artisan 的步驟在「Artisan 不忙了」之後的共同收尾，一律回 true（這一步結束）。
+    /// 🔴 「Artisan 不忙了」不等於「做出東西來了」：用背包實際數量判斷有沒有進展，
+    ///    連續失敗就退避，達上限就停下來並說明原因。
+    /// </summary>
+    /// <param name="clearQueue">沒達上限時清空 ICE 佇列（雙職業流程的既有行為；製作流程不清）。</param>
+    internal static bool FinishArtisanWait(string handle, bool clearQueue)
+    {
+        OnArtisanStopped(handle);
+        if (LimitReached)
+        {
+            ReportAndStop(handle);
+            return true;
+        }
+        if (clearQueue)
+            P.TaskManager.Tasks.Clear();
+        return true;
+    }
 }
