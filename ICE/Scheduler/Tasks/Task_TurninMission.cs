@@ -267,13 +267,9 @@ namespace ICE.Scheduler.Tasks
                         && AddonPressGuard.TryBeginPress("回報任務：回報結果", "WKSMissionInfomation", missionInfo, AddonPressGuard.WksMissionExitPressKey))
                         missionInfo.Report();
                 }
-                else if (GenericHelpers.TryGetAddonMaster<WKSHud>("WKSHud", out var moonHud))
+                else
                 {
-                    if (EzThrottler.Throttle("Opening the moon hud", 1000))
-                    {
-                        moonHud.Mission();
-                        IceLogging.Info("Hud wasn't visible. Opening it", "[Score Check]");
-                    }
+                    CosmicHelper.ReopenMissionHudForScore();
                 }
             }
 

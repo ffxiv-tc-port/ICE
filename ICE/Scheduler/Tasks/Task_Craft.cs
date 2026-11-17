@@ -49,16 +49,7 @@ namespace ICE.Scheduler.Tasks
                     // If the timer exceeds 10 seconds, then that means we're stuck in an animation lock
                     // then need to cancel them all and just force abandon lock failsafe
                 }
-                if (GenericHelpers.TryGetAddonMaster<WKSHud>("WKSHud", out var moonHud))
-                {
-                    if (!AddonHelper.IsAddonActive("WKSMissionInfomation"))
-                    {
-                        if (EzThrottler.Throttle("Opening mission scoring info"))
-                        {
-                            moonHud.Mission();
-                        }
-                    }
-                }
+                CosmicHelper.OpenMissionInfoWhileCrafting();
             }
             return false;
         }

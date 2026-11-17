@@ -323,14 +323,7 @@ namespace ICE.Scheduler.Tasks
             else
             {
                 // Addon wasn't visiable/ready. Opening it up.
-                if (GenericHelpers.TryGetAddonMaster<WKSHud>("WKSHud", out var moonHud))
-                {
-                    if (EzThrottler.Throttle("Opening the moon hud", 1000))
-                    {
-                        moonHud.Mission();
-                        IceLogging.Info("Hud wasn't visible. Opening it", "[Score Check]");
-                    }
-                }
+                CosmicHelper.ReopenMissionHudForScore();
             }
 
             return false;
@@ -564,14 +557,7 @@ namespace ICE.Scheduler.Tasks
             else
             {
                 // Addon wasn't visiable/ready. Opening it up.
-                if (GenericHelpers.TryGetAddonMaster<WKSHud>("WKSHud", out var moonHud))
-                {
-                    if (EzThrottler.Throttle("Opening the moon hud", 1000))
-                    {
-                        moonHud.Mission();
-                        IceLogging.Info("Hud wasn't visible. Opening it", "[Score Check]");
-                    }
-                }
+                CosmicHelper.ReopenMissionHudForScore();
             }
 
             return false;
@@ -817,14 +803,7 @@ namespace ICE.Scheduler.Tasks
             else
             {
                 // Addon wasn't visiable/ready. Opening it up.
-                if (GenericHelpers.TryGetAddonMaster<WKSHud>("WKSHud", out var moonHud))
-                {
-                    if (EzThrottler.Throttle("Opening the moon hud", 1000))
-                    {
-                        moonHud.Mission();
-                        IceLogging.Info("Hud wasn't visible. Opening it", "[Score Check]");
-                    }
-                }
+                CosmicHelper.ReopenMissionHudForScore();
             }
 
             return false;
@@ -975,14 +954,7 @@ namespace ICE.Scheduler.Tasks
             else
             {
                 // Addon wasn't visiable/ready. Opening it up.
-                if (GenericHelpers.TryGetAddonMaster<WKSHud>("WKSHud", out var moonHud))
-                {
-                    if (EzThrottler.Throttle("Opening the moon hud", 1000))
-                    {
-                        moonHud.Mission();
-                        IceLogging.Info("Hud wasn't visible. Opening it", "[Score Check]");
-                    }
-                }
+                CosmicHelper.ReopenMissionHudForScore();
             }
 
             return false;
