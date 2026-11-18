@@ -129,7 +129,7 @@
 
 ## 10. 建置、子模組、CI
 
-- **子模組指 org fork**：ECommons → `ffxiv-tc-port/ECommons`（分支 `pin-wrathcombo-tc-api13`）、Pictomancy → `ffxiv-tc-port/Pictomancy`（分支 `tc-7.30`；是 sourpuh 原版，不是 Splatoon 用的那支）。fork 裡帶著本清單用到的修正（`WKSMissionInfomation` 分數、`.Loc()` CRLF key、`FrameThrottler` 改用 `Framework.Update` 計時、原生取得器判空、台服世界 IsPublic）。換回上游子模組＝這些一起消失 — `.gitmodules`｜驗：`git submodule status` 與 `.gitmodules` 的網址｜`b7b354b` `774accb` `952b394` `c444122` `744c10e`
+- **子模組指 org fork**：ECommons → `ffxiv-tc-port/ECommons`（分支 `tc-7.30`）、Pictomancy → `ffxiv-tc-port/Pictomancy`（分支 `tc-7.30`；是 sourpuh 原版，不是 Splatoon 用的那支）。fork 裡帶著本清單用到的修正（`WKSMissionInfomation` 分數、`.Loc()` CRLF key、`FrameThrottler` 改用 `Framework.Update` 計時、原生取得器判空、台服世界 IsPublic）。換回上游子模組＝這些一起消失 — `.gitmodules`｜驗：`git submodule status` 與 `.gitmodules` 的網址｜`b7b354b` `774accb` `952b394` `c444122` `744c10e`
 - **版本與 manifest**：`ICE.csproj` 用艦隊的 `BuildNumber.txt` 版號機制（發版 tag 紀元 `v7.25.x.y`）；`ICE.json` 補 `InternalName`／`RepoUrl`／`IconUrl`、繁中說明；`Data/Icon.png` 轉 RGBA（RGB 在遊戲內顯示成問號）｜驗：feed 上那顆 zip 的 manifest｜`896c497`
 - **CI**：GitHub 代管 runner（`windows-latest`；repo 公開後自架 runner 不接公開 repo 的 job）、pinned Dalamud 從 `ffxiv-tc-port/Dalamud` release `dalamud-pin-v13.0.0.17` 下載並驗 SHA256、明傳 `DalamudLibPath`；子模組是公開 org fork，`actions/checkout` 的 `submodules: recursive` 直接取 — `.github/workflows/`｜驗：workflow 的 `runs-on`、`$pinUrl` 與 checkout 步驟｜`eea2136`（之前自架 runner 版：`d0148dc` `6302cb9` `4f1ee12`）
 - **遊戲 ESC 不被擋**：四個視窗 `RespectCloseHotkey = false`（上游只有疊加層）— `Ui/MainWindow.cs`、`OverlayWindow.cs`、`InfoWindow.cs`、`DebugWindow.cs`｜看得見：ICE 視窗有焦點時 ESC 失效｜驗：四個建構子｜`a314862`
