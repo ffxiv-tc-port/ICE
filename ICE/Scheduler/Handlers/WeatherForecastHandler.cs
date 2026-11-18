@@ -13,37 +13,20 @@ namespace ICE.Scheduler.Handlers
 
         internal static List<WeatherForecast> weathers = [];
 
-        private static DateTime _lastProcessed = DateTime.MinValue;
-        private static TimeSpan _delay = TimeSpan.FromSeconds(300);
-        private static uint previousZoneForecast = 0;
+        // 上次建 weathers 時的輸入：區域、期起點（整秒）、目前天氣＋未來 24 期的天氣 id；forecastOffsets[k]＝weathers[k] 的期偏移。
+        private static ushort forecastTerritory;
+        private static long forecastPeriodStart = long.MinValue;
+        private static readonly byte[] forecastIds = new byte[25];
+        private static readonly int[] forecastOffsets = new int[25];
 
-        internal static unsafe void Tick()
-        {
-            if (!PlayerHelper.IsInCosmicZone() || WeatherFunctionsMissing()) return;
-
-            Weather currWeather = GetCurrentWeather();
-            var CorrectFirstWeather = true;
-            var NeedToRefreshBecauseRedAlert = true;
-            if (weathers.Count > 0)
-            {
-                CorrectFirstWeather = weathers[0].Name == currWeather.Name;
-
-                // 預報在 24 期內天氣都沒變時 weathers 只有一筆，不能直接讀 [1]
-                if (weathers.Count > 1 && weathers[1].Time - DateTime.UtcNow < TimeSpan.Zero) NeedToRefreshBecauseRedAlert = true;
-            }
-
-            //Only allow refresh if territory changed
-            //Or weather is not in first spot (ex: Red Alert)
-            //Or already past 5 minutes since the last refresh
-            if (Svc.ClientState.TerritoryType == previousZoneForecast && CorrectFirstWeather && !NeedToRefreshBecauseRedAlert && DateTime.Now - _lastProcessed < _delay) return;
-            RefreshForecast();
-        }
+        // 上游這裡的提早返回條件恆不成立（NeedToRefreshBecauseRedAlert 初值就是 true）＝每幀重算；
+        // 這裡照樣每幀重算，輸入沒變就沿用上一份清單（見 GetForecast）。
+        internal static void Tick() => RefreshForecast();
 
         internal static void RefreshForecast()
         {
             if (!PlayerHelper.IsInCosmicZone() || WeatherFunctionsMissing()) return;
-            
-            _lastProcessed = DateTime.Now;
+
             GetForecast();
         }
 
@@ -84,27 +67,52 @@ namespace ICE.Scheduler.Handlers
         {
             if (WeatherFunctionsMissing()) return;
 
-            previousZoneForecast = Svc.ClientState.TerritoryType;
-
+            var territory = Svc.ClientState.TerritoryType;
             WeatherManager* wm = WeatherManager.Instance();
-            Weather currentWeather = GetCurrentWeather();
+            Span<byte> ids = stackalloc byte[25];
+            ids[0] = wm->GetCurrentWeather();
+            for (var i = 1; i <= 24; i++)
+                ids[i] = wm->GetWeatherForDaytime(territory, i);
+
+            // 契約：輸入與建清單時全同 ⇒ 天氣與筆數不變，只照重建的算法就地刷新 Time，結果與每幀重建相同。
+            var periodStart = PeriodStartSecond();
+            if (territory == forecastTerritory && periodStart == forecastPeriodStart && ids.SequenceEqual(forecastIds))
+            {
+                for (var k = 0; k < weathers.Count; k++)
+                    weathers[k].Time = GetRootTime(forecastOffsets[k] * WeatherPeriod);
+                return;
+            }
+
+            // 先作廢：建到一半擲例外時下一幀照舊重建。
+            forecastPeriodStart = long.MinValue;
+
+            Weather currentWeather = ExcelHelper.WeatherSheet.GetRow(ids[0]);
             Weather lastWeather = currentWeather;
 
             weathers = [BuildResultObject(currentWeather, GetRootTime(0))];
+            forecastOffsets[0] = 0;
 
             for (var i = 1; i <= 24; i++)
             {
-                byte weatherId = wm->GetWeatherForDaytime(Svc.ClientState.TerritoryType, i);
-                var weather = ExcelHelper.WeatherSheet.GetRow(weatherId)!;
+                var weather = ExcelHelper.WeatherSheet.GetRow(ids[i])!;
                 var time = GetRootTime(i * WeatherPeriod);
 
                 if (lastWeather.RowId != weather.RowId)
                 {
                     lastWeather = weather;
                     weathers.Add(BuildResultObject(weather, time));
+                    forecastOffsets[weathers.Count - 1] = i;
                 }
             }
+
+            // 建到一半跨過期界就不記輸入，下一幀照舊重建。
+            if (PeriodStartSecond() != periodStart) return;
+            forecastTerritory = territory;
+            forecastPeriodStart = periodStart;
+            ids.CopyTo(forecastIds);
         }
+
+        private static long PeriodStartSecond() => GetRootTime(0).Ticks / TimeSpan.TicksPerSecond;
 
         internal static unsafe List<WeatherForecast> GetTerritoryForecast(ushort territoryId)
         {
