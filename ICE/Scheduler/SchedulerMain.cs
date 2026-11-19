@@ -69,7 +69,7 @@ namespace ICE.Scheduler
             return true;
         }
 
-        /// <summary>流程自己決定停手時的收尾：先把狀態設回 Idle，再通知 TataruPraise（順序固定）。</summary>
+        /// <summary>流程自己決定停手時的收尾：先把狀態設回 Idle，再通知 TataruPraise／NotificationMaster（順序固定）。</summary>
         /// <param name="needsHelp">true＝卡住要使用者處理（NotifyNeedsHelp），false＝正常停下（NotifyStopped）。</param>
         /// <param name="playSound">通知後緊接著播停止提示音（仍看 <c>C.PlaySoundAlert</c>）。</param>
         internal static void StopWithNotice(string reason, bool needsHelp = false, bool playSound = false)
@@ -79,6 +79,7 @@ namespace ICE.Scheduler
                 TataruPraiseIPC.NotifyNeedsHelp(reason);
             else
                 TataruPraiseIPC.NotifyStopped(reason);
+            NotificationMasterIPC.NotifyStopped(reason, needsHelp);
             if (playSound && C.PlaySoundAlert)
                 _ = SoundPlayer.PlaySoundAsync();
         }

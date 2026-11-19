@@ -196,6 +196,7 @@ public sealed partial class ICE : IDalamudPlugin
                 // 這個「每幀重舉、送出即放下」的旗標是「一輪只念一次」唯一的保證。
                 // 🔴 只是一個 bool 指派，不做任何 IPC、不讀遊戲結構。
                 TataruPraiseIPC.ArmStopNotice();
+                NotificationMasterIPC.ArmStopNotice();
                 SchedulerMain.Tick();
             }
             WeatherForecastHandler.Tick();

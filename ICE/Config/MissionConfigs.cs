@@ -474,6 +474,12 @@ namespace ICE.Config
         /// </remarks>
         public bool PraiseOnAutomationStuck { get; set; } = true;
 
+        /// <summary>自動化停下來時請 NotificationMaster 跳 Windows 通知（沒安裝就靜默）。</summary>
+        public bool NotifyToastOnStop { get; set; } = false;
+
+        /// <summary>自動化停下來時請 NotificationMaster 閃工作列圖示（沒安裝就靜默）。</summary>
+        public bool NotifyFlashTaskbarOnStop { get; set; } = false;
+
         #endregion
 
         #region Relic Settings

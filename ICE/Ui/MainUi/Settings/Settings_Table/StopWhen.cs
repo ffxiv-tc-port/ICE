@@ -1,4 +1,6 @@
-﻿using ICE.Sounds;
+﻿using Dalamud.Interface.Colors;
+using ICE.IPC;
+using ICE.Sounds;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -178,6 +180,37 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             if (ImGui.IsItemHovered())
             {
                 ImGui.SetTooltip("Said once per run, but only when ICE had to stop for a reason you did not ask for: it kept rerolling and still found no mission, or the current job has no runnable mission in this zone.\nUses TataruPraise's existing \"需要幫忙\" category, so this one works right away.\nDoes nothing at all when TataruPraise is not installed, and never affects scheduling.".Loc());
+            }
+
+            #endregion
+
+            #region Notification Master
+
+            bool toastOnStop = C.NotifyToastOnStop;
+            if (ImGui.Checkbox("Show a Windows notification when ICE stops (requires NotificationMaster)".Loc() + "###ICENotifyToastOnStop", ref toastOnStop))
+            {
+                C.NotifyToastOnStop = toastOnStop;
+                C.Save();
+            }
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip("Sent once per run, for the same stops as the Tataru lines above (stop conditions, stop after current mission, or getting stuck). The notification text says why ICE stopped.\nDoes nothing at all when NotificationMaster is not installed or not loaded, and never affects scheduling.".Loc());
+            }
+
+            bool flashOnStop = C.NotifyFlashTaskbarOnStop;
+            if (ImGui.Checkbox("Flash the taskbar icon when ICE stops (requires NotificationMaster)".Loc() + "###ICENotifyFlashTaskbarOnStop", ref flashOnStop))
+            {
+                C.NotifyFlashTaskbarOnStop = flashOnStop;
+                C.Save();
+            }
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.SetTooltip("Sent once per run, for the same stops as the Windows notification above.\nDoes nothing at all when NotificationMaster is not installed or not loaded, and never affects scheduling.".Loc());
+            }
+            if ((toastOnStop || flashOnStop) && !Utils.HasPlugin(NotificationMasterIPC.Name))
+            {
+                ImGui.SameLine();
+                ImGuiEx.Text(ImGuiColors.DalamudGrey, "(NotificationMaster is not loaded)".Loc());
             }
 
             #endregion
