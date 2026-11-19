@@ -657,7 +657,7 @@ namespace ICE.Scheduler.Tasks
         {
             if (GenericHelpers.TryGetAddonMaster<WKSMission>("WKSMission", out var x) && x.IsAddonReady)
             {
-                var bestIndex = FindBestRelicMission(requireCurrentJob);
+                var bestIndex = FindBestRelicMission(requireCurrentJob, allowCoolingPick: isFallbackTab);
 
                 if (bestIndex > 0)
                 {
@@ -738,7 +738,11 @@ namespace ICE.Scheduler.Tasks
         /// 只保留「任務職業包含目前職業」的候選。緊急／臨時分頁會列出其他職業的任務，
         /// 而經驗是加在任務所屬職業的宇宙工具上，所以那兩個分頁必須開啟這個過濾。
         /// </param>
-        public static unsafe uint? FindBestRelicMission(bool requireCurrentJob = false)
+        /// <param name="allowCoolingPick">
+        /// 候選全都在「最近已經不可能拿到金星」的冷卻中時，要不要仍從中挑一個。
+        /// 只有最後一個分頁是 true，其他分頁回 null 交給下一個分頁（見 <see cref="GoldUnreachableCooldown.PickBest"/>）。
+        /// </param>
+        public static unsafe uint? FindBestRelicMission(bool requireCurrentJob = false, bool allowCoolingPick = true)
         {
             string tip = "[Relic XP Finder]";
 
@@ -817,6 +821,8 @@ namespace ICE.Scheduler.Tasks
                     urgencies[i + 1] = bar.NeededXP > 0 ? 1f - (float)bar.CurrentXP / bar.NeededXP : 0f;
                     IceLogging.Debug($"XP Type: {i+1} | Urgency: {urgencies[i + 1]}", tip);
                 }
+
+                LogRelicXpFullOnce(job, urgencies, stage == maxStage);
 
                 Dictionary<uint, Dictionary<int, float>> rewardMissions = new();
                 foreach (var availMission in x.StellerMissions)
@@ -908,6 +914,7 @@ namespace ICE.Scheduler.Tasks
 
                 uint? bestMissionId = null;
                 float bestScore = float.NegativeInfinity;
+                var scored = new List<(uint Id, float Score)>(rewardMissions.Count);
 
                 foreach (var kvp in rewardMissions)
                 {
@@ -937,6 +944,8 @@ namespace ICE.Scheduler.Tasks
                         }
                     }
 
+                    scored.Add((missionId, score));
+
                     // Compare this mission's score with the current best
                     if (score > bestScore)
                     {
@@ -946,6 +955,27 @@ namespace ICE.Scheduler.Tasks
                     }
                 }
 
+                if (C.XPRelicAvoidGoldUnreachable && C.XPRelicAvoidGoldUnreachableMinutes > 0)
+                {
+                    var nowMs = Environment.TickCount64;
+                    var minutes = C.XPRelicAvoidGoldUnreachableMinutes;
+                    bool Cooling(uint id) => GoldUnreachableCooldown.IsCoolingDown(id, nowMs, minutes);
+
+                    var picked = GoldUnreachableCooldown.PickBest(scored, Cooling, allowCoolingPick);
+                    if (picked != bestMissionId)
+                    {
+                        IceLogging.Info(
+                            $"任務 {bestMissionId} 分數最高，但 {minutes} 分鐘內記過「已經不可能拿到金星」，排到最後；"
+                            + (picked is uint p ? $"改接 {p}。" : "這個分頁其餘候選也都在冷卻中，交給下一個分頁。"), tip);
+                    }
+                    else if (picked is uint p && Cooling(p))
+                    {
+                        IceLogging.Info($"候選全都在「最近已經不可能拿到金星」的冷卻中，照分數仍接 {p}。", tip);
+                    }
+
+                    bestMissionId = picked;
+                }
+
                 return bestMissionId;
             }
             else
@@ -953,6 +983,35 @@ namespace ICE.Scheduler.Tasks
                 return null;
             }
         }
+        /// <summary>已經為哪個職業記過「工具經驗都達標了」；0 ＝ 目前沒有。只在框架執行緒讀寫。</summary>
+        private static uint relicXpFullLoggedJob;
+
+        /// <summary>
+        /// 工具經驗各類都達到需要量、而且不會自動去繳交研究時，在狀態轉換那一刻記一次 Information。
+        /// 只是說明，不改挑選：這時每個任務的經驗分數都是 0，挑到的是清單第一個。
+        /// </summary>
+        private static void LogRelicXpFullOnce(uint job, Dictionary<int, float> urgencies, bool atMaxStage)
+        {
+            var allFull = urgencies.Count > 0 && urgencies.Values.All(u => u <= 0f);
+            if (!allFull)
+            {
+                if (relicXpFullLoggedJob == job)
+                    relicXpFullLoggedJob = 0;
+                return;
+            }
+
+            if (relicXpFullLoggedJob == job || (C.TurninRelic && !atMaxStage))
+                return;
+
+            relicXpFullLoggedJob = job;
+            IceLogging.Info(
+                $"職業 {job} 的宇宙工具經驗各類都已達到{(atMaxStage ? "最終階段的上限" : "這一階的需要量")}，"
+                + (atMaxStage ? "" : "但沒開「宇宙工具完成時自動回報」，")
+                + "接下來挑任務沒有經驗上的依據（每個任務的經驗分數都是 0，會接清單第一個）。"
+                + (atMaxStage ? "" : "可以去研究員那裡繳交升級，或開啟自動回報。"),
+                "[Relic XP Finder]");
+        }
+
         public static unsafe bool? CheckAllProvisional()
         {
             List<uint> WeatherMissions = new();

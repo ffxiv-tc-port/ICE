@@ -85,6 +85,16 @@ namespace ICE.Config
         /// <summary>宇宙工具經驗模式是否也把「緊急任務」分頁納入挑選。預設關閉＝維持上游行為。</summary>
         public bool XPRelicIncludeCritical { get; set; } = false;
 
+        /// <summary>
+        /// 宇宙工具經驗模式：最近記過「已經不可能拿到金星」的製作任務，在
+        /// <see cref="XPRelicAvoidGoldUnreachableMinutes"/> 分鐘內排到候選最後（不移除）。
+        /// 記錄只在記憶體（GoldUnreachableCooldown），插件重載就清空。
+        /// </summary>
+        public bool XPRelicAvoidGoldUnreachable { get; set; } = true;
+
+        /// <summary>上面那個「排到最後」維持幾分鐘。0 ＝ 等同關閉。</summary>
+        public int XPRelicAvoidGoldUnreachableMinutes { get; set; } = 30;
+
         public bool ShowCritical { get; set; } = true;
         public bool ShowSequential { get; set; } = true;
         public bool ShowWeather { get; set; } = true;

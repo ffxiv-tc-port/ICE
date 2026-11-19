@@ -272,6 +272,27 @@ namespace ICE.Ui.MainUi.ModeSelect
                                                 "or a finished prerequisite mission), so most cycles will still fall through " +
                                                 "to the basic tab.\n" +
                                                 "Only missions for your CURRENT job are considered.").Loc());
+
+                            bool avoidGoldUnreachable = C.XPRelicAvoidGoldUnreachable;
+                            if (ImGui.Checkbox("Put recently gold-unreachable missions last".Loc() + "###ICEXPRelicAvoidGoldUnreachable", ref avoidGoldUnreachable))
+                            {
+                                C.XPRelicAvoidGoldUnreachable = avoidGoldUnreachable;
+                                C.Save();
+                            }
+                            ImGuiEx.HelpMarker(("Crafting missions that recently hit \"gold is no longer possible\" are moved to the end " +
+                                                "of the relic XP candidates for the set number of minutes.\n" +
+                                                "They are not removed: if nothing else is available they are still taken.\n" +
+                                                "Kept in memory only: cleared when the plugin reloads or when that mission gets gold.").Loc());
+                            if (avoidGoldUnreachable)
+                            {
+                                int avoidMinutes = C.XPRelicAvoidGoldUnreachableMinutes;
+                                ImGui.SetNextItemWidth(ImGui.GetFontSize() * 10f);
+                                if (ImGui.SliderInt("Minutes to keep last".Loc() + "###ICEXPRelicAvoidGoldUnreachableMinutes", ref avoidMinutes, 1, 180))
+                                {
+                                    C.XPRelicAvoidGoldUnreachableMinutes = Math.Clamp(avoidMinutes, 1, 180);
+                                    C.Save();
+                                }
+                            }
                             if (C.ShowManualMode)
                             {
                                 bool IgnoreManual = C.XPRelicIgnoreManual;

@@ -193,6 +193,9 @@ internal static class CraftGoldFeasibility
         if (currentScore is not { } score || !PlayerHelper.InventoryReadable())
             return;
 
+        if (mission.GoldScore > 0 && score >= mission.GoldScore && GoldUnreachableCooldown.Clear(missionId))
+            IceLogging.Info($"任務 {MissionChain.DescribeMission(missionId)} 這一輪拿到金星，取消「排到最後」。", handle);
+
         var items = 0;
         foreach (var craft in mission.Crafts_Main.Values)
         {
@@ -238,20 +241,27 @@ internal static class CraftGoldFeasibility
     internal static bool HandleUnreachableGold(uint missionId, CosmicHelper.CosmicInfo mission,
                                                uint? currentScore, string handle)
     {
-        if (C.CraftGoldUnreachable == GoldUnreachableAction.Off)
-            return false;
-
         // 只有「這一輪除了金星以外不會交件」時，拿不到金星才構成收手的理由。
         // AutoTurnin 開著時 Task_CheckScore 只在金星達標時交件（銀／銅的分支被 else 擋掉），
         // TurninGold 開著時同理（TurninSilver 那一支有 !TurninGold 前置）。
-        if (!C.MissionConfig.TryGetValue(missionId, out var config))
-            return false;
-
-        if (!config.AutoTurnin && !config.TurninGold)
+        var act = C.CraftGoldUnreachable != GoldUnreachableAction.Off
+                  && C.MissionConfig.TryGetValue(missionId, out var config)
+                  && (config.AutoTurnin || config.TurninGold);
+        // 宇宙工具經驗模式的「排到最後」只需要判定結果，與上面的收手條件無關。
+        var mark = C.XPRelicGrind && C.XPRelicAvoidGoldUnreachable && C.XPRelicAvoidGoldUnreachableMinutes > 0;
+        if (!act && !mark)
             return false;
 
         var outlook = Evaluate(mission, currentScore, out var detail);
         if (outlook != CraftGoldOutlook.Unreachable)
+            return false;
+
+        if (mark && GoldUnreachableCooldown.Mark(missionId, Environment.TickCount64, C.XPRelicAvoidGoldUnreachableMinutes))
+            IceLogging.Info(
+                $"任務 {MissionChain.DescribeMission(missionId)} 這一輪已經不可能拿到金星；宇宙工具經驗模式接下來 "
+                + $"{C.XPRelicAvoidGoldUnreachableMinutes} 分鐘內挑任務時會把它排到最後（不移除，拿到金星或插件重載就清掉）。", handle);
+
+        if (!act)
             return false;
 
         if (C.CraftGoldUnreachable == GoldUnreachableAction.Notify)
