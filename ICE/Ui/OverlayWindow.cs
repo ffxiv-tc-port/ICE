@@ -726,6 +726,9 @@ namespace ICE.Ui
         {
             if (diagnosticsLoggedForMission == missionId)
                 return;
+            // 面板還沒開（接任務後的頭一兩秒）那幾幀什麼都讀不到；那時記下的「不可讀」不是佈局問題。
+            if (!MissionObjectiveReader.PanelSettled)
+                return;
             diagnosticsLoggedForMission = missionId;
 
             IceLogging.Info(

@@ -381,19 +381,19 @@ namespace ICE.Scheduler.Tasks
                     else if (leftWeight > rightWeight)
                     {
                         if (WheelDecisionChanged(WheelLeftBetter, leftWeight, rightWeight))
-                            IceLogging.Info($"[Gamba] First wheel is better with total weight: {leftWeight}");
+                            IceLogging.Info($"[Gamba] First wheel is better with total weight: {leftWeight}｜{DescribeWheels(gamba)}");
                         SelectWheelLeft(gamba);
                     }
                     else if (rightWeight > leftWeight)
                     {
                         if (WheelDecisionChanged(WheelRightBetter, leftWeight, rightWeight))
-                            IceLogging.Info($"[Gamba] Second wheel is better with total weight: {rightWeight}");
+                            IceLogging.Info($"[Gamba] Second wheel is better with total weight: {rightWeight}｜{DescribeWheels(gamba)}");
                         SelectWheelRight(gamba);
                     }
                     else
                     {
                         if (WheelDecisionChanged(WheelBothEqual, leftWeight, rightWeight))
-                            IceLogging.Info("[Gamba] Both wheels are equal in weight. Randomly selecting one.");
+                            IceLogging.Info($"[Gamba] Both wheels are equal in weight. Randomly selecting one.｜{DescribeWheels(gamba)}");
                         if (new Random().Next(2) == 0)
                             SelectWheelLeft(gamba);
                         else
@@ -419,6 +419,15 @@ namespace ICE.Scheduler.Tasks
             }
 
         }
+        /// <summary>輪盤決策 log 用：兩邊各列「名稱#道具ID×數量=權重」，沒登記權重的標「未登記」（新星球的獎品要靠這行補權重）。</summary>
+        private static string DescribeWheels(WKSLottery gamba)
+        {
+            string Side(WKSLottery.WheelItems[] items) => items.Length == 0 ? "（空）" : string.Join("、", items.Select(item =>
+                $"{item.itemName}#{item.itemId}×{item.itemAmount}="
+                + (C.GambaItemWeights.FirstOrDefault(x => x.ItemId == item.itemId) is { } w ? w.Weight.ToString() : "未登記")));
+            return $"左：{Side(gamba.LeftWheelItems)}／右：{Side(gamba.RightWheelItems)}";
+        }
+
         private static unsafe bool HasEnoughCredits()
         {
             if (!TryGetCosmoCreditItemId(out var itemId))

@@ -66,8 +66,23 @@ internal static class MissionObjectiveReader
     private static readonly List<ObjectiveLine> Cache = new();
     private static uint cachedMissionId;
 
-    /// <summary>已經為哪個任務印過「抓不到目標列」的提示，避免每 250ms 洗一次記錄檔。</summary>
-    private static uint loggedEmptyForMission;
+    /// <summary>已經為哪個任務印過解析結果（成功或失敗各一次），避免每 250ms 洗一次記錄檔。</summary>
+    private static uint loggedResultForMission;
+
+    /// <summary>面板對目前任務連續就緒的起點（<see cref="Environment.TickCount64"/>）；0 ＝ 目前沒就緒。</summary>
+    private static long panelReadySinceTick;
+
+    /// <summary>
+    /// 面板剛就緒的頭幾幀文字節點可能還沒填好；就緒滿這麼久才下「讀不到」的結論。
+    /// </summary>
+    private const long SettleMs = 1500;
+
+    /// <summary>
+    /// 面板對目前任務已連續就緒滿 <see cref="SettleMs"/>。只在框架執行緒讀。
+    /// 「讀不到」類的一次性診斷要等它成立才記，否則記到的是面板還沒開的那一幀。
+    /// </summary>
+    internal static bool PanelSettled =>
+        panelReadySinceTick != 0 && Environment.TickCount64 - panelReadySinceTick >= SettleMs;
 
     /// <summary>
     /// 「時間限制」那一列的原文（例如 <c>"9:45/10:00"</c>），來源與目標列同一次節點走訪，
@@ -114,6 +129,7 @@ internal static class MissionObjectiveReader
                 Cache.Clear();
             ClearParsed();
             cachedMissionId = 0;
+            panelReadySinceTick = 0;
             return Cache;
         }
 
@@ -121,6 +137,7 @@ internal static class MissionObjectiveReader
         if (missionId != cachedMissionId)
         {
             cachedMissionId = missionId;
+            panelReadySinceTick = 0;
             Refresh();
         }
         else if (EzThrottler.Throttle("ICE_MissionObjectiveReader", 250))
@@ -147,6 +164,7 @@ internal static class MissionObjectiveReader
     private static unsafe void Refresh()
     {
         var found = new List<ObjectiveLine>();
+        List<(nint Owner, float ScreenY, List<string> Texts)>? walkedGroups = null;
 
         try
         {
@@ -155,6 +173,7 @@ internal static class MissionObjectiveReader
             {
                 Cache.Clear();
                 ClearParsed();
+                panelReadySinceTick = 0;
                 return;
             }
 
@@ -163,8 +182,12 @@ internal static class MissionObjectiveReader
             {
                 Cache.Clear();
                 ClearParsed();
+                panelReadySinceTick = 0;
                 return;
             }
+
+            if (panelReadySinceTick == 0)
+                panelReadySinceTick = Environment.TickCount64;
 
             // owner 指標 -> 那一組收集到的文字（保留走訪順序）。
             var groups = new List<(nint Owner, float ScreenY, List<string> Texts)>();
@@ -172,6 +195,7 @@ internal static class MissionObjectiveReader
             var budget = MaxNodes;
 
             CollectTexts(&addon->UldManager, groups, index, ref budget, 0);
+            walkedGroups = groups;
 
             // 時間限制列與銀星／金星達成條件列跟目標列是不同形狀，獨立掃一輪、用內容比對（找含標題字樣的節點群組）取值，
             // 不靠寫死索引。刻意跟下面的目標列迴圈分開：目標列迴圈遇到形狀不符會 continue，會把這幾個群組跳過。
@@ -275,22 +299,51 @@ internal static class MissionObjectiveReader
             return;
         }
 
-        // 面板是開著的卻一列都沒抓到 —— 要使用者回報的診斷。每個任務只講一次，不洗版。
-        if (found.Count == 0 && loggedEmptyForMission != cachedMissionId)
+        // 每個任務只記一次結果：讀到就記筆數；讀不到要等面板就緒滿 SettleMs 才下結論，並把節點文字一起記下來
+        // （這份文字就是校準解析形狀的唯一依據，不必再請使用者去除錯視窗複製）。
+        if (loggedResultForMission != cachedMissionId)
         {
-            loggedEmptyForMission = cachedMissionId;
-            IceLogging.Info(
-                $"任務 {cachedMissionId}：WKSMissionInfomation 已就緒，但沒有解析到任何「n/m」目標列。" +
-                "請到除錯視窗的 Mission Info 分頁展開 \"Objective progress raw dump\" 並回報內容。",
-                "[MissionObjectiveReader]");
-        }
-        else if (found.Count > 0)
-        {
-            loggedEmptyForMission = 0;
+            if (found.Count > 0)
+            {
+                loggedResultForMission = cachedMissionId;
+                IceLogging.Info($"任務 {cachedMissionId}：從 WKSMissionInfomation 讀到 {found.Count} 筆目標列"
+                                + $"（{string.Join("；", found.Select(f => $"{f.Text} {f.Progress}"))}）。",
+                    "[MissionObjectiveReader]");
+            }
+            else if (PanelSettled && walkedGroups != null)
+            {
+                loggedResultForMission = cachedMissionId;
+                IceLogging.Info(
+                    $"任務 {cachedMissionId}：WKSMissionInfomation 已就緒 {SettleMs} 毫秒以上，仍沒有解析到任何「n/m」目標列；"
+                    + $"時間限制{(TimeRemaining != null ? "可讀" : "不可讀")}、銀星條件{(SilverCondition.HasText ? "可讀" : "不可讀")}、"
+                    + $"金星條件{(GoldCondition.HasText ? "可讀" : "不可讀")}。面板文字節點：{CompactDump(walkedGroups)}",
+                    "[MissionObjectiveReader]");
+            }
         }
 
         Cache.Clear();
         Cache.AddRange(found);
+    }
+
+    /// <summary>一次性診斷用的面板文字摘要：依畫面 Y 排序、每組以「ǀ」分隔、圖示字元跳脫，總長有上限。</summary>
+    private static string CompactDump(List<(nint Owner, float ScreenY, List<string> Texts)> groups)
+    {
+        const int MaxLength = 1500;
+        var sb = new System.Text.StringBuilder();
+        foreach (var group in groups.OrderBy(g => g.ScreenY))
+        {
+            if (sb.Length > 0)
+                sb.Append(" ‖ ");
+            sb.Append($"Y={group.ScreenY:F0}: ");
+            sb.Append(string.Join(" ǀ ", group.Texts.Select(GameTextUtil.EscapeGameIcons)));
+            if (sb.Length > MaxLength)
+            {
+                sb.Length = MaxLength;
+                sb.Append("…（截斷）");
+                break;
+            }
+        }
+        return sb.Length == 0 ? "（沒有任何可見的文字節點）" : sb.ToString();
     }
 
     /// <summary>這一組文字裡有沒有任何一段含有指定的標題字樣。</summary>
