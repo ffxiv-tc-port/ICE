@@ -322,10 +322,9 @@ public class PlayerHelper
     internal const uint ActionStatusCraftingOnly = 586;  // 「該技能只能在製作與製作練習時使用。」＝目前職業的技能，只是不在製作中
 
     // 「這個職業學會掌握了嗎」的兩套判定並跑。
-    // 舊判定（**目前仍是權威**）：GetActionStatus 回 574 或 586 就算已解鎖。它依賴 Player.IsBusy 為 false，
-    //   所以下面那個提前 return **不能拿掉**；「回 574 時一定已學會」（先判學會、再判職業）沒有被證明過。
-    // 新判定：UIState.IsUnlockLinkUnlockedOrQuestCompleted(Action.UnlockLink)，不吃寫死的狀態碼，也與忙碌狀態無關。
-    //   等實機 log 裡沒有不一致（或確認新的才對），再把權威換成新判定。
+    // 權威：UIState.IsUnlockLinkUnlockedOrQuestCompleted(Action.UnlockLink)，不吃寫死的狀態碼，也與騎乘／忙碌狀態無關。
+    // 備援：GetActionStatus 回 574 或 586 就算已解鎖；新判定回「不知道」時才用它。它在騎乘中會回別的狀態碼
+    //   （＝誤判沒學會），而且依賴 Player.IsBusy 為 false，所以下面那個提前 return 不能拿掉。
     public static unsafe void UpdateHasManip()
     {
         if (Player.IsBusy)
@@ -335,19 +334,20 @@ public class PlayerHelper
         {
             if (ManipClassInfo.TryGetValue(jobId, out var info))
             {
-                var byActionStatus = ActionManager.Instance()->GetActionStatus(ActionType.Action, info.ActionId, checkRecastActive: false, checkCastingActive: false)
-                    is ActionStatusWrongClassJob or ActionStatusCraftingOnly;
-                info.HasUnlocked = byActionStatus;
+                var status = ActionManager.Instance()->GetActionStatus(ActionType.Action, info.ActionId, checkRecastActive: false, checkCastingActive: false);
+                var byActionStatus = status is ActionStatusWrongClassJob or ActionStatusCraftingOnly;
 
                 var byUnlockLink = IsManipUnlockedByUnlockLink(info.ActionId);
+                info.HasUnlocked = byUnlockLink ?? byActionStatus;
+
                 if (byUnlockLink is { } viaLink && viaLink != byActionStatus)
                 {
                     // 節流 key 帶 jobId：八個職業各自獨立，共用一個 key 會讓其中七個永遠印不出來。
                     if (EzThrottler.Throttle($"ICE: manip unlock mismatch {jobId}", 60000))
                         IceLogging.Info(
                             $"「掌握」解鎖判定不一致：職業 {jobId}（技能 {info.ActionId}）—— " +
-                            $"GetActionStatus 判定 {byActionStatus}、UnlockLink 判定 {viaLink}。" +
-                            $"目前採用 GetActionStatus 的結果。請把這一行回報給開發者。",
+                            $"GetActionStatus 判定 {byActionStatus}（狀態碼 {status}，騎乘中 {Svc.Condition[ConditionFlag.Mounted]}）、" +
+                            $"UnlockLink 判定 {viaLink}。採用 UnlockLink 的結果。",
                             "[Manip Unlock Check]");
                 }
             }
