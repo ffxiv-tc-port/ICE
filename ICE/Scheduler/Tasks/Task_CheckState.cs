@@ -252,7 +252,7 @@ namespace ICE.Scheduler.Tasks
                         {
                             if (C.GambaAtAmount <= lunarCredits)
                                 canGamba = true;
-                            IceLogging.Debug($"Current Credit Setting: {C.GambaAtAmount} >= {lunarCredits} && AutoGamba: {C.GambaBetweenRuns}");
+                            IceLogging.Debug($"Current Credits: {lunarCredits} >= Credit Setting: {C.GambaAtAmount} ? {canGamba} && AutoGamba: {C.GambaBetweenRuns}");
 
                         }
                     }
