@@ -72,6 +72,7 @@ namespace ICE.Scheduler.Tasks
             // Other
             new Config.Gamba { ItemId = 43943, Weight = 0, Type = GambaType.Other }, // Cracked Prismaticrystal
             new Config.Gamba { ItemId = 43944, Weight = 0, Type = GambaType.Other }, // Cracked Novacrystal
+            new Config.Gamba { ItemId = 43945, Weight = 0, Type = GambaType.Other }, // 惰性炸裂狀水晶（法恩娜轉盤）
             new Config.Gamba { ItemId = 28724, Weight = 0, Type = GambaType.Other }, // Crafter's Delineation
             new Config.Gamba { ItemId = 6141,  Weight = 0, Type = GambaType.Other }, // Cordial HQ
             new Config.Gamba { ItemId = 48158, Weight = 0, Type = GambaType.Other }, // Magicked Prism (Cosmic Exploration)
