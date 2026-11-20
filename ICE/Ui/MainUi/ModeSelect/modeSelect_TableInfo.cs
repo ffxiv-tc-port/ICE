@@ -9,6 +9,7 @@ using ICE.Utilities.Cosmic;
 using ICE.Utilities.Cosmic_Helper;
 using ICE.Utilities.GatheringHelper;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using static MissionTimer;
 
 namespace ICE.Ui.MainUi.ModeSelect
@@ -69,54 +70,143 @@ namespace ICE.Ui.MainUi.ModeSelect
             public bool enabled;
         }
 
+        // 主視窗每幀重建分類清單，列物件按任務 ID 重用。只在繪製執行緒用；enabled 每幀覆寫，
+        // 物件只在當幀的清單裡被讀。
+        private static readonly Dictionary<uint, Mission> RowCache = new();
+
+        internal static Mission RowFor(uint id, bool enabled)
+        {
+            if (!RowCache.TryGetValue(id, out var row))
+                RowCache[id] = row = new Mission { id = id };
+            row.enabled = enabled;
+            return row;
+        }
+
+        // 每個輸入清單各自重用一份排序結果；回傳的清單下一次呼叫就會被覆寫。以下緩衝區只在繪製執行緒用
+        // （任務挑選走 SortByTableOption，只共用無狀態的 NameKey／NumberKey）。
+        private static readonly ConditionalWeakTable<List<Mission>, List<Mission>> SortedRows = new();
+        private static double[] _numberKeys = new double[64];
+        private static string[] _textKeys = new string[64];
+        private static int[] _order = new int[64];
+        private enum RowOrder { TextAscending, NumberAscending, NumberDescending }
+        private static RowOrder _rowOrder;
+        private static readonly Comparison<int> CompareSortedRows = CompareRows;
+
         public static List<Mission> SortMissionList(List<Mission> missions)
-            => SortByTableOption(missions, m => m.id).ToList();
+        {
+            var sorted = SortedRows.GetValue(missions, static _ => new List<Mission>());
+            sorted.Clear();
+            var option = C.TableSortOption;
+            if (option is < 1 or > 11)
+            {
+                sorted.AddRange(missions);
+                return sorted;
+            }
+
+            var n = missions.Count;
+            if (_order.Length < n)
+            {
+                _numberKeys = new double[n];
+                _textKeys = new string[n];
+                _order = new int[n];
+            }
+
+            for (var i = 0; i < n; i++)
+            {
+                var id = missions[i].id;
+                if (option == 1)
+                    _textKeys[i] = NameKey(id);
+                else
+                    _numberKeys[i] = NumberKey(id, option);
+                _order[i] = i;
+            }
+
+            _rowOrder = option switch { 1 => RowOrder.TextAscending, 9 => RowOrder.NumberAscending, _ => RowOrder.NumberDescending };
+            _order.AsSpan(0, n).Sort(CompareSortedRows);
+            for (var i = 0; i < n; i++)
+                sorted.Add(missions[_order[i]]);
+            return sorted;
+        }
+
+        // 同鍵比原位置＝穩定排序，與 LINQ OrderBy／OrderByDescending 的結果逐筆相同。
+        private static int CompareRows(int a, int b)
+        {
+            var c = _rowOrder switch
+            {
+                RowOrder.TextAscending => Comparer<string>.Default.Compare(_textKeys[a], _textKeys[b]),
+                RowOrder.NumberAscending => _numberKeys[a].CompareTo(_numberKeys[b]),
+                _ => _numberKeys[b].CompareTo(_numberKeys[a]),
+            };
+            return c != 0 ? c : a - b;
+        }
 
         /// <summary>
         /// 依「表格設定 → 排序方式」排序任意帶有任務 ID 的集合。
-        /// 表格顯示與（啟用時）任務挑選共用同一份邏輯，避免兩邊各寫一次而漂移。
+        /// 表格顯示（<see cref="SortMissionList"/>）與（啟用時）任務挑選共用 <see cref="NameKey"/>／<see cref="NumberKey"/>，避免兩邊各寫一次而漂移。
         /// ⚠️ 查不到任務資料的項目一律排到最後，不要用字典 indexer —— 那會丟例外。
         /// </summary>
         public static IEnumerable<T> SortByTableOption<T>(IEnumerable<T> items, Func<T, uint> idSelector)
         {
-            var missionInfo = CosmicHelper.SheetMissionDict;
-
-            string NameOf(T m) => missionInfo.TryGetValue(idSelector(m), out var i) ? i.Name : string.Empty;
-            uint CosmoOf(T m) => missionInfo.TryGetValue(idSelector(m), out var i) ? i.CosmoCredit : 0;
-            uint LunarOf(T m) => missionInfo.TryGetValue(idSelector(m), out var i) ? i.LunarCredit : 0;
-            uint MarkerOf(T m) => missionInfo.TryGetValue(idSelector(m), out var i) ? i.MarkerId : uint.MaxValue;
-            uint ScoreOf(T m) => missionInfo.TryGetValue(idSelector(m), out var i) ? i.ClassScore : 0;
-            double ExpOf(T m, uint type) => missionInfo.TryGetValue(idSelector(m), out var i)
-                ? i.RelicXpInfo.Where(exp => exp.Key == type).Sum(exp => exp.Value)
-                : 0d;
-
-            // 實測「有效」每分成果：加權總分 ÷（交件耗時＋放棄耗時）。
-            // 沒有實測記錄（或查不到任務資料）一律回 0 —— 降冪排序下自然落到最後，
-            // 與這個函式既有的「查不到就排最後」慣例一致。
-            double EffectiveScoreOf(T m)
+            var option = C.TableSortOption;
+            return option switch
             {
-                var id = idSelector(m);
-                if (!missionInfo.TryGetValue(id, out var i)) return 0;
-                if (!C.MissionConfig.TryGetValue(id, out var cfg)) return 0;
-                return MissionStatsCalculator.CalculateEffectiveScorePerMinute(
-                    cfg.TurninRecords, i.ClassScore, cfg.AbandonedTimeSeconds, cfg.TotalCompletions);
-            }
-
-            return C.TableSortOption switch
-            {
-                1 => items.OrderBy(NameOf),
-                2 => items.OrderByDescending(CosmoOf),
-                3 => items.OrderByDescending(LunarOf),
-                4 => items.OrderByDescending(m => ExpOf(m, 1)),
-                5 => items.OrderByDescending(m => ExpOf(m, 2)),
-                6 => items.OrderByDescending(m => ExpOf(m, 3)),
-                7 => items.OrderByDescending(m => ExpOf(m, 4)),
-                8 => items.OrderByDescending(m => ExpOf(m, 5)),
-                9 => items.OrderBy(MarkerOf),
-                10 => items.OrderByDescending(ScoreOf),
-                11 => items.OrderByDescending(EffectiveScoreOf),
+                1 => items.OrderBy(m => NameKey(idSelector(m))),
+                9 => items.OrderBy(m => NumberKey(idSelector(m), 9)),
+                >= 2 and <= 11 => items.OrderByDescending(m => NumberKey(idSelector(m), option)),
                 _ => items,   // 0 = 依 ID，也就是維持原本的順序
             };
+        }
+
+        private static string NameKey(uint id)
+            => CosmicHelper.SheetMissionDict.TryGetValue(id, out var i) ? i.Name : string.Empty;
+
+        /// <summary>排序方式 2～11 的鍵（9 升冪、其餘降冪）。uint 轉 double 是精確的，排序結果與直接比 uint 相同。</summary>
+        private static double NumberKey(uint id, int option)
+        {
+            if (!CosmicHelper.SheetMissionDict.TryGetValue(id, out var i))
+                return option == 9 ? uint.MaxValue : 0d;
+
+            switch (option)
+            {
+                case 2: return i.CosmoCredit;
+                case 3: return i.LunarCredit;
+                case >= 4 and <= 8: return i.RelicXpInfo.TryGetValue(option - 3, out var xp) ? xp : 0d;
+                case 9: return i.MarkerId;
+                case 10: return i.ClassScore;
+                case 11:
+                    // 實測「有效」每分成果：加權總分 ÷（交件耗時＋放棄耗時）。沒有實測記錄一律回 0，降冪下排到最後。
+                    if (!C.MissionConfig.TryGetValue(id, out var cfg)) return 0;
+                    return MissionStatsCalculator.CalculateEffectiveScorePerMinute(
+                        cfg.TurninRecords, i.ClassScore, cfg.AbandonedTimeSeconds, cfg.TotalCompletions);
+                default: return 0;
+            }
+        }
+
+        /// <summary>限定任務模式：依職業優先度（第一個職業在 JobPrio 的位置）穩定排序，就地改寫。</summary>
+        internal static void SortByJobPriority(List<Mission> missions)
+        {
+            var n = missions.Count;
+            if (_order.Length < n)
+            {
+                _numberKeys = new double[n];
+                _textKeys = new string[n];
+                _order = new int[n];
+            }
+
+            for (var i = 0; i < n; i++)
+            {
+                _numberKeys[i] = C.JobPrio.IndexOf(FirstJob(CosmicHelper.SheetMissionDict[missions[i].id].Jobs));
+                _order[i] = i;
+            }
+
+            _rowOrder = RowOrder.NumberAscending;
+            _order.AsSpan(0, n).Sort(CompareSortedRows);
+            var rows = SortedRows.GetValue(missions, static _ => new List<Mission>());
+            rows.Clear();
+            for (var i = 0; i < n; i++)
+                rows.Add(missions[_order[i]]);
+            missions.Clear();
+            missions.AddRange(rows);
         }
 
         /// <summary>
@@ -225,12 +315,28 @@ namespace ICE.Ui.MainUi.ModeSelect
             return clicked;
         }
 
+        private static readonly string[] XpLabels = { "I", "II", "III", "IV", "V" };
+
+        // 表頭標題每幀經 Loc(params) 重組；兩段翻譯都沒變就沿用。只在繪製執行緒用。
+        private static readonly Dictionary<string, (string Outer, string Inner, string Label)> TableHeaderLabels = new();
+
+        private static string TableHeaderLabel(string headerName)
+        {
+            var outer = "?? Missions".Loc();
+            var inner = headerName.Loc();
+            if (TableHeaderLabels.TryGetValue(headerName, out var c) && ReferenceEquals(c.Outer, outer) && ReferenceEquals(c.Inner, inner))
+                return c.Label;
+            var label = "?? Missions".Loc(inner);
+            TableHeaderLabels[headerName] = (outer, inner, label);
+            return label;
+        }
+
         public static unsafe void DrawMissionTablev2(string headerName, string tableName, List<Mission> missions)
         {
             // Setting up the size of the table here, ideally I want this to be the width of the current available space
             // Also setting up the header for here as well
             var availableSpace = ImGui.GetContentRegionAvail().X;
-            var headerDisplay = "?? Missions".Loc(headerName.Loc());
+            var headerDisplay = TableHeaderLabel(headerName);
             var textSize = ImGui.CalcTextSize(headerDisplay);
             var headerPadding = new Vector2(10, 5);
             var headerHeight = textSize.Y + headerPadding.Y * 2;
@@ -507,7 +613,7 @@ namespace ICE.Ui.MainUi.ModeSelect
 
                 #region Relic XP
 
-                string[] xpLabels = { "I", "II", "III", "IV", "V" };
+                var xpLabels = XpLabels;
                 for (int i = 0; i < 5; i++)
                 {
                     ImGui.TableSetColumnIndex(columnIndexCount);

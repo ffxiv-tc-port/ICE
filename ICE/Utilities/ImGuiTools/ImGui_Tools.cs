@@ -218,6 +218,9 @@ public static partial class ImGui_Tools
         return isExpanded;
     }
 
+    // 分類按鈕每幀都要換一次括號（算按鈕寬度）；同一個標籤沿用上次換好的結果。只在繪製執行緒用。
+    private static readonly Dictionary<string, string> SelectedLabels = new();
+
     /// <summary>
     /// 選中時把標籤上的計數括號從 <c>[12]</c> 換成 <c>&lt;12&gt;</c>。
     /// 這是刻意不依賴顏色的第二條辨識管道：一排長得一樣的篩選按鈕裡，即使使用者的
@@ -230,7 +233,15 @@ public static partial class ImGui_Tools
     {
         if (!selected || string.IsNullOrEmpty(label))
             return label;
+        if (SelectedLabels.TryGetValue(label, out var cached))
+            return cached;
+        if (SelectedLabels.Count >= 256)
+            SelectedLabels.Clear();
+        return SelectedLabels[label] = BracketSelected(label);
+    }
 
+    private static string BracketSelected(string label)
+    {
         // 計數永遠在標籤結尾，所以兩邊都從後面找 —— 用 IndexOf 找左括號的話，
         // 名稱本身含中括號的翻譯（例如「[A] 階 [12]」）會被配成錯的一對。
         var open = label.LastIndexOf('[');
