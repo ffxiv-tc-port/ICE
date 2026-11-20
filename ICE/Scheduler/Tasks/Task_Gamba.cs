@@ -350,8 +350,8 @@ namespace ICE.Scheduler.Tasks
                 }
                 else if (leftWheelPresent && rightWheelPresent && (leftWheelEnabled || rightWheelEnabled))
                 {
-                    float leftWeight = gamba.LeftWheelItems.Sum(item => C.GambaItemWeights.FirstOrDefault(x => x.ItemId == item.itemId)?.Weight ?? 0);
-                    float rightWeight = gamba.RightWheelItems.Sum(item => C.GambaItemWeights.FirstOrDefault(x => x.ItemId == item.itemId)?.Weight ?? 0);
+                    float leftWeight = gamba.LeftWheelItems.Sum(item => FindWeight(item.itemId)?.Weight ?? 0);
+                    float rightWeight = gamba.RightWheelItems.Sum(item => FindWeight(item.itemId)?.Weight ?? 0);
 
                     if (C.GambaPreferSmallerWheel)
                     {
@@ -425,8 +425,16 @@ namespace ICE.Scheduler.Tasks
         {
             string Side(WKSLottery.WheelItems[] items) => items.Length == 0 ? "（空）" : string.Join("、", items.Select(item =>
                 $"{item.itemName}#{item.itemId}×{item.itemAmount}="
-                + (C.GambaItemWeights.FirstOrDefault(x => x.ItemId == item.itemId) is { } w ? w.Weight.ToString() : "未登記")));
+                + (FindWeight(item.itemId) is { } w ? w.Weight.ToString() : "未登記")));
             return $"左：{Side(gamba.LeftWheelItems)}／右：{Side(gamba.RightWheelItems)}";
+        }
+
+        /// <summary>轉盤獎品的權重條目；沒登記回 null。</summary>
+        /// <remarks>轉盤回的是原始道具 ID（HQ 帶 +1,000,000），表上登記的是基底 ID ⇒ 先去旗標再查。</remarks>
+        private static Config.Gamba? FindWeight(uint rawItemId)
+        {
+            var baseId = Dalamud.Utility.ItemUtil.GetBaseId(rawItemId).ItemId;
+            return C.GambaItemWeights.FirstOrDefault(x => x.ItemId == baseId);
         }
 
         private static unsafe bool HasEnoughCredits()
