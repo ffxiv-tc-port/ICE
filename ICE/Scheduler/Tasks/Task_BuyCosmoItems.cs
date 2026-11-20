@@ -536,7 +536,7 @@ namespace ICE.Scheduler.Tasks
                                 config.BuyAmount -= BuyAmount;
                                 if (config.BuyAmount <= 0)
                                     config.BuyAmount = 0;
-                                C.Save();
+                                C.SaveUrgent();
                             }
                             BuyAmount = 0;
                             KeepAmount = 0;

@@ -636,20 +636,28 @@ namespace ICE.Config
         void IYamlConfig.Save() => SaveDebounced();
 
         public void Save([CallerMemberName] string caller = "", [CallerFilePath] string file = "", [CallerLineNumber] int line = 0)
-            => SaveDebounced(500, caller, file, line);
+            => RequestSave(500, false, caller, file, line);
+
+        /// <summary>重開後會不會重複花費／購買取決於這次改動時用這支（例：購買數量扣減）：照舊 500 ms 防抖，不受 <see cref="MinSnapshotIntervalMs"/> 限制。</summary>
+        public void SaveUrgent([CallerMemberName] string caller = "", [CallerFilePath] string file = "", [CallerLineNumber] int line = 0)
+            => RequestSave(500, true, caller, file, line);
 
         // 兩次存檔快照之間至少隔這麼久：每次存檔都是整份設定重新序列化（數十 ms、十幾 MiB 配置），
         // 連續改設定時原本每隔 0.5 秒就整份重寫一次。最後一次改動照樣會寫到，卸載時另有補寫（FlushPendingSave）。
         internal const int MinSnapshotIntervalMs = 5000;
         private static long _lastSnapshotTick; // 0＝還沒拍過快照
+        private static long _pendingUrgentDeadline; // 0＝沒有待寫的急件；拍快照時清掉
 
-        /// <summary>這次存檔請求要等多久才拍快照：至少 <paramref name="delayMs"/>（防抖），且離上一次快照至少 <see cref="MinSnapshotIntervalMs"/>。</summary>
-        internal static int SaveDelayMs(int delayMs, long nowTick, long lastSnapshotTick)
+        /// <summary>這次存檔請求要等多久才拍快照：至少 <paramref name="delayMs"/>（防抖）；一般請求另外離上一次快照至少 <see cref="MinSnapshotIntervalMs"/>。</summary>
+        /// <remarks>還有急件在等時，後來的一般請求取消並取代它，但不能把它的期限往後推。</remarks>
+        internal static int SaveDelayMs(int delayMs, long nowTick, long lastSnapshotTick, bool urgent, long pendingUrgentDeadline)
         {
-            if (lastSnapshotTick == 0)
-                return delayMs;
-            var untilAllowed = MinSnapshotIntervalMs - (nowTick - lastSnapshotTick);
-            return (int)Math.Max(delayMs, Math.Min(untilAllowed, MinSnapshotIntervalMs));
+            long wait = urgent || lastSnapshotTick == 0
+                ? delayMs
+                : Math.Max(delayMs, Math.Min(MinSnapshotIntervalMs - (nowTick - lastSnapshotTick), MinSnapshotIntervalMs));
+            if (pendingUrgentDeadline != 0)
+                wait = Math.Min(wait, Math.Max(0, pendingUrgentDeadline - nowTick));
+            return (int)wait;
         }
 
         // 存檔來源統計，只給診斷記錄用：滿一小時後的下一次存檔請求寫一行 Information（請求數、實際寫入數、請求最多的呼叫點）。
@@ -681,6 +689,9 @@ namespace ICE.Config
 
         // Debounced save for rapid operations
         public void SaveDebounced(int delayMs = 500, [CallerMemberName] string caller = "", [CallerFilePath] string file = "", [CallerLineNumber] int line = 0)
+            => RequestSave(delayMs, false, caller, file, line);
+
+        private void RequestSave(int delayMs, bool urgent, string caller, string file, int line)
         {
             string? tallyReport;
             lock (_saveLock)
@@ -692,7 +703,10 @@ namespace ICE.Config
                 _saveCts?.Cancel();
                 _saveCts = new CancellationTokenSource();
                 var cts = _saveCts;
-                var wait = SaveDelayMs(delayMs, Environment.TickCount64, Interlocked.Read(ref _lastSnapshotTick));
+                var now = Environment.TickCount64;
+                var wait = SaveDelayMs(delayMs, now, Interlocked.Read(ref _lastSnapshotTick), urgent, Interlocked.Read(ref _pendingUrgentDeadline));
+                if (urgent || Interlocked.Read(ref _pendingUrgentDeadline) != 0)
+                    Interlocked.Exchange(ref _pendingUrgentDeadline, now + wait);
 
                 _ = Task.Run(async () =>
                 {
@@ -740,6 +754,7 @@ namespace ICE.Config
 
             var request = Interlocked.Read(ref _requestSeq);
             var seq = Interlocked.Increment(ref _snapshotSeq);
+            Interlocked.Exchange(ref _pendingUrgentDeadline, 0);
             Interlocked.Exchange(ref _lastSnapshotTick, Environment.TickCount64);
             Interlocked.Increment(ref _snapshotsTaken);
             if (_cloneSnapshotSafe != false)
