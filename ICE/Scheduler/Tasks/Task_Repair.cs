@@ -83,15 +83,26 @@ namespace ICE.Scheduler.Tasks
             return true;
         }
 
-        public static unsafe bool? HubCheck()
+        /// <summary>「人在據點」的判定半徑，量的是水平距離（理由見 <see cref="HubCheck"/>）。</summary>
+        internal const float HubRadius = 45f;
+
+        /// <summary>目前區域的據點中心（世界座標）；不認得的區域回 false。</summary>
+        internal static bool TryGetHubCenter(out Vector3 center)
         {
-            // 各月面的據點中心（世界座標）。不認得的區域回 null（見下面的 fail-open）。
-            Vector3? hubCenter = Player.Territory switch
+            Vector3? known = Player.Territory switch
             {
                 CosmicZones.SinusArdorum => new Vector3(2.84f, 1.55f, -0.06f),   // 渴望灣 / Sinus Ardorum
                 CosmicZones.Phaenna => new Vector3(339.90f, 52.60f, -412.10f), // 法恩娜 / Phaenna
                 _ => null,
             };
+            center = known ?? default;
+            return known.HasValue;
+        }
+
+        public static unsafe bool? HubCheck()
+        {
+            // 不認得的區域回 null（見下面的 fail-open）。
+            Vector3? hubCenter = TryGetHubCenter(out var knownCenter) ? knownCenter : null;
 
             // 🔴 刻意**不**照上游用 Vector3.Distance：那會把高度算進距離。這個判定要問的是「人在不在據點這一塊地上」，
             //    玩家在據點上空飛行時高度差可以超過 45，三維距離會判成「不在據點」而重複施放「返回月面基地」。
@@ -107,7 +118,7 @@ namespace ICE.Scheduler.Tasks
                 return true;
             }
 
-            if (Player.DistanceTo(new Vector2(center.X, center.Z)) < 45)
+            if (Player.DistanceTo(new Vector2(center.X, center.Z)) < HubRadius)
             {
                 IceLogging.Info("Player is in the range of the main hub area right now", "[Vendor Repair Check]");
                 return true;

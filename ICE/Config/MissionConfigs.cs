@@ -586,6 +586,8 @@ namespace ICE.Config
         public bool ShowDummyD { get; set; } = false;
 
         public bool DisablePathfindingToRedAlert { get; set; } = false;
+        /// <summary>緊急任務結束後先回基地再接下一個任務。舊設定檔缺這個鍵時讀回預設值 true。</summary>
+        public bool ReturnToBaseAfterCritical { get; set; } = true;
         public bool ShowDebugGatherInfo { get; set; } = false;
 
         /// <summary>

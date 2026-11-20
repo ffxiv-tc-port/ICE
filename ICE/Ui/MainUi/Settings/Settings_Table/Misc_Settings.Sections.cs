@@ -53,6 +53,16 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 C.DisablePathfindingToRedAlert = DisableRedAlertPathing;
                 C.Save();
             }
+
+            bool returnAfterCritical = C.ReturnToBaseAfterCritical;
+            if (ImGui.Checkbox("Return to base after a Critical Mission".Loc() + "###ICEReturnToBaseAfterCritical", ref returnAfterCritical))
+            {
+                C.ReturnToBaseAfterCritical = returnAfterCritical;
+                C.Save();
+            }
+            ImGuiEx.HelpMarker(("When a Critical Mission ends (turned in, abandoned or timed out), ICE uses Duty Action I to return to base once, then picks up the next mission as usual.\n" +
+                                "If it cannot get back within 30 seconds (action unavailable, mecha event, not in a known zone), it gives up and carries on; the reason is written to the log.\n" +
+                                "Not done when ICE is about to stop (e.g. Stop after current mission).").Loc());
         }
 
         private static void RepairSettings()

@@ -130,6 +130,7 @@ namespace ICE.Scheduler.Tasks
                 if (currentMissionId != 0)
                 {
                     IceLogging.Debug($"Current mission id is not 0, which means we're in the middle of a mission");
+                    Task_CriticalReturn.NoteActiveMission(currentMissionId);
                     if (GenericHelpers.TryGetAddonMaster<WKSMissionInfomation>("WKSMissionInfomation", out var missionInfo) && missionInfo.IsAddonReady)
                     {
                         IceLogging.Debug($"Mission Infomation was active, checking if a mission is timed out.");
@@ -257,7 +258,18 @@ namespace ICE.Scheduler.Tasks
                         }
                     }
 
-                    if (extractSpiritbond && CosmicHelper.GatheringJobList.Contains(currentJob))
+                    // 排在精製／自行修理之前：那兩條收尾直接接任務，會把這一次回基地吃掉。
+                    // 回基地那一趟收尾回到 Start，精製／修理在下一輪照常判斷。
+                    if (Task_CriticalReturn.Take(out var criticalMissionId))
+                    {
+                        SchedulerMain.State = IceState.HubReturn;
+                        Task_HubActivities.RepairNpc = repairVendor;
+                        Task_HubActivities.RelicTurnin = canTurnin;
+                        Task_HubActivities.CosmoBuy = canBuyItems;
+                        Task_HubActivities.CanGamba = canGamba;
+                        Task_HubActivities.CriticalMissionId = criticalMissionId;
+                    }
+                    else if (extractSpiritbond && CosmicHelper.GatheringJobList.Contains(currentJob))
                     {
                         IceLogging.Info("Extracting spiritbond is enabled. And you have some to extract. Going to go do so now", "[Task: Check State]");
                         SchedulerMain.State = IceState.Spiritbond;
@@ -274,6 +286,7 @@ namespace ICE.Scheduler.Tasks
                         Task_HubActivities.RelicTurnin = canTurnin;
                         Task_HubActivities.CosmoBuy = canBuyItems;
                         Task_HubActivities.CanGamba = canGamba;
+                        Task_HubActivities.CriticalMissionId = 0;
                         IceLogging.Info("We have some reason to return back to the base so... we're doing so.\n" +
                                         $"Repairing at NPC: {repairVendor}\n" +
                                         $"Relic Turnin: {canTurnin}\n" +

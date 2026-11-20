@@ -31,6 +31,7 @@ namespace ICE.Scheduler.Tasks
                     return true;
 
                 P.MissionTimer.StartMission(missionId);
+                Task_CriticalReturn.NoteActiveMission(missionId);
                 bool fishingMission = mission.Jobs.Contains(18);
                 bool gatherMission = mission.Jobs.Contains(16) || mission.Jobs.Contains(17);
                 bool craftMission = mission.Jobs.Overlaps(CosmicHelper.CrafterJobList);

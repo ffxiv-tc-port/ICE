@@ -14,12 +14,40 @@ namespace ICE.Scheduler
         public static bool RelicTurnin = false;
         public static bool CosmoBuy = false;
         public static bool CanGamba = false;
+        /// <summary>非 0＝這一趟包含「緊急任務結束後返回基地」，值是那個緊急任務的 ID。</summary>
+        public static uint CriticalMissionId = 0;
         private static Vector3 craftingSpot = Vector3.Zero;
 
         public static void Enqueue()
         {
-            P.TaskManager.Enqueue(RegisterCraftingPosition, "Registering crafting position for later");
-            P.TaskManager.Enqueue(Task_Repair.HubCheck, "Checking to see if we're in hub area");
+            var critical = CriticalMissionId;
+            if (critical != 0)
+            {
+                var alsoDoing = string.Join("、", new[]
+                {
+                    RepairNpc ? "NPC 修理" : null,
+                    RelicTurnin ? "繳交宇宙工具" : null,
+                    CosmoBuy ? "宇宙信用點數購物" : null,
+                    CanGamba ? "宇宙好運道" : null,
+                }.Where(x => x != null));
+                // 人在緊急任務的繳交點，不把那裡記成製作點走回去。旗標在這一步就清掉：
+                // 後面的步驟逾時讓整趟重排時不再重試回基地。
+                P.TaskManager.Enqueue(() =>
+                {
+                    craftingSpot = Vector3.Zero;
+                    CriticalMissionId = 0;
+                    return Task_CriticalReturn.Begin(critical, alsoDoing);
+                }, "Starting the return to base after a critical mission");
+                P.TaskManager.Enqueue(Task_CriticalReturn.Step, "Returning to base after a critical mission", Utils.TaskConfig);
+            }
+            else
+            {
+                P.TaskManager.Enqueue(RegisterCraftingPosition, "Registering crafting position for later");
+            }
+
+            // 只為緊急任務回來的那一趟不走 HubCheck：它沒有上限，回不去會卡住。
+            if (critical == 0 || RepairNpc || RelicTurnin || CosmoBuy || CanGamba)
+                P.TaskManager.Enqueue(Task_Repair.HubCheck, "Checking to see if we're in hub area");
             if (RepairNpc)
             {
                 P.TaskManager.EnqueueMulti
@@ -56,7 +84,8 @@ namespace ICE.Scheduler
                 new(() => ResetAll(), "Setting all task to false"),
                 new(() => IceLogging.Info("Checking to see if we need to path back to the spot")),
                 new(PathBackToCraftingSpot, "Pathing back to our crafting spot", Utils.TaskConfig),
-                new(() => SchedulerMain.State = IceState.GrabMission, "Swapping back to start")
+                // 緊急任務那一趟回 Start：檢查狀態排在精製／自行修理之前，回到 Start 才補得回來。
+                new(() => SchedulerMain.State = critical != 0 ? IceState.Start : IceState.GrabMission, "Swapping back to start")
             );
         }
 
@@ -138,6 +167,7 @@ namespace ICE.Scheduler
             RelicTurnin = false;
             CosmoBuy = false;
             CanGamba = false;
+            CriticalMissionId = 0;
 
             return true;
         }
