@@ -289,6 +289,29 @@ namespace ICE.Scheduler.Tasks
             lastWheelDecisionRight = rightWeight;
             return true;
         }
+
+        // 同重時的隨機選邊：同一組獎品只擲一次。輪盤分支每幀都會進來，每幀重擲會讓兩顆輪盤鈕的旗標左右來回翻。
+        private static bool tieWheelDecided;
+        private static int tieWheelSignature;
+        private static bool tieWheelChoseLeft;
+
+        /// <summary>兩邊同重時選左邊嗎：兩邊道具與數量都和上次相同就回上次的答案，獎品換了才重擲。</summary>
+        internal static bool ChooseLeftOnTie(WKSLottery.WheelItems[] left, WKSLottery.WheelItems[] right)
+        {
+            var hash = new HashCode();
+            foreach (var item in left) { hash.Add(item.itemId); hash.Add(item.itemAmount); }
+            hash.Add(uint.MaxValue);
+            foreach (var item in right) { hash.Add(item.itemId); hash.Add(item.itemAmount); }
+            var signature = hash.ToHashCode();
+
+            if (!tieWheelDecided || signature != tieWheelSignature)
+            {
+                tieWheelSignature = signature;
+                tieWheelChoseLeft = Random.Shared.Next(2) == 0;
+                tieWheelDecided = true;
+            }
+            return tieWheelChoseLeft;
+        }
         private static unsafe bool? GamblingTime()
         {
             string tag = "Gambling Time Task";
@@ -395,7 +418,7 @@ namespace ICE.Scheduler.Tasks
                     {
                         if (WheelDecisionChanged(WheelBothEqual, leftWeight, rightWeight))
                             IceLogging.Info($"[Gamba] Both wheels are equal in weight. Randomly selecting one.｜{DescribeWheels(gamba)}");
-                        if (new Random().Next(2) == 0)
+                        if (ChooseLeftOnTie(gamba.LeftWheelItems, gamba.RightWheelItems))
                             SelectWheelLeft(gamba);
                         else
                             SelectWheelRight(gamba);
