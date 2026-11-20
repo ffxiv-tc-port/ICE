@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using YamlDotNet.Serialization;
@@ -632,25 +633,72 @@ namespace ICE.Config
         // is several hundred KB, so a burst of saves is collapsed into one write. No caller can
         // observe the difference - Save() was already asynchronous. Anything that
         // genuinely needs the bytes on disk before continuing already has SaveSync().
-        public void Save() => SaveDebounced();
+        void IYamlConfig.Save() => SaveDebounced();
+
+        public void Save([CallerMemberName] string caller = "", [CallerFilePath] string file = "", [CallerLineNumber] int line = 0)
+            => SaveDebounced(500, caller, file, line);
+
+        // 兩次存檔快照之間至少隔這麼久：每次存檔都是整份設定重新序列化（數十 ms、十幾 MiB 配置），
+        // 連續改設定時原本每隔 0.5 秒就整份重寫一次。最後一次改動照樣會寫到，卸載時另有補寫（FlushPendingSave）。
+        internal const int MinSnapshotIntervalMs = 5000;
+        private static long _lastSnapshotTick; // 0＝還沒拍過快照
+
+        /// <summary>這次存檔請求要等多久才拍快照：至少 <paramref name="delayMs"/>（防抖），且離上一次快照至少 <see cref="MinSnapshotIntervalMs"/>。</summary>
+        internal static int SaveDelayMs(int delayMs, long nowTick, long lastSnapshotTick)
+        {
+            if (lastSnapshotTick == 0)
+                return delayMs;
+            var untilAllowed = MinSnapshotIntervalMs - (nowTick - lastSnapshotTick);
+            return (int)Math.Max(delayMs, Math.Min(untilAllowed, MinSnapshotIntervalMs));
+        }
+
+        // 存檔來源統計，只給診斷記錄用：滿一小時後的下一次存檔請求寫一行 Information（請求數、實際寫入數、請求最多的呼叫點）。
+        private const long SaveTallyWindowMs = 60 * 60 * 1000;
+        private static readonly Dictionary<(string File, int Line, string Member), int> _saveRequestTally = new();
+        private static long _saveTallyStartTick;
+        private static long _snapshotsTaken;
+
+        // 只在 _saveLock 內呼叫；回 null＝這次不用寫統計。
+        private static string? TallySaveRequest(string file, int line, string member)
+        {
+            var now = Environment.TickCount64;
+            if (_saveTallyStartTick == 0)
+                _saveTallyStartTick = now;
+            var key = (file, line, member);
+            _saveRequestTally[key] = _saveRequestTally.GetValueOrDefault(key) + 1;
+            if (now - _saveTallyStartTick < SaveTallyWindowMs)
+                return null;
+
+            var requests = _saveRequestTally.Values.Sum();
+            var top = string.Join("、", _saveRequestTally.OrderByDescending(x => x.Value).Take(5)
+                .Select(x => $"{Path.GetFileNameWithoutExtension(x.Key.File)}.{x.Key.Member}:{x.Key.Line}×{x.Value}"));
+            var report = $"[MissionConfigs] 過去 {(now - _saveTallyStartTick) / 60000} 分鐘：存檔請求 {requests} 次、實際整份寫入 "
+                       + $"{Interlocked.Exchange(ref _snapshotsTaken, 0)} 次；請求最多的呼叫點：{top}";
+            _saveRequestTally.Clear();
+            _saveTallyStartTick = now;
+            return report;
+        }
 
         // Debounced save for rapid operations
-        public void SaveDebounced(int delayMs = 500)
+        public void SaveDebounced(int delayMs = 500, [CallerMemberName] string caller = "", [CallerFilePath] string file = "", [CallerLineNumber] int line = 0)
         {
+            string? tallyReport;
             lock (_saveLock)
             {
                 if (_shutDown)
                     return;
                 Interlocked.Increment(ref _requestSeq);
+                tallyReport = TallySaveRequest(file, line, caller);
                 _saveCts?.Cancel();
                 _saveCts = new CancellationTokenSource();
                 var cts = _saveCts;
+                var wait = SaveDelayMs(delayMs, Environment.TickCount64, Interlocked.Read(ref _lastSnapshotTick));
 
                 _ = Task.Run(async () =>
                 {
                     try
                     {
-                        await Task.Delay(delayMs, cts.Token);
+                        await Task.Delay(wait, cts.Token);
                         await SaveAsync().ConfigureAwait(false);
                     }
                     catch (OperationCanceledException)
@@ -663,6 +711,8 @@ namespace ICE.Config
                     }
                 });
             }
+            if (tallyReport != null)
+                PluginLog.Information(tallyReport);
         }
 
         private readonly record struct SaveSnapshotData(MissionConfigs? Copy, string? Yaml, long Seq, long Request);
@@ -690,6 +740,8 @@ namespace ICE.Config
 
             var request = Interlocked.Read(ref _requestSeq);
             var seq = Interlocked.Increment(ref _snapshotSeq);
+            Interlocked.Exchange(ref _lastSnapshotTick, Environment.TickCount64);
+            Interlocked.Increment(ref _snapshotsTaken);
             if (_cloneSnapshotSafe != false)
             {
                 var clone = CloneForSave();
