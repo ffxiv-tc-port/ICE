@@ -68,7 +68,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             {
                 C.StopOnceHitCosmicScore = stopScore;
                 C.BuyItems = false;
-                C.Save();
+                C.SaveUrgent();
             }
 
             ImGui.SameLine();

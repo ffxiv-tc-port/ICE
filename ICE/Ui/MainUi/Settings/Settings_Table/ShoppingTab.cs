@@ -25,7 +25,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             {
                 C.BuyItems = BuyItems;
                 C.StopOnceHitCosmoCredits = false;
-                C.Save();
+                C.SaveUrgent();
             }
 
             int buyAtAmount = C.CosmoBuyAtAmount;
@@ -37,7 +37,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 if (buyAtAmount > 30000)
                     buyAtAmount = 30000;
                 C.CosmoBuyAtAmount = buyAtAmount;
-                C.Save();
+                C.SaveUrgent();
             }
 
             DrawAlreadyLearnedPromptOption();
@@ -194,7 +194,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     if (ImGui.InputInt($"##keep_{itemId}", ref keepAmount))
                     {
                         setting.KeepAmount = keepAmount;
-                        C.SaveDebounced();
+                        C.SaveUrgent();
                     }
 
                     // Buy Amount
@@ -204,7 +204,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     if (ImGui.InputInt($"##buy_{itemId}", ref buyAmount))
                     {
                         setting.BuyAmount = buyAmount;
-                        C.SaveDebounced();
+                        C.SaveUrgent();
                     }
 
                     // Keep Buying
@@ -218,7 +218,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                         }
 
                         setting.KeepBuying = keepBuying;
-                        C.Save();
+                        C.SaveUrgent();
                     }
 
                     // Skip If Learned
@@ -229,7 +229,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     if (ImGui.Checkbox($"##skiplearned_{itemId}", ref skipIfUnlocked))
                     {
                         setting.SkipIfUnlocked = skipIfUnlocked;
-                        C.Save();
+                        C.SaveUrgent();
                     }
                     if (ImGui.IsItemHovered())
                     {
@@ -243,7 +243,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     if (ImGuiEx.IconButton(Dalamud.Interface.FontAwesomeIcon.Trash, "##Remove Item"))
                     {
                         RemoveItem(itemId);
-                        C.Save();
+                        C.SaveUrgent();
                     }
 
                     ImGui.PopID();
@@ -266,7 +266,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             if (ImGui.Checkbox("Heed the game's already-learned warning".Loc() + "###ICEHeedAlreadyLearned", ref heedLearned))
             {
                 C.HeedAlreadyLearnedPrompt = heedLearned;
-                C.Save();
+                C.SaveUrgent();
             }
             ImGui.SameLine();
             ImGui.TextDisabled("?");
