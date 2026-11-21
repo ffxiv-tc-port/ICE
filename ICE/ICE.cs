@@ -148,6 +148,8 @@ public sealed partial class ICE : IDalamudPlugin
         Svc.PluginInterface.UiBuilder.Draw += MechaAoeOverlay.Draw;
         // 機甲行動右鍵選單：純顯示項目，出現條件收在宇宙區域內（見 MechaContextMenu）。
         MechaContextMenu.Enable();
+        // 製作失敗訊息：讓斷路器分得出「做完但失敗」與「Artisan 沒動」。
+        CraftFailureWatcher.Enable();
         Svc.PluginInterface.UiBuilder.OpenMainUi += () =>
         {
             mainWindow.IsOpen = true;
@@ -263,6 +265,7 @@ public sealed partial class ICE : IDalamudPlugin
         GenericHelpers.Safe(() => Svc.PluginInterface.UiBuilder.Draw -= windowSystem.Draw);
         GenericHelpers.Safe(() => Svc.PluginInterface.UiBuilder.Draw -= MechaAoeOverlay.Draw);
         GenericHelpers.Safe(MechaContextMenu.Disable);
+        GenericHelpers.Safe(CraftFailureWatcher.Disable);
         GenericHelpers.Safe(TextAdvancedManager.UnlockTA);
         GenericHelpers.Safe(YesAlreadyManager.Unlock);
         // 守衛的 AddonLifecycle 監聽器：本 pin 卸載時會自動拆，但仍主動拆乾淨、不留指向本組件的委派。

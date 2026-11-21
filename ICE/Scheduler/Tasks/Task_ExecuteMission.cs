@@ -31,6 +31,7 @@ namespace ICE.Scheduler.Tasks
                     return true;
 
                 P.MissionTimer.StartMission(missionId);
+                CraftProgressGuard.NoteMissionStarted(missionId);
                 Task_CriticalReturn.NoteActiveMission(missionId);
                 bool fishingMission = mission.Jobs.Contains(18);
                 bool gatherMission = mission.Jobs.Contains(16) || mission.Jobs.Contains(17);
