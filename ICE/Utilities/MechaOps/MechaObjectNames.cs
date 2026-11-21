@@ -190,6 +190,13 @@ internal static class MechaObjectNames
         return string.Join(", ", objectOwners.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key}={OwnerText(kv.Value)}"));
     }
 
+    /// <summary>這一場的歸屬是不是由群組表建出來的（false＝群組表不可用，走後備）。</summary>
+    public static bool HasGroupOwnership(uint dataRowId)
+    {
+        EnsureRoleSplit(dataRowId);
+        return objectOwners is { Count: > 0 };
+    }
+
     /// <summary>歸屬的顯示字樣。⚠️ 面向使用者的診斷用繁中，不要直接印列舉名。</summary>
     public static string OwnerText(MechaTargetOwner owner) => owner switch
     {

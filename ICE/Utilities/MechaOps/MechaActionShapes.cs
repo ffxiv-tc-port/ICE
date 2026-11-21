@@ -56,22 +56,25 @@ internal readonly record struct MechaAoeShape(MechaAoeKind Kind, float Primary, 
 internal static class MechaActionShapes
 {
     /// <summary>
-    /// 保底的六個機甲技能。
+    /// 保底的機甲技能（7.2 六技＋7.3 七技）。
     /// 只作為設定 UI 的保底清單與候選濾網的白名單；觸發與形狀本身都走 Lumina 表。
     /// </summary>
-    public static readonly uint[] BaselineActionIds = [42150, 42258, 42037, 42071, 42261, 42036];
+    public static readonly uint[] BaselineActionIds =
+        [42150, 42258, 42037, 42071, 42261, 42036, 44920, 44921, 44922, 44923, 44924, 44925, 44926];
 
     /// <summary>
     /// 只有<b>駕駛員</b>（開機甲的人）拿得到的技能。
+    /// 444xx 起是 7.3 新增：Action 表 ActionCategory 12（坐騎）＝駕駛員、13（特殊技能）＝協助員，
+    /// 與 7.2 六技的分法逐一相同；44920／44921 另有實機佐證（駕駛員中籤＋過場後出現在 PetHotbar）。
     /// </summary>
-    private static readonly uint[] PilotActionIds = [42037, 42071, 42261, 42036];
+    private static readonly uint[] PilotActionIds = [42037, 42071, 42261, 42036, 44920, 44921, 44922, 44923, 44924];
 
     /// <summary>
     /// 只有<b>協助員</b>（步行支援）用得到的技能，也就是宇宙工具。
     /// 依據：<c>WKSMechaEventData</c> 的協助員指示文字直接點名宇宙鑽頭與宇宙火焰噴射器，
     /// 與 42150／42258 的技能名逐字相符。
     /// </summary>
-    private static readonly uint[] GroundSupportActionIds = [42150, 42258];
+    private static readonly uint[] GroundSupportActionIds = [42150, 42258, 44925, 44926];
 
     /// <summary>
     /// 這個 ActionId 屬於哪一種身份。**不在上面兩份清單裡的一律回
@@ -170,8 +173,20 @@ internal static class MechaActionShapes
     public static float ConeAngleFor(uint actionId)
     {
         var ov = GetOverride(actionId);
-        return Math.Clamp(ov?.AngleDeg ?? DefaultConeAngleDeg, ConeAngleMin, ConeAngleMax);
+        return Math.Clamp(ov?.AngleDeg ?? BuiltInConeAngle(actionId), ConeAngleMin, ConeAngleMax);
     }
+
+    private static float BuiltInConeAngle(uint actionId)
+        => actionId == PowerSuctionActionId ? PowerSuctionConeAngleDeg : DefaultConeAngleDeg;
+
+    /// <summary>強力吸取器（駕駛員，7.3）。</summary>
+    public const uint PowerSuctionActionId = 44920;
+
+    /// <summary>
+    /// 強力吸取器的內建全角。表上沒有角度（Omen=0）；實機錄製裡施放後消失的目標離面向最多 36°、
+    /// 留下的最少 46°（扣掉目標 hitbox 約 34°～45°）⇒ 全角落在 67°～90°，取中間值。
+    /// </summary>
+    public const float PowerSuctionConeAngleDeg = 80f;
 
     /// <summary>取這個技能的 per-skill 覆蓋，沒有就回 <c>null</c>。</summary>
     private static MechaShapeOverride? GetOverride(uint actionId)
@@ -203,7 +218,7 @@ internal static class MechaActionShapes
 
     /// <summary>這個技能沒有覆蓋時的扇形全角。</summary>
     public static float DefaultConeAngleFor(uint actionId)
-        => Math.Clamp(DefaultConeAngleDeg, ConeAngleMin, ConeAngleMax);
+        => Math.Clamp(BuiltInConeAngle(actionId), ConeAngleMin, ConeAngleMax);
 
     /// <summary>宇宙鑽頭長度滑桿的下限／上限。UI 與執行期用同一組常數，避免兩邊漂開。</summary>
     public const float DrillLengthMin = 2f;

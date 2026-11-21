@@ -222,6 +222,11 @@ internal static unsafe class MechaObjectiveTracker
         if (!MechaObjectNames.IsKnownEventObjectId(baseId))
             return MechaTargetOwner.Unknown;
 
+        // 群組表被拒（兩軸對不上）時，「CardStand＝協助員」這條同源假設也不可信：
+        // 法恩娜石採掘指令的駕駛員就是吸 CardStand。分不出來就不擋。
+        if (!MechaObjectNames.HasGroupOwnership(rowId))
+            return MechaTargetOwner.Unknown;
+
         return MechaObjectNames.RoleByObjectKind(kind) switch
         {
             MechaRole.Pilot => MechaTargetOwner.Pilot,

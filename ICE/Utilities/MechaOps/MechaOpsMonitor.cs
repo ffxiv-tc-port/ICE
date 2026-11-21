@@ -366,7 +366,8 @@ internal static unsafe class MechaOpsMonitor
                 }
             }
 
-            signature.Append((int)type).Append(':').Append(id).Append(':').Append(status).Append('|');
+            // 簽章只認「哪一格放了什麼」：可用狀態（重置中、沒目標、超出射程）每次施放都在變，放進來就每秒重印一次。
+            signature.Append((int)type).Append(':').Append(id).Append('|');
             dump.Append($"\n  slot{i:00} type={type} id={id} apparent={slot->ApparentActionId}({slot->ApparentSlotType}) name={name} status={status}");
         }
 
