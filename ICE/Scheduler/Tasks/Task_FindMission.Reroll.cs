@@ -72,7 +72,7 @@ namespace ICE.Scheduler.Tasks
                         "[Check Reroll]");
                     consecutiveRerolls = 0;
                     triedJobsThisSweep.Clear();
-                    SchedulerMain.StopWithNotice("連續重骰仍然找不到可接的任務", needsHelp: true);
+                    SchedulerMain.StopWithNotice("連續重骰仍然找不到可接的任務", StopReasons.NoMission, needsHelp: true);
                     P.TaskManager.Tasks.Clear();
 
                     if (C.PlaySoundAlert)

@@ -209,7 +209,7 @@ public sealed partial class ICE : IDalamudPlugin
         else
         {
             if (SchedulerMain.State != IceState.Idle)
-                PlayerHandlers.DisablePlugin();
+                PlayerHandlers.DisablePlugin(StopReasons.LeftZone);
         }
         GenericManager.Tick();
         TextAdvancedManager.Tick();
@@ -313,7 +313,7 @@ public sealed partial class ICE : IDalamudPlugin
         }
         else if (firstArg.ToLower() == "stop")
         {
-            SchedulerMain.DisablePlugin(byUser: true);
+            SchedulerMain.DisablePlugin(StopReasons.User, byUser: true);
         }
         else if (firstArg.ToLower() == "start")
         {

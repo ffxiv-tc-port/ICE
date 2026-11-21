@@ -317,8 +317,8 @@ namespace ICE.Scheduler.Tasks
                         ? " " + "Some enabled missions were skipped because ICE cannot run them - see the message above.".Loc()
                         : string.Empty),
                     "[ICE]");
-                SchedulerMain.StopWithNotice("這個職業在這個區域沒有可跑的任務", needsHelp: true);
-                SchedulerMain.DisablePlugin();
+                SchedulerMain.StopWithNotice("這個職業在這個區域沒有可跑的任務", StopReasons.NoMission, needsHelp: true);
+                SchedulerMain.DisablePlugin(StopReasons.NoMission);
             }
 
             if (hasCritical)
@@ -727,7 +727,7 @@ namespace ICE.Scheduler.Tasks
                     else
                     {
                         IceLogging.Error($"Okay, something is wrong. Stopping the process", "[Relic Grind]");
-                        SchedulerMain.DisablePlugin();
+                        SchedulerMain.DisablePlugin(StopReasons.Error);
                     }
                 }
             }

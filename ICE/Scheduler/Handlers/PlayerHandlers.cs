@@ -201,7 +201,7 @@ internal static unsafe class PlayerHandlers
 
         if ((!PlayerHelper.IsInCosmicZone() || !PlayerHelper.UsingSupportedJob()) && SchedulerMain.State != IceState.Idle)
         {
-            DisablePlugin();
+            DisablePlugin(StopReasons.LeftZone);
         }
 
         // 先看設定再讀狀態欄：設定關著（預設）時整段不碰狀態欄，每幀不配置。
@@ -257,12 +257,12 @@ internal static unsafe class PlayerHandlers
             MissionSupport.Notify(currentMissionId, reason);
     }
 
-    internal static void DisablePlugin()
+    internal static void DisablePlugin(string stopReason)
     {
         if (SchedulerMain.State != IceState.Idle)
         {
             P.TaskManager.Abort();
-            SchedulerMain.DisablePlugin();
+            SchedulerMain.DisablePlugin(stopReason);
         }
     }
 

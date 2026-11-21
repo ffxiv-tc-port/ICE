@@ -177,7 +177,7 @@ namespace ICE.Ui.MainUi.ModeSelect
                     {
                         if (ImGui.Button("Stop".Loc() + "###ICEModeSelectStop", new Vector2(150 * scale, 0)))
                         {
-                            SchedulerMain.DisablePlugin(byUser: true);
+                            SchedulerMain.DisablePlugin(StopReasons.User, byUser: true);
                         }
                     }
                 }

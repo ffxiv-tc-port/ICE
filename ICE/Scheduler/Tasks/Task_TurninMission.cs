@@ -64,7 +64,7 @@ namespace ICE.Scheduler.Tasks
                 if (Mission_Settings.StopAfterCurrent)
                 {
                     IceLogging.Debug($"Stop after current was enabled. Stopping now", "[Task Turnin]");
-                    SchedulerMain.StopWithNotice("使用者選了跑完這輪就停");
+                    SchedulerMain.StopWithNotice("使用者選了跑完這輪就停", StopReasons.StopAfterCurrent);
                     return true;
                 }
                 else
@@ -362,7 +362,7 @@ namespace ICE.Scheduler.Tasks
             {
                 IceLogging.Info("We're stopping after this mission", "[Gold Check Task]");
                 Mission_Settings.StopAfterCurrent = false;
-                SchedulerMain.StopWithNotice("使用者選了跑完這輪就停", playSound: true);
+                SchedulerMain.StopWithNotice("使用者選了跑完這輪就停", StopReasons.StopAfterCurrent, playSound: true);
             }
             else
             {

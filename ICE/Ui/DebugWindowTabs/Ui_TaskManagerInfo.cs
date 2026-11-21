@@ -20,7 +20,7 @@ namespace ICE.Ui.DebugWindowTabs
             ImGui.Text($"Task Count: {P.TaskManager.Tasks.Count}");
             if (ImGui.Button("Set State to Idle".Loc()))
             {
-                SchedulerMain.State = IceState.Idle; 
+                SchedulerMain.EnterIdle(StopReasons.User);
             }
 
             if (ImGui.Button("Stop Task".Loc()))

@@ -12,6 +12,7 @@ namespace ICE.Scheduler
     {
         internal static bool EnablePlugin()
         {
+            lastStopReason = "";
             State = Start;
             // 第一步之前就掛上 YesAlready／TextAdvance 的暫停，不等下一幀的 Tick。
             Handlers.YesAlreadyManager.Tick();
@@ -35,10 +36,12 @@ namespace ICE.Scheduler
 
             return true;
         }
+        /// <param name="stopReason"><see cref="StopReasons"/> 的代碼；排程已經是 Idle 時不覆蓋先前記下的原因。</param>
         /// <param name="byUser">使用者按下的停止（UI 停止鈕、<c>/ice stop</c>）：維持舊行為——取消 ICE 自己還在算的尋路、路徑在走就 Path.Stop。其餘（含 IPC、離開區域、流程自己中止）只停 ICE 自己的移動。</param>
-        internal static bool DisablePlugin(bool byUser = false)
+        internal static bool DisablePlugin(string stopReason, bool byUser = false)
         {
             IceLogging.Debug("Stopping the plugin state", "[Schedular - Disable Plugin]");
+            RecordStop(stopReason);
             P.TaskManager.Abort();
             State = IceState.Idle;
             Handlers.YesAlreadyManager.Tick();
@@ -72,11 +75,12 @@ namespace ICE.Scheduler
         }
 
         /// <summary>流程自己決定停手時的收尾：先把狀態設回 Idle，再通知 TataruPraise／NotificationMaster（順序固定）。</summary>
+        /// <param name="stopReason"><see cref="StopReasons"/> 的代碼，給 IPC <c>StopReason()</c>。</param>
         /// <param name="needsHelp">true＝卡住要使用者處理（NotifyNeedsHelp），false＝正常停下（NotifyStopped）。</param>
         /// <param name="playSound">通知後緊接著播停止提示音（仍看 <c>C.PlaySoundAlert</c>）。</param>
-        internal static void StopWithNotice(string reason, bool needsHelp = false, bool playSound = false)
+        internal static void StopWithNotice(string reason, string stopReason, bool needsHelp = false, bool playSound = false)
         {
-            State = IceState.Idle;
+            EnterIdle(stopReason);
             if (needsHelp)
                 TataruPraiseIPC.NotifyNeedsHelp(reason);
             else
@@ -157,6 +161,28 @@ namespace ICE.Scheduler
         internal static IceState State = Idle;
         internal static MissionAttributes MissionState = MissionAttributes.None;
 
+        // volatile：IPC StopReason() 不經主執行緒閘門直接讀；寫入只在主執行緒。
+        private static volatile string lastStopReason = "";
+
+        /// <summary>最近一次停止的原因（<see cref="StopReasons"/>）；開始執行時清成空字串。</summary>
+        internal static string LastStopReason => lastStopReason;
+
+        /// <summary>只在「執行中→Idle」那一刻記：同一次停止先記的贏，之後補叫的停止不覆蓋。</summary>
+        private static void RecordStop(string stopReason)
+        {
+            if (State == Idle)
+                return;
+            lastStopReason = stopReason;
+            IceLogging.Info($"停止原因：{stopReason}", "[ICE 停止]");
+        }
+
+        /// <summary>不經 <see cref="DisablePlugin"/> 的停止出口（不中止佇列、不還租約）：記原因後設回 Idle。</summary>
+        internal static void EnterIdle(string stopReason)
+        {
+            RecordStop(stopReason);
+            State = Idle;
+        }
+
         internal static void Tick()
         {
             if (Throttles.GenericThrottle && P.TaskManager.NumQueuedTasks == 0 && State != Idle)
@@ -178,7 +204,7 @@ namespace ICE.Scheduler
                     case Fish: Task_Fishing.Enqueue(); break;
                     case DualClass: Task_DualClass.Enqueue(); break;
                     case ManualMode: Task_Manual.Enqueue(); break;
-                    default: DisablePlugin(); break;
+                    default: DisablePlugin(StopReasons.Error); break;
                 }
             }
         }

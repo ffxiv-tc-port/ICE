@@ -114,7 +114,7 @@ internal static class CraftProgressGuard
             handle);
 
         Reset();
-        SchedulerMain.DisablePlugin();
+        SchedulerMain.DisablePlugin(StopReasons.Error);
     }
 
     internal static void Reset()

@@ -102,7 +102,7 @@ namespace ICE.Scheduler.Tasks
                             select.Yes();
                             if (Mission_Settings.StopAfterCurrent)
                             {
-                                SchedulerMain.StopWithNotice("使用者選了跑完這輪就停（放棄任務之後）");
+                                SchedulerMain.StopWithNotice("使用者選了跑完這輪就停（放棄任務之後）", StopReasons.StopAfterCurrent);
                                 P.TaskManager.Tasks.Clear();
                             }
                             else if (SchedulerMain.State != IceState.Idle)

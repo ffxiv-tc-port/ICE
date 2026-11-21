@@ -38,7 +38,7 @@ namespace ICE.Scheduler.Tasks
 
                 if (C.StopWhenLevel && Player.Level >= C.TargetLevel)
                 {
-                    SchedulerMain.StopWithNotice("等級達到設定的上限");
+                    SchedulerMain.StopWithNotice("等級達到設定的上限", StopReasons.GoalReached);
                     IceLogging.ChatInfo("Stop At Player Level is enabled. \nYour current level is: ?? and Goal: ??".Loc(Player.Level, C.TargetLevel), "[I.C.E.]");
                     if (C.PlaySoundAlert)
                     {
@@ -54,7 +54,7 @@ namespace ICE.Scheduler.Tasks
                     if (scores.classScore >= C.CosmicScoreCap)
                     {
                         IceLogging.ChatInfo("Stop At Cosmic Score is enabled. \nYour current level is: ?? and Goal: ??".Loc(scores.classScore, C.CosmicScoreCap), "[I.C.E.]");
-                        SchedulerMain.StopWithNotice("宇宙評分達到設定的上限", playSound: true);
+                        SchedulerMain.StopWithNotice("宇宙評分達到設定的上限", StopReasons.GoalReached, playSound: true);
                         return true;
                     }
                 }
@@ -69,7 +69,7 @@ namespace ICE.Scheduler.Tasks
                         if (credits >= C.LunarCreditsCap)
                         {
                             IceLogging.ChatInfo("You've either hit the Lunar Credit threshold, or gone above it.\nStopping I.C.E.".Loc(), "[I.C.E.]");
-                            SchedulerMain.StopWithNotice("月靈點達到設定的上限", playSound: true);
+                            SchedulerMain.StopWithNotice("月靈點達到設定的上限", StopReasons.GoalReached, playSound: true);
                             return true;
                         }
                     }
@@ -79,7 +79,7 @@ namespace ICE.Scheduler.Tasks
                     if (GenericHelpers.TryGetAddonMaster<WKSHud>("WKSHud", out var hud) && hud.IsAddonReady && (hud.CosmoCredit >= C.CosmoCreditsCap))
                     {
                         IceLogging.ChatInfo("Stopping the plugin as you have ?? Cosmocredits.".Loc(hud.CosmoCredit), "[I.C.E.]");
-                        SchedulerMain.StopWithNotice("宇宙點達到設定的上限", playSound: true);
+                        SchedulerMain.StopWithNotice("宇宙點達到設定的上限", StopReasons.GoalReached, playSound: true);
                         return true;
                     }
                 }
@@ -98,7 +98,7 @@ namespace ICE.Scheduler.Tasks
                                         $"Stop When Relic Finished: {C.StopOnceRelicFinished}");
 
                         IceLogging.Info("You have met all necessary relic xp, and you have \"Stop on Relic Completion\" enabled, so stopping for now");
-                        SchedulerMain.StopWithNotice("靈器經驗值已經全滿", playSound: true);
+                        SchedulerMain.StopWithNotice("靈器經驗值已經全滿", StopReasons.ToolXpFull, playSound: true);
                         return true;
                     }
                     else
@@ -118,7 +118,7 @@ namespace ICE.Scheduler.Tasks
                         else if (C.TurninRelic && currentStage == maxStage && C.StopOnceRelicFinished)
                         {
                             IceLogging.Info("You have met all necessary relic xp, and you have \"Stop on Relic Completion\" enabled, so stopping for now");
-                            SchedulerMain.StopWithNotice("靈器已經做到最終階段", playSound: true);
+                            SchedulerMain.StopWithNotice("靈器已經做到最終階段", StopReasons.ToolXpFull, playSound: true);
                             return true;
                         }
                     }
@@ -349,7 +349,7 @@ namespace ICE.Scheduler.Tasks
             }
 
             IceLogging.ChatInfo("All standard missions have been graded gold (??/??). Stopping I.C.E.".Loc(golded, total), "[I.C.E.]");
-            SchedulerMain.StopWithNotice("這個職業在這個區域的標準任務全部拿到金評");
+            SchedulerMain.StopWithNotice("這個職業在這個區域的標準任務全部拿到金評", StopReasons.GoalReached);
             P.TaskManager.Tasks.Clear();
             if (C.PlaySoundAlert)
             {

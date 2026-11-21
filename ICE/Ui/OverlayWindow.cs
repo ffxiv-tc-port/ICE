@@ -272,7 +272,7 @@ namespace ICE.Ui
             {
                 if (ImGui.Button("Stop".Loc() + "###ICEOverlayStop"))
                 {
-                    SchedulerMain.DisablePlugin(byUser: true);
+                    SchedulerMain.DisablePlugin(StopReasons.User, byUser: true);
                 }
             }
             ImGui.SameLine();

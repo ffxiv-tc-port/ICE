@@ -314,7 +314,7 @@ namespace ICE.Scheduler.Tasks
                     {
                         IceLogging.Error("We're homehow here, which means you've found a mission that doesn't exist?? Please let me know.\n" +
                                         $"MissionID (allegedly) {id}");
-                        SchedulerMain.StopWithNotice("遇到任務表裡不存在的任務 ID", needsHelp: true);
+                        SchedulerMain.StopWithNotice("遇到任務表裡不存在的任務 ID", StopReasons.Error, needsHelp: true);
                         P.TaskManager.Tasks.Clear();
                         return true;
                     }

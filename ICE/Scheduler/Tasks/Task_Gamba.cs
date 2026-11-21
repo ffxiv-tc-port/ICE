@@ -156,7 +156,7 @@ namespace ICE.Scheduler.Tasks
                     (
                         new(GamblingTime, "Time to go gambling!", Utils.TaskConfig),
                         new(CloseTalk, "Closing the talk window"),
-                        new(() => SchedulerMain.State = IceState.Idle)
+                        new(() => SchedulerMain.EnterIdle(StopReasons.GambaDone))
                     );
             }
             else

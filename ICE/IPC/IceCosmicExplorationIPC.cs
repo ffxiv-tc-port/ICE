@@ -25,7 +25,7 @@ public class IceCosmicExplorationIPC
     [EzIPC] public void Enable() => IpcFrameworkGate.Run(nameof(Enable), EnableCore);
     private static void EnableCore() => SchedulerMain.EnablePlugin();
     [EzIPC] public void Disable() => IpcFrameworkGate.Run(nameof(Disable), DisableCore);
-    private static void DisableCore() => SchedulerMain.DisablePlugin();
+    private static void DisableCore() => SchedulerMain.DisablePlugin(StopReasons.IpcDisable);
     /// <summary>
     /// Adds the following missions to your mission list
     /// </summary>
@@ -190,6 +190,16 @@ public class IceCosmicExplorationIPC
     {
         return SchedulerMain.State.ToString();
     }
+
+    // 📌 不上閘門：讀 volatile 字串，見 SchedulerMain.LastStopReason。
+    /// <summary>最近一次停止的原因代碼；開始執行時清成空字串（執行中一律是空字串）。</summary>
+    /// <remarks>
+    /// tool_xp_full＝宇宙工具經驗已滿；stop_after_current＝「做完目前任務就停」；user＝ICE 介面或 /ice stop；
+    /// ipc_disable＝經 IPC Disable；goal_reached＝等級／評分／月靈點／宇宙點上限或全部金評；no_mission＝沒有可跑的任務；
+    /// left_zone＝離開探索區／換成不支援的職業／角色不可用；error＝流程跑不下去；gamba_done＝轉盤轉完。
+    /// 🔴 代碼是對外契約，只增不改；呼叫端遇到不認得的代碼要當成「其他原因」。
+    /// </remarks>
+    [EzIPC] public string StopReason() => SchedulerMain.LastStopReason;
 
     [EzIPC] public uint CurrentMission()
         => IpcFrameworkGate.Get(nameof(CurrentMission), CurrentMissionCore, 0u);
