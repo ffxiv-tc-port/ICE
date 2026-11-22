@@ -2245,6 +2245,49 @@ public static partial class GatheringUtil
             {
             },
         },
+        // Export for Mission [1003] - EX+: Fusingway Flow Distribution Survey（【高難+】調查熔火湧流的分布）
+        // 整包資料夾（AHFOLDER_），同 494：3 個 preset 的狀態機，進入點是第 1 筆。來源＝上游 Fishing_Phaenna.cs 原樣。
+        [1003] = new FishingTools()
+        {
+            FishingPreset = new List<string>()
+            {
+                "AHFOLDER_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"
+            },
+            //    任務要「任意水產品」×N：N 由補值函式從資料表 Unknown17 填，不手寫。
+            //    魚種＝本任務釣場（FishingSpot 10149）的全部 6 種；只計 preset 的目標魚會少算、拖到逾時。
+            AmountRequired = 0,
+            UniqueFish = false,
+            Baits = new Dictionary<string, List<uint>>()
+            {
+            },
+            RequiredFish = new Dictionary<string, List<uint>>()
+            {
+                ["火口偽魚"] = new List<uint>()
+                {
+                    47655,
+                },
+                ["石榴玻璃海馬"] = new List<uint>()
+                {
+                    47654,
+                },
+                ["玻璃熔爐的剪鉗"] = new List<uint>()
+                {
+                    47650,
+                },
+                ["玻璃熔爐的風箱"] = new List<uint>()
+                {
+                    47651,
+                },
+                ["玻璃熔爐的齒梳"] = new List<uint>()
+                {
+                    47652,
+                },
+                ["玻璃熔爐的勺子"] = new List<uint>()
+                {
+                    47653,
+                },
+            },
+        },
         // Export for Mission [1005] - EX+: Elemental-esque Chasm Specimens
         [1005] = new FishingTools()
         {
@@ -2263,6 +2306,24 @@ public static partial class GatheringUtil
                 {
                     47661,
                 },
+            },
+        },
+        // Export for Mission [1006] - EX+: Elemental-esque Vent Specimens（【高難+】調查火山口地帶的熔融玻璃類精靈）
+        // 整包資料夾（AHFOLDER_），同 494：2 個 preset 的狀態機，進入點是第 1 筆。來源＝上游 Fishing_Phaenna.cs 原樣。
+        // 評價型（大尺寸），交件看銅牌分數，所以 RequiredFish 刻意留空（同 482／492）。
+        [1006] = new FishingTools()
+        {
+            FishingPreset = new List<string>()
+            {
+                "AHFOLDER_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"
+            },
+            AmountRequired = 0,
+            UniqueFish = false,
+            Baits = new Dictionary<string, List<uint>>()
+            {
+            },
+            RequiredFish = new Dictionary<string, List<uint>>()
+            {
             },
         },
 

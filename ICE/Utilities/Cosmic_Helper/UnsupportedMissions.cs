@@ -23,9 +23,9 @@ namespace ICE.Utilities.Cosmic
 
             // 543 不在這份清單裡：它的 preset 已依 542／544 的同構關係補上（見 FishingPresets.cs 該筆的註解）。
 
-            1003,
+            // 1003 / 1006 不在這份清單裡：preset 同 495 是 AHFOLDER_，可用性交給 NeedsMissingFolderImport 判定。
+
             // 1004, 1005,
-            1006,
             // blacklisted mission ID
         };
     }
