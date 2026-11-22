@@ -31,10 +31,13 @@ internal static class GatherSkillDiag
     private static int gatherChance;
     private static int boonChance;
     private static int droppedCasts;
+    private static string slotSource = string.Empty;
+    private static int? remainingNeeded;
+    private static int bountifulMinItem;
     private static readonly List<string> casts = new();
 
     internal static void Begin(string source, uint missionId, MissionAttributes attributes, int profileId, GatherProfile profile,
-                               int gp, int gatherChance, int boonChance, bool missingDur)
+                               int gp, int gatherChance, int boonChance, bool missingDur, string slotSource, int? remainingNeeded = null)
     {
         if (active && GatherSkillDiag.missionId == missionId && !(sawMissingDur && !missingDur))
         {
@@ -55,6 +58,9 @@ internal static class GatherSkillDiag
         GatherSkillDiag.gatherChance = gatherChance;
         GatherSkillDiag.boonChance = boonChance;
         droppedCasts = 0;
+        GatherSkillDiag.slotSource = slotSource;
+        GatherSkillDiag.remainingNeeded = remainingNeeded;
+        bountifulMinItem = profile.GatherBuffs.BountifulMinItem;
         casts.Clear();
 
         var sb = new StringBuilder();
@@ -92,7 +98,9 @@ internal static class GatherSkillDiag
             used += $"（另有 {droppedCasts} 次未列出）";
         IceLogging.Info(
             $"任務 {missionId}（{GatherProfileKinds.LogName(kind)}）用採集配置 #{profileId}「{profileName}」"
-            + $"{(midNode ? "（中途接手）" : string.Empty)}：進點 GP {startGp}、採集率 {gatherChance}%、額外採集獎勵率 {boonChance}%；"
+            + $"{(midNode ? "（中途接手）" : string.Empty)}：進點 GP {startGp}；機率讀自{slotSource}：採集率 {gatherChance}%、"
+            + (boonChance > 0 ? $"額外採集獎勵率 {boonChance}%；" : "額外採集獎勵率讀不到（饋贈一律不放）；")
+            + (remainingNeeded is int left ? $"素材還缺 {left}（少於最少獲得數 {bountifulMinItem} 就不放高產II／豐收II）；" : string.Empty)
             + $"放了：{used}；配置有勾：{enabledSkills}",
             $"[採集技能診斷|{source}]");
         casts.Clear();

@@ -401,6 +401,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     entry.MinimumGp = minGP;
                     C.SaveDebounced();
                 }
+                ImGuiEx.HelpMarker("Before taking a gathering mission, wait for GP to recover to this value (at most 60 seconds). -1 = don't wait.".Loc());
 
                 ImGui.Text("Where'd the dual craft amount go?".Loc());
                 ImGui.SameLine();
@@ -702,8 +703,8 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     int minUseGp = entry.GatherBuffs.Buffs[buffName].MinGp;
                     int minActionGp = GatheringUtil.GathActionDict[buffName].RequiredGp;
                     int maxActionUsage = entry.GatherBuffs.Buffs[buffName].MaxUse;
-                    string ActionInfo = ("Increases the number of items obtained when gathering by 2\n" +
-                                        "Will only apply when the gathering node has full durability").Loc();
+                    string ActionInfo = ("Increases item yield on the next gathering attempt by 1-3 (based on Gathering)\n" +
+                                        "Used on every gathering attempt while GP and the settings below allow").Loc();
 
                     ImGui.Text("Action Info: ".Loc());
                     ImGuiEx.HelpMarker(ActionInfo);
@@ -738,6 +739,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                         entry.GatherBuffs.BountifulMinItem = minItems;
                         C.SaveDebounced();
                     }
+                    ImGuiEx.HelpMarker("Dual class missions only: skip Bountiful Yield II / Bountiful Harvest II when fewer than this many materials are still needed.".Loc());
 
                     ImGui.PopID();
                 }

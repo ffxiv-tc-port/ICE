@@ -74,23 +74,7 @@ namespace ICE.Scheduler.Tasks
             var itemId = mainCraft.ItemId;
 
             var gatherProfileId = missionConfig.GProfileId;
-            var dualCraftAmount = 3;
-
-            if (missionConfig.TurninGold || missionConfig.AutoTurnin)
-            {
-                // Currently, gold needs x3 of the items
-                dualCraftAmount = 3;
-            }
-            else if (missionConfig.TurninSilver)
-            {
-                // Currently, silver needs x2 of the items
-                dualCraftAmount = 2;
-            }
-            if (PlayerHelper.GetItemCount(mainCraft.ItemId, out var craftAmount) && craftAmount >= dualCraftAmount)
-            {
-                // Anything extra after we initial crafts, really just want to only craft x1
-                dualCraftAmount = 1;
-            }
+            var dualCraftAmount = DualCraftAmount(mainCraft, missionConfig);
 
             foreach (var requiredItem in mainCraft.RequiredItems)
             {
@@ -109,10 +93,7 @@ namespace ICE.Scheduler.Tasks
                 }
                 else
                 {
-                    if (PlayerHelper.GetItemCount(itemId, out var mainItemCount) && mainItemCount < dualCraftAmount)
-                    {
-                        amountNeeded = amountNeeded * dualCraftAmount;
-                    }
+                    amountNeeded = MaterialNeeded(mainCraft, amountNeeded, dualCraftAmount);
 
                     if (PlayerHelper.GetItemCount(materialItemId, out var gatherAmount) && gatherAmount < amountNeeded)
                     {
@@ -185,6 +166,63 @@ namespace ICE.Scheduler.Tasks
                 IceLogging.Info($"Told Artisan to craft 1 item of the following recipe: {recipeId}");
                 return true;
             }
+        }
+
+        private const uint CrateItemId = 48233;
+
+        /// <summary>這一輪要做幾個成品：金／自動交件 3、銀 2；手上已經有那麼多就只再做 1。</summary>
+        private static int DualCraftAmount(CosmicHelper.CraftingInfo mainCraft, MissionSettings missionConfig)
+        {
+            var amount = 3;
+            if (missionConfig.TurninGold || missionConfig.AutoTurnin)
+                amount = 3;
+            else if (missionConfig.TurninSilver)
+                amount = 2;
+            if (PlayerHelper.GetItemCount(mainCraft.ItemId, out var craftAmount) && craftAmount >= amount)
+                amount = 1;
+            return amount;
+        }
+
+        private static int MaterialNeeded(CosmicHelper.CraftingInfo mainCraft, int perCraft, int dualCraftAmount)
+            => PlayerHelper.GetItemCount(mainCraft.ItemId, out var mainItemCount) && mainItemCount < dualCraftAmount
+                ? perCraft * dualCraftAmount
+                : perCraft;
+
+        /// <summary>
+        /// 採集點上「還缺、而且這個點採得到」的第一項素材所在的格，<paramref name="remaining"/>＝還缺幾個（份數規則同 <see cref="CheckMaterials"/>）。
+        /// 找不到時退回第一格、<paramref name="remaining"/> 為 null，原因寫進 <paramref name="source"/>。
+        /// </summary>
+        private static Gathering.GatheredItem? PickDualTargetSlot(Gathering.GatheredItem[] slots, CosmicHelper.CosmicInfo mission,
+                                                                  out int? remaining, out string source)
+        {
+            remaining = null;
+            var first = slots.FirstOrDefault(x => x.ItemID != 0);
+            var mainCraft = mission.Crafts_Main.Values.FirstOrDefault();
+            if (mainCraft == null || !C.MissionConfig.TryGetValue(CosmicHelper.CurrentLunarMission, out var missionConfig))
+            {
+                source = $"找不到配方或任務設定，退回第一格 {first?.ItemID ?? 0}";
+                return first;
+            }
+
+            var amount = DualCraftAmount(mainCraft, missionConfig);
+            bool anyShort = false;
+            foreach (var (materialId, perCraft) in mainCraft.RequiredItems)
+            {
+                if (materialId == CrateItemId || !PlayerHelper.GetItemCount(materialId, out var have))
+                    continue;
+                var need = MaterialNeeded(mainCraft, perCraft, amount);
+                if (have >= need)
+                    continue;
+                anyShort = true;
+                var slot = slots.FirstOrDefault(x => x.ItemID == materialId);
+                if (slot == null)
+                    continue;
+                remaining = need - have;
+                source = $"素材 {materialId}";
+                return slot;
+            }
+            source = (anyShort ? "缺的素材不在這個點" : "素材已足夠") + $"，退回第一格 {first?.ItemID ?? 0}";
+            return first;
         }
 
         private static unsafe bool? CheckGatheringState()
@@ -351,17 +389,17 @@ namespace ICE.Scheduler.Tasks
                         // this is the first window that you see. 
                         if (gather.CurrentIntegrity != 0)
                         {
-                            var diagItem = gather.GatheredItems.Where(x => x.ItemID != 0).FirstOrDefault();
+                            var targetSlot = PickDualTargetSlot(gather.GatheredItems, missionInfo, out var remainingNeeded, out var slotSource);
+                            int boonChance = targetSlot?.BoonChance ?? 0;
                             GatherSkillDiag.Begin("雙職業", CosmicHelper.CurrentLunarMission, missionInfo.Attributes, profileId, gatherConfig, PlayerHelper.GetGp(),
-                                                  diagItem?.GatherChance ?? 0, diagItem?.BoonChance ?? 0, gather.CurrentIntegrity != gather.TotalIntegrity);
+                                                  targetSlot?.GatherChance ?? 0, boonChance, gather.CurrentIntegrity != gather.TotalIntegrity, slotSource, remainingNeeded);
                             foreach (var action in Mission_Settings.SkillUseAmount)
                             {
                                 var key = action.Key;
                                 var amount = action.Value;
                                 bool missingDur = gather.CurrentIntegrity != gather.TotalIntegrity;
-                                int boonChance = gather.GatheredItems.FirstOrDefault().BoonChance;
 
-                                bool useBuff = Task_Gather.CanUseGatheringAction(key, profileId, missingDur, boonChance);
+                                bool useBuff = Task_Gather.CanUseGatheringAction(key, profileId, missingDur, boonChance, remainingNeeded);
                                 if (EzThrottler.Throttle($"Checking buff: {key}"))
                                 {
                                     IceLogging.Debug($"Action name: {key} | Using? {useBuff}");

@@ -240,6 +240,59 @@ namespace ICE.Scheduler.Tasks
 
             return false;
         }
+        private const long MinimumGpWaitLimitMs = 60_000;
+        private static uint minGpWaitMission;
+        private static long minGpWaitStart;
+        private static long minGpWaitLastPoll;
+
+        /// <summary>採集配置的「開始任務所需的最低 GP」：接採集任務前 GP 不夠就先等 GP 自然回復。</summary>
+        /// <remarks>
+        /// 不會卡住：目前職業不是任務的採集職業、門檻 ≤0、或已等滿 60 秒都直接放行；門檻超過最大 GP 時以最大 GP 為準。
+        /// 停止 ICE 會清空佇列，下次進來隔太久（5 秒以上沒輪詢）就當成新的一輪重新計時。
+        /// </remarks>
+        private static bool? WaitForMinimumGp(uint missionId)
+        {
+            const string handle = "[Grab Mission: Minimum GP]";
+            if (!CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var info)
+                || !info.Attributes.HasFlag(MissionAttributes.Gather)
+                || info.Jobs == null || !info.Jobs.Contains(Player.JobId))
+                return true;
+
+            var profileId = C.MissionConfig.TryGetValue(missionId, out var missionConfig) ? missionConfig.GProfileId : 0;
+            if (!C.GatherProfiles.TryGetValue(profileId, out var profile) && !C.GatherProfiles.TryGetValue(0, out profile))
+                return true;
+
+            var threshold = Math.Min(profile.MinimumGp, PlayerHelper.MaxGp());
+            var gp = PlayerHelper.GetGp();
+            var now = Environment.TickCount64;
+            bool waiting = minGpWaitMission == missionId && now - minGpWaitLastPoll < 5_000;
+
+            if (threshold <= 0 || gp >= threshold)
+            {
+                if (waiting)
+                    IceLogging.Info($"任務 {missionId}：GP {gp} 已達 {threshold}，等了 {(now - minGpWaitStart) / 1000.0:0.0} 秒，開始接任務。", handle);
+                minGpWaitMission = 0;
+                return true;
+            }
+
+            if (!waiting)
+            {
+                minGpWaitMission = missionId;
+                minGpWaitStart = now;
+                IceLogging.Info($"任務 {missionId}：GP {gp} 低於採集配置 #{profileId}「{profile.Name}」的開始任務最低 GP {threshold}，"
+                                + $"先等 GP 回復（最多 {MinimumGpWaitLimitMs / 1000} 秒）。", handle);
+            }
+            minGpWaitLastPoll = now;
+
+            if (now - minGpWaitStart >= MinimumGpWaitLimitMs)
+            {
+                IceLogging.Info($"任務 {missionId}：等了 {MinimumGpWaitLimitMs / 1000} 秒 GP 仍只有 {gp}（需要 {threshold}），不再等，直接接任務。", handle);
+                minGpWaitMission = 0;
+                return true;
+            }
+            return false;
+        }
+
         public static void InsertGrabMission(uint missionId)
         {
             // 這裡就是「已經決定要領哪一個」的時間點 —— 疊加層要顯示的正是這個。
@@ -252,6 +305,7 @@ namespace ICE.Scheduler.Tasks
             P.TaskManager.InsertMulti(
                 new(() => Navmesh_MoveToMission(missionId), "Checking if movement is necessary", Utils.TaskConfig),
                 new(() => FrameDelay(8), "Waiting 8 frames before next action"),
+                new(() => WaitForMinimumGp(missionId), "Waiting for the gather profile's minimum GP", Utils.TaskConfig),
                 new(() => GrabMission(missionId), "Selecting mission for grabbing"),
                 new(() => FrameDelay(16), "Giving time before you kick in the mission")
             );

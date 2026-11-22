@@ -644,13 +644,15 @@ namespace ICE.Scheduler.Tasks
                             else
                             {
                                 bool missingDur = gather.CurrentIntegrity != gather.TotalIntegrity;
-                                var testItem = gather.GatheredItems.Where(x => x.ItemID != 0).FirstOrDefault();
-                                int gatherChance = testItem.GatherChance;
-                                int boonChance = testItem.BoonChance;
+                                var targetSlot = PickTargetSlot(gather.GatheredItems, missionInfo, out var slotSource);
+                                if (targetSlot == null)
+                                    return false; // 視窗開著卻一格道具都沒有＝還在刷新，下一幀再看。
+                                int gatherChance = targetSlot.GatherChance;
+                                int boonChance = targetSlot.BoonChance;
                                 int playerGp = PlayerHelper.GetGp();
 
                                 GatherSkillDiag.Begin("採集", CosmicHelper.CurrentLunarMission, missionInfo.Attributes, profileId, gatherConfig,
-                                                      playerGp, gatherChance, boonChance, missingDur);
+                                                      playerGp, gatherChance, boonChance, missingDur, slotSource);
                                 if (UseGatherAction(profileId, gatherChance, boonChance, missingDur, playerGp))
                                 {
                                     return false;
@@ -739,6 +741,31 @@ namespace ICE.Scheduler.Tasks
             }
 
             return false;
+        }
+        /// <summary>
+        /// 這一輪要採的那一格：與 <see cref="GatheringInteraction"/> 實際按下去的規則相同（還沒達到最低數量的任務道具優先，
+        /// 都達到就是為分數採第一格）。技能用的採集率／額外採集獎勵率要讀這一格。
+        /// </summary>
+        /// <remarks>任務道具不在這個點時退回第一格，並把原因寫進 <paramref name="source"/>（診斷行會印）。整窗沒有道具回 null。</remarks>
+        internal static Gathering.GatheredItem? PickTargetSlot(Gathering.GatheredItem[] slots, CosmicHelper.CosmicInfo missionInfo, out string source)
+        {
+            var first = slots.FirstOrDefault(x => x.ItemID != 0);
+            foreach (var item in missionInfo.Gathering_Min.OrderByDescending(x => x.Value))
+            {
+                if (PlayerHelper.GetItemCount(item.Key, out var count) && count < item.Value)
+                {
+                    var slot = slots.FirstOrDefault(x => x.ItemID == item.Key);
+                    if (slot != null)
+                    {
+                        source = $"任務道具 {item.Key}";
+                        return slot;
+                    }
+                    source = $"任務道具 {item.Key} 不在這個點，退回第一格 {first?.ItemID ?? 0}";
+                    return first;
+                }
+            }
+            source = $"已達最低數量，為分數採第一格 {first?.ItemID ?? 0}";
+            return first;
         }
         private static bool? WaitToGather()
         {
@@ -901,7 +928,9 @@ namespace ICE.Scheduler.Tasks
 
             return false;
         }
-        public static bool CanUseGatheringAction(string actionName, int profileId, bool missingDur, int? boonChance = null)
+        /// <param name="boonChance">0 或 null＝讀不到（或該格不會出額外採集獎勵），饋贈一律不放。</param>
+        /// <param name="remainingNeeded">還缺的素材數；有給時，少於配置的「最少獲得數」就不放高產II／豐收II。</param>
+        public static bool CanUseGatheringAction(string actionName, int profileId, bool missingDur, int? boonChance = null, int? remainingNeeded = null)
         {
             var actionInfo = GatheringUtil.GathActionDict[actionName];
             bool hasStatus = PlayerHelper.HasStatusId(actionInfo.StatusId);
@@ -917,11 +946,13 @@ namespace ICE.Scheduler.Tasks
             if (!C.GatherProfiles.TryGetValue(profileId, out var profile) && !C.GatherProfiles.TryGetValue(0, out profile))
                 return false;
             var gatherBuff = profile.GatherBuffs.Buffs[actionName];
+            bool boonKnown = boonChance > 0;
 
             return actionName switch
             {
                 "BoonIncrease1" => gatherBuff.Enabled 
                                 && boonChance < 100 
+                                && boonKnown
                                 && !hasStatus
                                 && !missingDur 
                                 && hasGp 
@@ -930,6 +961,7 @@ namespace ICE.Scheduler.Tasks
                                 && properLvl,
                 "BoonIncrease2" => gatherBuff.Enabled 
                                 && boonChance < 100 
+                                && boonKnown
                                 && !hasStatus 
                                 && !missingDur 
                                 && hasGp 
@@ -965,6 +997,7 @@ namespace ICE.Scheduler.Tasks
                                     && properLvl,
                 "BountifulYieldII" => gatherBuff.Enabled 
                                    && !hasStatus 
+                                   && (remainingNeeded == null || remainingNeeded >= profile.GatherBuffs.BountifulMinItem)
                                    && hasGp 
                                    && PlayerHelper.GetGp() >= gatherBuff.MinGp
                                    && (gatherBuff.MaxUse == -1 || gatherBuff.MaxUse > used) 

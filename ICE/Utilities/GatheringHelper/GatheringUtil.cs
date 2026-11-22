@@ -227,10 +227,10 @@ public static unsafe partial class GatheringUtil
             ActionName = "Priming Touch",
             ClassAction = new()
             {
-                [16] = new() { ActionId = 21205 },
+                [16] = new() { ActionId = 34871 },
                 [17] = new() { ActionId = 34872 }
             },
-            StatusId = 2668,
+            StatusId = 3910,
             StatusName = "",
             RequiredGp = 100,
         }},
