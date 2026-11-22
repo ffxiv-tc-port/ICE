@@ -505,15 +505,26 @@ namespace ICE.Config
                 C.Save();
             }
 
+            var added = new HashSet<uint>();
             foreach (var entry in CosmicHelper.SheetMissionDict)
             {
                 var id = entry.Key;
                 if (!C.MissionConfig.ContainsKey(id))
                 {
                     C.MissionConfig[id] = new MissionSettings();
-                    C.Save();
+                    added.Add(id);
                 }
             }
+            if (added.Count == 0)
+                return;
+
+            // 新開放的任務（例如新星球）預設會落在 0 號預設配置，「自動建立採集配置檔」只在首次安裝跑一次；
+            // 這裡讓它們沿用同分類既有任務的配置。既有任務的配置不動。
+            var inherited = GatherProfileKinds.InheritProfilesForNewMissions(added, out var summary);
+            IceLogging.Info($"新增 {added.Count} 筆任務設定" +
+                            (inherited > 0 ? $"，其中 {inherited} 筆採集任務沿用同類任務的採集配置：{summary}" : "。"),
+                            "[Config Migrator]");
+            C.Save();
         }
 
         private static void SetBuff(GatherBuff buff, bool enabled, int minGp, int maxUse)

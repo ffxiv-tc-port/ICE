@@ -263,6 +263,7 @@ namespace ICE.Scheduler.Tasks
                 // 任務真的接下來了，「正要去領」的目標就過期了。
                 ClearTargetMission();
                 Mission_Settings.ResetNodeCounter();
+                Mission_Settings.ResetSkillUse();
                 SchedulerMain.State = IceState.ExecutingMission;
                 timeoutAmount = 0;
                 return true;

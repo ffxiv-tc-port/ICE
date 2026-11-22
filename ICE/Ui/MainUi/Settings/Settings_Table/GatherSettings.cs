@@ -118,6 +118,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 profile.Id = nextId;
                 C.GatherProfiles[nextId] = profile;
 
+                var targetKind = GatherProfileKinds.FromSetupType(type);
                 foreach (var mission in C.MissionConfig)
                 {
                     var id = mission.Key;
@@ -127,44 +128,9 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     if (!CosmicHelper.SheetMissionDict.TryGetValue(id, out var missionDict))
                         continue;
 
-                    bool craftMission = missionDict.Attributes.HasFlag(MissionAttributes.Craft);
-                    bool gatherMission = missionDict.Attributes.HasFlag(MissionAttributes.Gather);
-
-                    bool LimitedQuant = missionDict.Attributes.HasFlag(MissionAttributes.Limited);
-                    // Gather X Amount is just "Gather" 
-                    bool TimedMission = missionDict.Attributes.HasFlag(MissionAttributes.ScoreTimeRemaining);
-                    bool ChainedMission = missionDict.Attributes.HasFlag(MissionAttributes.ScoreChains);
-                    bool BoonMission = missionDict.Attributes.HasFlag(MissionAttributes.ScoreGatherersBoon);
-                    bool collectableMission = missionDict.Attributes.HasFlag(MissionAttributes.Collectables);
-                    bool stellerReductionMission = missionDict.Attributes.HasFlag(MissionAttributes.ReducedItems);
-
-                    bool GatherX = !stellerReductionMission && !collectableMission && !BoonMission && !ChainedMission && !TimedMission && !LimitedQuant;
-
-                    void UpdateMissions()
-                    {
+                    // 每個任務只屬於一個分類（雙職業不算「採集指定數量」），SetupAllProfiles 的呼叫順序不影響結果。
+                    if (GatherProfileKinds.Classify(missionDict.Attributes) == targetKind)
                         mission.Value.GProfileId = nextId;
-                    }
-
-                    if (gatherMission && (!collectableMission && !stellerReductionMission))
-                    {
-                        if (type == "limited" && LimitedQuant)
-                            UpdateMissions();
-                        else if (type == "timed" && TimedMission)
-                            UpdateMissions();
-                        else if (type == "chained" && ChainedMission && !BoonMission)
-                            UpdateMissions();
-                        else if (type == "boon" && BoonMission && !ChainedMission)
-                            UpdateMissions();
-                        else if (type == "boonChain" && ChainedMission && BoonMission)
-                            UpdateMissions();
-                        // ⚠️ 這條鏈裡的 dualCraft／gatherX 順序**在單次呼叫內沒有語意差別**
-                        //    （type 是固定值，兩個分支不可能同時成立）；排成與 SetupAllProfiles()
-                        //    的呼叫順序一致，只是為了讓兩處讀起來對得上。真正決定勝負的是那邊。
-                        else if (type == "gatherX" && GatherX)
-                            UpdateMissions();
-                        else if (type == "dualCraft" && craftMission)
-                            UpdateMissions();
-                    }
                 }
 
 
@@ -335,6 +301,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                         var newId = C.GatherProfiles.Keys.Max() + 1;
                         C.GatherProfiles[newId] = new()
                         {
+                            Id = newId,
                             Name = newProfileName,
                         };
                         C.Save();
@@ -402,6 +369,9 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 ImGui.Combo("Mission Type".Loc() + "###ICEMissionType", ref MissionIndex, MissionTypes, MissionTypes.Length);
                 if (ImGui.Button("Apply to Mission Types".Loc() + "###ICEApplyToMissionTypes"))
                 {
+                    // 用字典鍵、不用 entry.Id：「新增配置」與舊版遷移建立的配置 Id 都留在 0，拿它套用會整批指回預設配置。
+                    var selectedProfileId = C.SelectedGatherIndex;
+                    var applyKind = GatherProfileKinds.MissionTypeOrder[Math.Clamp(MissionIndex, 0, GatherProfileKinds.MissionTypeOrder.Length - 1)];
                     foreach (var mission in C.MissionConfig)
                     {
                         var id = mission.Key;
@@ -410,43 +380,8 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                         if (!CosmicHelper.SheetMissionDict.TryGetValue(id, out var missionDict))
                             continue;
 
-                        bool craftMission = missionDict.Attributes.HasFlag(MissionAttributes.Craft);
-                        bool gatherMission = missionDict.Attributes.HasFlag(MissionAttributes.Gather);
-
-                        bool LimitedQuant = missionDict.Attributes.HasFlag(MissionAttributes.Limited);
-                        // Gather X Amount is just "Gather" 
-                        bool TimedMission = missionDict.Attributes.HasFlag(MissionAttributes.ScoreTimeRemaining);
-                        bool ChainedMission = missionDict.Attributes.HasFlag(MissionAttributes.ScoreChains);
-                        bool BoonMission = missionDict.Attributes.HasFlag(MissionAttributes.ScoreGatherersBoon);
-                        bool collectableMission = missionDict.Attributes.HasFlag(MissionAttributes.Collectables);
-                        bool stellerReductionMission = missionDict.Attributes.HasFlag(MissionAttributes.ReducedItems);
-
-                        bool GatherX = !stellerReductionMission && !collectableMission && !BoonMission && !ChainedMission && !TimedMission && !LimitedQuant;
-
-                        void UpdateMissions()
-                        {
-                            mission.Value.GProfileId = entry.Id;
-                        }
-
-                        if (gatherMission && (!collectableMission && !stellerReductionMission))
-                        {
-                            if (MissionIndex == 0 && LimitedQuant)
-                                UpdateMissions();
-                            else if (MissionIndex == 2 && TimedMission)
-                                UpdateMissions();
-                            else if (MissionIndex == 3 && ChainedMission && !BoonMission)
-                                UpdateMissions();
-                            else if (MissionIndex == 4 && BoonMission && !ChainedMission)
-                                UpdateMissions();
-                            else if (MissionIndex == 5 && ChainedMission && BoonMission)
-                                UpdateMissions();
-                            // MissionIndex 是固定值，這條鏈的先後不影響結果；
-                            // 排成與 SetupAllProfiles() 一致純粹是為了對照方便。
-                            else if (MissionIndex == 1 && GatherX)
-                                UpdateMissions();
-                            else if (MissionIndex == 6 && craftMission)
-                                UpdateMissions();
-                        }
+                        if (GatherProfileKinds.Classify(missionDict.Attributes) == applyKind)
+                            mission.Value.GProfileId = selectedProfileId;
                     }
 
                     C.Save();

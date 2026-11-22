@@ -47,6 +47,7 @@ namespace ICE.Scheduler.Tasks
             else
             {
                 IceLogging.Debug("Not currently gathering, starting fresh instead");
+                GatherSkillDiag.Flush();
                 P.TaskManager.EnqueueDelay(100);
 
                 // 這裡是 Enqueue（跑在 SchedulerMain.Tick 上、不在任務內），
@@ -572,6 +573,9 @@ namespace ICE.Scheduler.Tasks
                 SchedulerMain.AbortToStateCheck();
                 return true;
             }
+            // 往下傳的 id 要和實際拿到的配置一致（configId 指向已刪除的配置時，上面退回的是 0 號）。
+            var profileId = C.GatherProfiles.ContainsKey(configId) ? configId : 0;
+            Mission_Settings.SyncSkillUseMission(CosmicHelper.CurrentLunarMission);
             var gathActions = GatheringUtil.GathActionDict;
 
             if (EzThrottler.Throttle("Saying what profile you're using", 2000))
@@ -645,7 +649,9 @@ namespace ICE.Scheduler.Tasks
                                 int boonChance = testItem.BoonChance;
                                 int playerGp = PlayerHelper.GetGp();
 
-                                if (UseGatherAction(configId, gatherChance, boonChance, missingDur, playerGp))
+                                GatherSkillDiag.Begin("採集", CosmicHelper.CurrentLunarMission, missionInfo.Attributes, profileId, gatherConfig,
+                                                      playerGp, gatherChance, boonChance, missingDur);
+                                if (UseGatherAction(profileId, gatherChance, boonChance, missingDur, playerGp))
                                 {
                                     return false;
                                 }
@@ -728,6 +734,7 @@ namespace ICE.Scheduler.Tasks
             else
             {
                 // No longer gathering an item. Time to check current state
+                GatherSkillDiag.Flush();
                 return true;
             }
 
@@ -756,6 +763,7 @@ namespace ICE.Scheduler.Tasks
             if (gatherProfile == null)
             {
                 gatherProfile = C.GatherProfiles[0];
+                profileId = 0;
                 if (EzThrottler.Throttle("Null Profile Selected"))
                 {
                     IceLogging.Error("Hey! We've somehow stumbled into a null profile being selected. Please make sure:\n" +
@@ -837,7 +845,8 @@ namespace ICE.Scheduler.Tasks
 
                             IceLogging.Debug($"Using the following action: {ActionName} to gain some collectability from the node", debugOnly: true);
                             var actionId = GatheringUtil.GathActionDict[ActionName].ClassAction[jobId].ActionId;
-                            ActionManager.Instance()->UseAction(ActionType.Action, actionId);
+                            var gpBefore = PlayerHelper.GetGp();
+                            GatherSkillDiag.Record(ActionName, gpBefore, ActionManager.Instance()->UseAction(ActionType.Action, actionId));
                             Mission_Settings.SkillUseAmount[ActionName] += 1;
                         }
                         return true;
@@ -860,7 +869,8 @@ namespace ICE.Scheduler.Tasks
 
                         IceLogging.Debug($"Using the following action: {"FieldMasteryTemp"} to gain some collectability from the node", debugOnly: true);
                         var actionId = GatheringUtil.GathActionDict["FieldMasteryTemp"].ClassAction[jobId].ActionId;
-                        ActionManager.Instance()->UseAction(ActionType.Action, actionId);
+                        var gpBefore = PlayerHelper.GetGp();
+                        GatherSkillDiag.Record("FieldMasteryTemp", gpBefore, ActionManager.Instance()->UseAction(ActionType.Action, actionId));
                         Mission_Settings.SkillUseAmount["FieldMasteryTemp"] += 1;
                     }
                     return true;
@@ -880,7 +890,8 @@ namespace ICE.Scheduler.Tasks
 
                         IceLogging.Debug($"Using the following action: {action} on the node", debugOnly: true);
                         var actionId = GatheringUtil.GathActionDict[action].ClassAction[jobId].ActionId;
-                        ActionManager.Instance()->UseAction(ActionType.Action, actionId);
+                        var gpBefore = PlayerHelper.GetGp();
+                        GatherSkillDiag.Record(action, gpBefore, ActionManager.Instance()->UseAction(ActionType.Action, actionId));
                         Mission_Settings.SkillUseAmount[action] += 1;
                     }
 
@@ -903,7 +914,9 @@ namespace ICE.Scheduler.Tasks
                 return hasStatus && missingDur;
             }
 
-            var gatherBuff = C.GatherProfiles[profileId].GatherBuffs.Buffs[actionName];
+            if (!C.GatherProfiles.TryGetValue(profileId, out var profile) && !C.GatherProfiles.TryGetValue(0, out profile))
+                return false;
+            var gatherBuff = profile.GatherBuffs.Buffs[actionName];
 
             return actionName switch
             {

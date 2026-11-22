@@ -60,6 +60,24 @@ namespace ICE.Utilities
             ["FieldMasteryTemp"] = 0,
         };
 
+        // 採集配置的 MaxUse 是「每個任務」上限，計數要跟著任務走。
+        private static uint skillUseMissionId = 0;
+
+        internal static void SyncSkillUseMission(uint missionId)
+        {
+            if (missionId == skillUseMissionId)
+                return;
+            skillUseMissionId = missionId;
+            ResetSkillUse();
+        }
+
+        /// <summary>同一個任務重新接取時 id 不變，接任務當下要直接呼叫這個。</summary>
+        internal static void ResetSkillUse()
+        {
+            foreach (var key in SkillUseAmount.Keys.ToList())
+                SkillUseAmount[key] = 0;
+        }
+
         internal static bool Abandon = false;
         internal static bool AnimationLockAbandonState = false;
         internal static uint PossiblyStuck = 0;

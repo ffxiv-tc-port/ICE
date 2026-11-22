@@ -319,6 +319,8 @@ namespace ICE.Scheduler.Tasks
                 SchedulerMain.AbortToStateCheck();
                 return true;
             }
+            var profileId = C.GatherProfiles.ContainsKey(configId) ? configId : 0;
+            Mission_Settings.SyncSkillUseMission(CosmicHelper.CurrentLunarMission);
 
             var gathActions = GatheringUtil.GathActionDict;
 
@@ -349,6 +351,9 @@ namespace ICE.Scheduler.Tasks
                         // this is the first window that you see. 
                         if (gather.CurrentIntegrity != 0)
                         {
+                            var diagItem = gather.GatheredItems.Where(x => x.ItemID != 0).FirstOrDefault();
+                            GatherSkillDiag.Begin("雙職業", CosmicHelper.CurrentLunarMission, missionInfo.Attributes, profileId, gatherConfig, PlayerHelper.GetGp(),
+                                                  diagItem?.GatherChance ?? 0, diagItem?.BoonChance ?? 0, gather.CurrentIntegrity != gather.TotalIntegrity);
                             foreach (var action in Mission_Settings.SkillUseAmount)
                             {
                                 var key = action.Key;
@@ -356,7 +361,7 @@ namespace ICE.Scheduler.Tasks
                                 bool missingDur = gather.CurrentIntegrity != gather.TotalIntegrity;
                                 int boonChance = gather.GatheredItems.FirstOrDefault().BoonChance;
 
-                                bool useBuff = Task_Gather.CanUseGatheringAction(key, configId, missingDur, boonChance);
+                                bool useBuff = Task_Gather.CanUseGatheringAction(key, profileId, missingDur, boonChance);
                                 if (EzThrottler.Throttle($"Checking buff: {key}"))
                                 {
                                     IceLogging.Debug($"Action name: {key} | Using? {useBuff}");
@@ -367,7 +372,8 @@ namespace ICE.Scheduler.Tasks
                                     {
                                         IceLogging.Debug($"Using the following action: {key} in full durability section", debugOnly: true);
                                         var actionId = gathActions[key].ClassAction[jobId].ActionId;
-                                        ActionManager.Instance()->UseAction(ActionType.Action, actionId);
+                                        var gpBefore = PlayerHelper.GetGp();
+                                        GatherSkillDiag.Record(key, gpBefore, ActionManager.Instance()->UseAction(ActionType.Action, actionId));
                                         Mission_Settings.SkillUseAmount[key] += 1;
                                     }
                                     return false;
@@ -398,6 +404,7 @@ namespace ICE.Scheduler.Tasks
             else
             {
                 // No longer gathering an item. Time to check current state
+                GatherSkillDiag.Flush();
                 return true;
             }
 

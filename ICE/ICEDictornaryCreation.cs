@@ -630,6 +630,8 @@ public sealed partial class ICE
                 Name = "Default"
             });
         }
+        // 首次安裝時 MissionConfig 還是空的，SetupAllProfiles 迭代它等於一筆都不套用，所以先補齊任務設定。
+        ConfigMigrator.UpdateConfigMissionList();
         if (C.GatherProfiles.Count == 1)
         {
             // This is a first time setup more than likely (nobody at this point has just the "default" profile for things, that's insanity)
