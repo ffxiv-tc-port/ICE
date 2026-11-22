@@ -64,6 +64,53 @@ namespace ICE.IPC
         /// <summary>ICE 需要的最低資料夾匯入合約版本。</summary>
         public const int RequiredFolderImportApiVersion = 1;
 
+        /// <summary>AutoHook 對這份匯出字串吃不下的設定清單。<b>直接呼叫前先問 HasFunction</b>（見 <see cref="ReportUnsupportedFeatures"/>）。</summary>
+        [EzIPC] public Func<string, List<string>> GetUnsupportedPresetFeatures;
+
+        private const string GetUnsupportedPresetFeaturesIpc = $"{Name}.{nameof(GetUnsupportedPresetFeatures)}";
+
+        private ICallGateSubscriber<string, List<string>> unsupportedFeaturesProbe;
+
+        private bool loggedNoFeatureAudit;
+
+        /// <summary>
+        /// 匯入內建 preset 時把「AutoHook 吃不下、匯入後不會生效」的設定寫進 log（要使用者回報的診斷）。
+        /// </summary>
+        /// <remarks>
+        /// 只寫 log、不擋任務：吃不下的多半是輔助判斷，釣魚本身照常進行。
+        /// 端點缺席時 SafeWrapper 會把呼叫吞成 null，與「全部支援」（空清單）分不出來，所以先問 HasFunction。
+        /// </remarks>
+        public void ReportUnsupportedFeatures(uint missionId, IReadOnlyList<string> presets)
+        {
+            try
+            {
+                unsupportedFeaturesProbe ??= Svc.PluginInterface.GetIpcSubscriber<string, List<string>>(GetUnsupportedPresetFeaturesIpc);
+                if (!unsupportedFeaturesProbe.HasFunction)
+                {
+                    if (!loggedNoFeatureAudit)
+                    {
+                        loggedNoFeatureAudit = true;
+                        IceLogging.Info($"這版 AutoHook 沒有 {GetUnsupportedPresetFeaturesIpc}，無法檢查內建 preset 有哪些設定吃不下" +
+                                        "（舊版 AutoHook 會略過技能條件、規則、熟練妙招、游動餌）。請更新 AutoHook。", "[AutoHook IPC]");
+                    }
+                    return;
+                }
+            }
+            catch (Exception e)
+            {
+                IceLogging.Info($"探測 {GetUnsupportedPresetFeaturesIpc} 時發生例外：{e.GetType().Name}: {e.Message}。略過檢查。", "[AutoHook IPC]");
+                return;
+            }
+
+            for (var i = 0; i < presets.Count; i++)
+            {
+                var missing = GetUnsupportedPresetFeatures?.Invoke(presets[i]);
+                if (missing is { Count: > 0 })
+                    IceLogging.Info($"任務 {missionId} 第 {i + 1} 筆內建 preset 有 {missing.Count} 項設定 AutoHook 吃不下（匯入後不會生效）："
+                                    + string.Join("；", missing), "[AutoHook IPC]");
+            }
+        }
+
         /// <summary>探測結果快取。null ＝ 還沒探測過。</summary>
         private int? _folderImportApiVersion;
 

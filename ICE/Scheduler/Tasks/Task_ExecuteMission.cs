@@ -75,6 +75,12 @@ namespace ICE.Scheduler.Tasks
                             P.AutoHook.DeleteAllAnonymousPresets();
                             FishingTask(missionId);
                         }
+                        else if (!string.IsNullOrWhiteSpace(config.AutoHookPresetName))
+                        {
+                            // 與純釣魚任務同一條：使用者指定了自訂 preset 就切過去（以前雙職業任務漏了這步，AutoHook 留在原本的 preset 上）。
+                            IceLogging.Info($"任務 {missionId} 使用自訂的 AutoHook preset：「{config.AutoHookPresetName}」。", "[Task: Execute Mission]");
+                            P.AutoHook.SetPreset(config.AutoHookPresetName);
+                        }
                     }
                 }
                 else if (fishingMission)
@@ -165,6 +171,7 @@ namespace ICE.Scheduler.Tasks
             }
 
             IceLogging.Info($"任務 {missionId} 匯入 {presets.Count} 筆內建 AutoHook preset。", "[Task: Execute Mission]");
+            P.AutoHook.ReportUnsupportedFeatures(missionId, presets);
 
             // 🔴 整包資料夾（AHFOLDER_／AHFOLDER2_）走的是完全不同的匯入路徑，**不能**跟單筆混著送。
             //    資料夾裡的多筆 preset 是一台狀態機（彼此用 PresetToSwap 依名稱互指），
