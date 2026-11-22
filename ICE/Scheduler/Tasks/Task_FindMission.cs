@@ -1017,6 +1017,8 @@ namespace ICE.Scheduler.Tasks
             List<uint> WeatherMissions = new();
             List<uint> SequenceMissions = new();
             List<uint> TimedMissions = new();
+            var checkedOtherZone = new HashSet<uint>();
+            var checkedUnsupported = new HashSet<uint>();
 
             // Logic here to sort by the following
             // -> Job Priorty
@@ -1039,6 +1041,7 @@ namespace ICE.Scheduler.Tasks
                     {
                         if (m.Value.TerritoryId != Player.Territory)
                         {
+                            checkedOtherZone.Add(m.Key);
                             IceLogging.Debug($"Skipping: [{m.Key}] due to being in a different zone");
                             IceLogging.Debug($"Current Zone: {Player.Territory} | Mission Zone: {m.Value.TerritoryId}");
                             continue;
@@ -1048,6 +1051,7 @@ namespace ICE.Scheduler.Tasks
                         // 也不走 FindBestRelicMission），所以同樣要問一次判定函式。
                         if (MissionSupport.IsUnsupported(m.Key, out var provisionalReason))
                         {
+                            checkedUnsupported.Add(m.Key);
                             if (EzThrottler.Throttle($"ICE: provisional grind skip unsupported {m.Key}", 300000))
                                 IceLogging.Info($"臨時任務連刷跳過任務 [{m.Key}]「{m.Value.Name}」：{provisionalReason}"
                                                 + $"（{MissionSupport.ReasonText(provisionalReason)}）",
@@ -1070,40 +1074,59 @@ namespace ICE.Scheduler.Tasks
             IceLogging.Debug($"Sequence Mission Count: {SequenceMissions.Count}");
             IceLogging.Debug($"Timed Mission Count: {TimedMissions.Count}");
 
+            // 攤平成單一序列：順序與原本「逐類型、類型內逐筆」的雙層迴圈逐筆相同。
+            var ordered = new List<uint>();
+            foreach (var missionType in C.MissionPrio)
+            {
+                ordered.AddRange(missionType switch
+                {
+                    ProvisionalTypes.ProvisionalWeather => WeatherMissions,
+                    ProvisionalTypes.ProvisionalSequential => SequenceMissions,
+                    ProvisionalTypes.ProvisionalTimed => TimedMissions,
+                    _ => new List<uint>()
+                });
+            }
+
+            if (C.ProvisionalOnlyUngolded)
+            {
+                var goldState = ReadGoldState(ordered.Concat(checkedOtherZone));
+                Func<uint, bool>? isGolded = goldState == null ? null : id => goldState.GetValueOrDefault(id);
+                var plan = ProvisionalGoldPlan.Build(ordered, isGolded, MissionChain.GetFollowUpsRecursive);
+
+                if (plan.NothingLeft)
+                {
+                    StopProvisionalGoldGrind(ordered.Distinct().Count(), checkedOtherZone, checkedUnsupported.Count, goldState);
+                    return true;
+                }
+
+                if (plan.Order.Count != ordered.Count || !plan.GoldKnown)
+                {
+                    IceLogging.Debug($"只刷未金星：候選 {ordered.Count}、未金星 {plan.Pending}、為後續保留的已金星前置 {plan.KeptPrerequisites}"
+                                     + (plan.GoldKnown ? string.Empty : "（讀不到金星狀態，不過濾）"), "[ICE: Provisional Grind]");
+                }
+                ordered = plan.Order;
+            }
+
             if (GenericHelpers.TryGetAddonMaster<WKSMission>("WKSMission", out var x) && x.IsAddonReady)
             {
-                foreach (var missionType in C.MissionPrio)
+                foreach (var id in ordered)
                 {
-                    List<uint> missionIds = missionType switch
+                    var mission = x.StellerMissions.Where(x => x.MissionId == id).FirstOrDefault();
+                    if (mission != null)
                     {
-                        ProvisionalTypes.ProvisionalWeather => WeatherMissions,
-                        ProvisionalTypes.ProvisionalSequential => SequenceMissions,
-                        ProvisionalTypes.ProvisionalTimed => TimedMissions,
-                        _ => new List<uint>()
-                    };
-
-                    if (missionIds.Count == 0)
-                        continue;
-
-                    foreach (var id in missionIds)
-                    {
-                        var mission = x.StellerMissions.Where(x => x.MissionId == id).FirstOrDefault();
-                        if (mission != null)
-                        {
-                            mission.Select();
-                            // 這條路徑沒走 InsertGrabMission，所以要自己標記目標任務。
-                            TargetMissionId = id;
-                            CollectableUnlock.WarnIfMissing(id);
-                            P.TaskManager.InsertMulti
-                            (
-                                new(() => ChangeJob(id), "Changing job if necessary"),
-                                new(() => Navmesh_MoveToMission(id), "Checking if movement is necessary", Utils.TaskConfig),
-                                new(() => FrameDelay(8), "Waiting 8 frames before next action"),
-                                new(() => GrabMission(id), "Selecting mission for grabbing"),
-                                new(() => FrameDelay(16), "Giving time before you kick in the mission")
-                            );
-                            return true;
-                        }
+                        mission.Select();
+                        // 這條路徑沒走 InsertGrabMission，所以要自己標記目標任務。
+                        TargetMissionId = id;
+                        CollectableUnlock.WarnIfMissing(id);
+                        P.TaskManager.InsertMulti
+                        (
+                            new(() => ChangeJob(id), "Changing job if necessary"),
+                            new(() => Navmesh_MoveToMission(id), "Checking if movement is necessary", Utils.TaskConfig),
+                            new(() => FrameDelay(8), "Waiting 8 frames before next action"),
+                            new(() => GrabMission(id), "Selecting mission for grabbing"),
+                            new(() => FrameDelay(16), "Giving time before you kick in the mission")
+                        );
+                        return true;
                     }
                 }
 
@@ -1114,6 +1137,44 @@ namespace ICE.Scheduler.Tasks
             }
 
             return true;
+        }
+
+        /// <summary>讀這些任務的金星旗標；讀不到 <c>WKSManager</c> 時回 null（＝不知道，不是「都沒金星」）。</summary>
+        private static unsafe Dictionary<uint, bool>? ReadGoldState(IEnumerable<uint> missionIds)
+        {
+            var manager = WKSManager.Instance();
+            if (manager == null)
+                return null;
+
+            var result = new Dictionary<uint, bool>();
+            foreach (var id in missionIds)
+                result[id] = manager->IsMissionGolded(id);
+            return result;
+        }
+
+        /// <summary>「只刷未金星」沒有可做的：勾選的全金星，或本星球沒有勾選可跑的限定任務。說明原因後停止。</summary>
+        private static void StopProvisionalGoldGrind(int checkedHere, HashSet<uint> checkedOtherZone, int unsupported, Dictionary<uint, bool>? goldState)
+        {
+            var message = checkedHere == 0
+                ? "Provisional Grind (un-golded only): no runnable provisional mission is checked on this planet. Stopping I.C.E.".Loc()
+                : "Provisional Grind (un-golded only): all ?? checked provisional missions on this planet are gold. Stopping I.C.E.".Loc(checkedHere);
+
+            var otherPending = goldState == null ? 0 : checkedOtherZone.Count(id => !goldState.GetValueOrDefault(id));
+            if (otherPending > 0)
+                message += " " + "?? checked provisional mission(s) on another planet are not gold yet.".Loc(otherPending);
+            if (unsupported > 0)
+                message += " " + "?? checked mission(s) were skipped because ICE cannot run them.".Loc(unsupported);
+
+            IceLogging.ChatInfo(message, "[ICE: Provisional Grind]");
+            IceLogging.Info($"只刷未金星的限定任務收工：本星球勾選可跑 {checkedHere}（0＝沒有勾選，否則全數金星）、其他星球未金星 {otherPending}、ICE 跑不動 {unsupported}",
+                            "[ICE: Provisional Grind]");
+
+            var reason = checkedHere == 0 ? StopReasons.NoMission : StopReasons.GoalReached;
+            if (checkedHere == 0)
+                SchedulerMain.StopWithNotice("本星球沒有勾選可跑的限定任務", reason, needsHelp: true);
+            else
+                SchedulerMain.StopWithNotice("勾選的限定任務都已金星", reason, playSound: true);
+            SchedulerMain.DisablePlugin(reason);
         }
     }
 }

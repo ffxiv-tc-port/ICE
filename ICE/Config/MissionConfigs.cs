@@ -323,6 +323,10 @@ namespace ICE.Config
         };
         public bool GrindProvisionals { get; set; } = false;
 
+        // 限定任務模式只挑勾選中「還沒金星」的任務，勾選的都金星了就停止（刷全任務金星用）。
+        // 預設 false＝維持現行行為（勾選的照挑、拿過金星也照挑，沒任務就每 5 秒重找）。
+        public bool ProvisionalOnlyUngolded { get; set; } = false;
+
         // 標準任務的階級挑選順序（使用者可以拖曳調整，例如想先刷低階把任務數衝上去）。
         // ⚠️ 讀取端一定要補上這裡缺少的階級，否則舊設定檔或手動編輯少了某一階，
         //    那一階的任務會永遠不被挑到 —— 靜默失效。見 Task_FindMission.RankOrder。

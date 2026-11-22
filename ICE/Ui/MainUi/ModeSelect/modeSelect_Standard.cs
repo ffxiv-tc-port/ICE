@@ -2,6 +2,7 @@
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using ECommons.GameHelpers;
+using FFXIVClientStructs.FFXIV.Client.Game.WKS;
 using FFXIVClientStructs.FFXIV.Client.LayoutEngine;
 using ICE.Ui.MainUi.Settings.Settings_Table;
 using ICE.Utilities.ImGuiTools;
@@ -421,6 +422,9 @@ namespace ICE.Ui.MainUi.ModeSelect
                 float scrollbarSize = ImGui.GetStyle().ScrollbarSize;
                 float buttonRowHeight = (ImGui.GetTextLineHeight() + 8 * scale + 4 * scale) + scrollbarSize;
 
+                if (C.GrindProvisionals)
+                    DrawProvisionalGoldRow(scale);
+
                 using (var missionButtons = ImRaii.Child("##tab_scroll", new Vector2(0, buttonRowHeight), false, ImGuiWindowFlags.HorizontalScrollbar))
                 {
                     if (!missionButtons.Success)
@@ -548,6 +552,67 @@ namespace ICE.Ui.MainUi.ModeSelect
                         C.ShowCompletion_MissingGold = nonGold;
                         C.Save();
                     }
+                }
+            }
+        }
+
+        /// <summary>限定任務模式：「只刷未金星」開關＋勾選數／未金星數。讀不到金星狀態時未金星畫成灰色「?」，不畫成 0。</summary>
+        private static unsafe void DrawProvisionalGoldRow(float scale)
+        {
+            bool onlyUngolded = C.ProvisionalOnlyUngolded;
+            if (ImGui.Checkbox("Only un-golded checked missions".Loc() + "###ICEProvisionalOnlyUngolded", ref onlyUngolded))
+            {
+                C.ProvisionalOnlyUngolded = onlyUngolded;
+                C.Save();
+            }
+            ImGuiEx.HelpMarker(("Provisional Grind only takes the missions you checked in the table that are not gold yet.\n" +
+                                "When every checked provisional mission on this planet is gold (or none is checked), I.C.E. stops and says so in chat.\n" +
+                                "A gold mission that unlocks a checked, not-yet-gold sequence mission is still taken, after all the others.\n" +
+                                "Checked missions whose weather or time window is not active are waited for, same as before.\n" +
+                                "Optional: also turn on \"Remove Mission Upon Gold Completion\" to watch the checked list shrink.\n" +
+                                "Off: unchanged - checked missions keep being taken even after they are gold.").Loc());
+
+            int checkedCount = 0, notGold = 0, notGoldHere = 0, checkedHere = 0;
+            var manager = WKSManager.Instance();
+            var territory = Player.Territory;
+            foreach (var (id, config) in C.MissionConfig)
+            {
+                if (!config.Enabled || !CosmicHelper.SheetMissionDict.TryGetValue(id, out var info))
+                    continue;
+                var attributes = info.Attributes;
+                if (!attributes.HasFlag(MissionAttributes.ProvisionalWeather)
+                    && !attributes.HasFlag(MissionAttributes.ProvisionalTimed)
+                    && !attributes.HasFlag(MissionAttributes.ProvisionalSequential))
+                    continue;
+
+                checkedCount++;
+                var here = info.TerritoryId == territory;
+                if (here)
+                    checkedHere++;
+                if (manager != null && !manager->IsMissionGolded(id))
+                {
+                    notGold++;
+                    if (here)
+                        notGoldHere++;
+                }
+            }
+
+            ImGui.SameLine(0, 12 * scale);
+            ImGui.TextUnformatted(CountLabel("Checked: ??", checkedCount));
+            ImGui.SameLine(0, 8 * scale);
+            if (manager == null)
+            {
+                ImGui.TextDisabled("Not gold: ?".Loc());
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip("Gold state can only be read inside Cosmic Exploration.".Loc());
+            }
+            else
+            {
+                ImGui.TextUnformatted(CountLabel("Not gold: ??", notGold));
+                if (checkedHere > 0 && notGoldHere != notGold)
+                {
+                    ImGui.SameLine(0, 4 * scale);
+                    ImGui.TextUnformatted(CountLabel("(this planet: ??)", notGoldHere));
                 }
             }
         }
