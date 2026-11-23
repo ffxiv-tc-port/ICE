@@ -200,7 +200,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
             ImGui.SameLine();
             var shortMs = C.CraftMidMissionDelayMs;
-            ImGui.SetNextItemWidth(150f * ImGui.GetFontSize() / 16f);
+            ImGui.SetNextItemWidth(UiScale.Px(150f));
             if (ImGui.SliderInt("ms".Loc() + "###CraftingMidMission", ref shortMs, 0, 1000))
             {
                 if (C.CraftMidMissionDelayMs != shortMs)

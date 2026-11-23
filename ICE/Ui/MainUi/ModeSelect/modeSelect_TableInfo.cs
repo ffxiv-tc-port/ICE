@@ -886,7 +886,7 @@ namespace ICE.Ui.MainUi.ModeSelect
                             ImGui.SetTooltip(MissionStage.Explain(stage));
                         if (ImGui.IsItemClicked())
                             selectedMission = Id;
-                        ImGui.SameLine(0, 4);
+                        ImGui.SameLine(0, UiScale.Px(4));
                     }
 
                     if (stageLocked)

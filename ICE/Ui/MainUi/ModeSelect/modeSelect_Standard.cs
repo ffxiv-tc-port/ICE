@@ -622,7 +622,7 @@ namespace ICE.Ui.MainUi.ModeSelect
 
             if (stageLocked > 0)
             {
-                ImGui.SameLine(0, 8 * scale);
+                ImGui.SameLine(0, UiScale.Px(8));
                 ImGui.TextColored(ImGuiColors.DalamudGrey, CountLabel("Not offered yet: ??", stageLocked));
                 if (ImGui.IsItemHovered())
                     ImGui.SetTooltip("Checked missions that need a later construction stage on this planet. The game will not offer them yet, so Provisional Grind cannot take them.".Loc());
@@ -650,7 +650,7 @@ namespace ICE.Ui.MainUi.ModeSelect
 
             ImGui.SameLine();
             var misses = C.ProvisionalDemoteAfterMisses;
-            ImGui.SetNextItemWidth(90f * ImGui.GetFontSize() / 16f);
+            ImGui.SetNextItemWidth(UiScale.Px(90f));
             if (ImGui.InputInt("times in a row".Loc() + "###ICEProvisionalDemoteAfterMisses", ref misses))
             {
                 C.ProvisionalDemoteAfterMisses = Math.Clamp(misses, 1, 10);
