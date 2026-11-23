@@ -209,7 +209,7 @@ namespace ICE.Scheduler.Tasks
                             else if (s.HasFlag(MissionAttributes.Fish))
                             {
                                 IceLogging.Debug("We seem to be in the middle of a fishing mission. Going to reset/import all the presets");
-                                Task_ExecuteMission.FishingTask(currentMissionId);
+                                Task_ExecuteMission.ApplyFishingPreset(currentMissionId, config, "[Task: Check State]");
                                 SchedulerMain.State = IceState.ScoreCheck;
                             }
                             else

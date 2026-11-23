@@ -36,7 +36,7 @@ namespace ICE.Scheduler.Tasks
             {
                 if (C.JumpIfStuck)
                 {
-                    if (CheckAndHandleStuck())
+                    if (CheckAndHandleStuck(pos))
                     {
                         return false; // Let the stuck handler take control
                     }
@@ -163,7 +163,7 @@ namespace ICE.Scheduler.Tasks
             {
                 if (C.JumpIfStuck)
                 {
-                    if (CheckAndHandleStuck())
+                    if (CheckAndHandleStuck(pos))
                     {
                         return false; // Let the stuck handler take control
                     }
@@ -260,63 +260,82 @@ namespace ICE.Scheduler.Tasks
             return false;
         }
 
-        private static Vector3 _lastPosition = Vector3.Zero;
-        private static DateTime _lastPositionChange = DateTime.Now;
-        private static int _stuckAttempts = 0;
-        private const float STUCK_DISTANCE_THRESHOLD = 1.0f; // Consider stuck if moved less than this
-        private const int STUCK_TIME_THRESHOLD = 3000; // Time in ms before considering stuck
+        /// <summary>
+        /// 卡住偵測：錨點＝最後一次「移動超過 <see cref="StuckDistance"/>」的位置與時間。
+        /// 停在原地超過 <see cref="StuckMs"/> 先跳一次，再停住仍沒動就停掉 vnavmesh 讓它重算路；
+        /// 同一個目的地最多脫困 <see cref="MaxRecoveries"/> 次，之後只記一次 log、不再插手。只在框架執行緒讀寫。
+        /// 中間有一段沒在走（算路中、宇宙航線）就重設錨點，算路花的時間不算卡住。
+        /// </summary>
+        private static Vector3 _target;
+        private static long _lastCheckMs;
+        private static Vector3 _anchorPos;
+        private static bool _anchorValid;
+        private static long _anchorMs;
+        private static bool _jumped;
+        private static int _recoveries;
+        private static bool _gaveUpLogged;
+        private const float StuckDistance = 1.0f;
+        private const long StuckMs = 3000;
+        private const int MaxRecoveries = 3;
 
-        private static unsafe bool CheckAndHandleStuck()
+        private static unsafe bool CheckAndHandleStuck(Vector3 target)
         {
             var currentPos = Player.Position;
-            var timeSinceLastChange = (DateTime.Now - _lastPositionChange).TotalMilliseconds;
+            var nowMs = Environment.TickCount64;
 
-            // Check if we've moved significantly
-            if (Vector3.Distance(currentPos, _lastPosition) > STUCK_DISTANCE_THRESHOLD)
+            if (Vector3.Distance(target, _target) > StuckDistance)
             {
-                // We moved, reset tracking
                 ResetInfo();
+                _target = target;
+            }
+
+            var gap = nowMs - _lastCheckMs > 500;
+            _lastCheckMs = nowMs;
+            if (gap || !_anchorValid || Vector3.Distance(currentPos, _anchorPos) > StuckDistance)
+            {
+                _anchorPos = currentPos;
+                _anchorValid = true;
+                _anchorMs = nowMs;
+                _jumped = false;
                 return false;
             }
 
-            // We haven't moved much, check if we've been stuck long enough
-            if (timeSinceLastChange > STUCK_TIME_THRESHOLD)
-            {
-                _stuckAttempts++;
+            if (nowMs - _anchorMs <= StuckMs)
+                return false;
 
-                if (_stuckAttempts == 1)
+            if (_recoveries >= MaxRecoveries)
+            {
+                if (!_gaveUpLogged)
                 {
-                    // First attempt: try jumping
-                    if (EzThrottler.Throttle("Stuck - attempting jump", 1000))
-                    {
-                        IceLogging.Warning("Player appears stuck, attempting to jump");
-                        ActionManager.Instance()->UseAction(ActionType.GeneralAction, 2);
-                        _lastPositionChange = DateTime.Now; // Give it time to work
-                    }
-                    return true;
+                    _gaveUpLogged = true;
+                    IceLogging.Info($"卡住自動脫困已試 {MaxRecoveries} 次仍沒離開原地（{currentPos.X:F1}, {currentPos.Y:F1}, {currentPos.Z:F1}），這段導航不再跳躍或重算路，交給 vnavmesh 自己處理。", "[Nav Stuck]");
                 }
-                else if (_stuckAttempts >= 2)
-                {
-                    // Second attempt: stop navmesh after jump had time to execute
-                    if (EzThrottler.Throttle("Stuck - stopping navmesh", 1000))
-                    {
-                        IceLogging.Warning("Player still stuck after jump attempt, stopping navmesh");
-                        P.Navmesh.Stop();
-                        _stuckAttempts = 0; // Reset for next time
-                        _lastPositionChange = DateTime.Now;
-                    }
-                    return true;
-                }
+                return false;
             }
 
-            return false;
+            _anchorMs = nowMs;
+            if (!_jumped)
+            {
+                _jumped = true;
+                IceLogging.Warning($"Player appears stuck, attempting to jump（{StuckMs / 1000} 秒內移動不到 {StuckDistance} 米）");
+                ActionManager.Instance()->UseAction(ActionType.GeneralAction, 2);
+            }
+            else
+            {
+                _jumped = false;
+                _recoveries++;
+                IceLogging.Warning($"Player still stuck after jump attempt, stopping navmesh（第 {_recoveries}/{MaxRecoveries} 次，停掉讓 vnavmesh 重算路）");
+                P.Navmesh.Stop();
+            }
+            return true;
         }
 
         public static void ResetInfo()
         {
-            _lastPosition = Vector3.Zero;
-            _lastPositionChange = DateTime.Now;
-            _stuckAttempts = 0;
+            _anchorValid = false;
+            _jumped = false;
+            _recoveries = 0;
+            _gaveUpLogged = false;
         }
     }
 }

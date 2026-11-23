@@ -94,19 +94,7 @@ namespace ICE.Scheduler.Tasks
                         return true;
                     }
 
-                    PresetBaitPlans.ClearImported();
-                    if (missionConfig.Use_BuildinPreset)
-                    {
-                        // Using the build in presets that are included in the plugin.
-                        P.AutoHook.DeleteAllAnonymousPresets();
-                        FishingTask(missionId);
-                    }
-                    else
-                    {
-                        string presetName = missionConfig.AutoHookPresetName;
-                        IceLogging.Info($"任務 {missionId} 使用自訂的 AutoHook preset：「{presetName}」。", "[Task: Execute Mission]");
-                        P.AutoHook.SetPreset(presetName);
-                    }
+                    ApplyFishingPreset(missionId, missionConfig, "[Task: Execute Mission]");
 
                     SchedulerMain.State = IceState.Fish;
                     IceLogging.Info($"任務 {missionId} 是釣魚任務，切到釣魚流程（使用內建 preset: {missionConfig.Use_BuildinPreset}）。", "[Task: Execute Mission]");
@@ -129,6 +117,26 @@ namespace ICE.Scheduler.Tasks
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// 純釣魚任務套用 AutoHook preset：取消了「使用內建 preset」就切到使用者指定的名稱，否則匯入內建表。
+        /// 正常開始與中途重新開始（<see cref="Task_CheckState"/>）共用這一支，兩處不可分歧。
+        /// </summary>
+        internal static void ApplyFishingPreset(uint missionId, MissionSettings missionConfig, string handle)
+        {
+            PresetBaitPlans.ClearImported();
+            if (missionConfig.Use_BuildinPreset)
+            {
+                P.AutoHook.DeleteAllAnonymousPresets();
+                FishingTask(missionId);
+            }
+            else
+            {
+                string presetName = missionConfig.AutoHookPresetName;
+                IceLogging.Info($"任務 {missionId} 使用自訂的 AutoHook preset：「{presetName}」。", handle);
+                P.AutoHook.SetPreset(presetName);
+            }
         }
 
         public static void FishingTask(uint missionId)
