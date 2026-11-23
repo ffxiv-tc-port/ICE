@@ -26,7 +26,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
             ImGui.SameLine();
             int cosmicCap = C.CosmoCreditsCap;
-            ImGui.SetNextItemWidth(200);
+            ImGui.SetNextItemWidth(UiScale.Px(200));
             if (ImGui.SliderInt("##CosmicStop", ref cosmicCap, 0, 30_000))
             {
                 if (cosmicCap > 30000)
@@ -52,7 +52,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             ImGui.SameLine();
 
             int lunarCap = C.LunarCreditsCap;
-            ImGui.SetNextItemWidth(200);
+            ImGui.SetNextItemWidth(UiScale.Px(200));
             if (ImGui.SliderInt("##LunarStop", ref lunarCap, 0, 10_000))
             {
                 C.LunarCreditsCap = lunarCap;
@@ -74,7 +74,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             ImGui.SameLine();
 
             int scoreCap = C.CosmicScoreCap;
-            ImGui.SetNextItemWidth(200);
+            ImGui.SetNextItemWidth(UiScale.Px(200));
             if (ImGui.InputInt("###ScoreStop", ref scoreCap, 10_000, 500_000))
             {
                 C.CosmicScoreCap = scoreCap >= 0 ? scoreCap : 0;
@@ -95,7 +95,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             ImGui.SameLine();
 
             int targetLevel = C.TargetLevel;
-            ImGui.SetNextItemWidth(200);
+            ImGui.SetNextItemWidth(UiScale.Px(200));
             if (ImGui.SliderInt("##Level", ref targetLevel, 10, 100))
             {
                 C.TargetLevel = targetLevel;
@@ -142,7 +142,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             {
                 var soundVolume = C.SoundVolume;
                 ImGui.Text("Sound Volume".Loc());
-                ImGui.SetNextItemWidth(200);
+                ImGui.SetNextItemWidth(UiScale.Px(200));
                 if (ImGui.SliderFloat("##Sound Volume", ref soundVolume, 0f, 1f, "%.2f"))
                 {
                     C.SoundVolume = soundVolume;

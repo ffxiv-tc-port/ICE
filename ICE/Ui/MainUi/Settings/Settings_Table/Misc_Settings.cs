@@ -247,7 +247,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 // 上限至少要容得下預設值，否則「拉回預設」這件事做不到。
                 var hi = MathF.Max(max, defaultValue);
                 value = Math.Clamp(current, min, hi);
-                ImGui.SetNextItemWidth(140);
+                ImGui.SetNextItemWidth(UiScale.Px(140));
                 var changed = ImGui.SliderFloat(label + "###ICEMechaShape" + tag, ref value, min, hi, "%.1f");
 
                 ImGui.SameLine();
@@ -482,7 +482,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     }
 
                     float targetRadius = C.MechaTargetRadius;
-                    ImGui.SetNextItemWidth(150);
+                    ImGui.SetNextItemWidth(UiScale.Px(150));
                     if (ImGui.SliderFloat("Marker Range".Loc() + "###ICEMechaTargetRadius", ref targetRadius, 10f, 120f, "%.0f"))
                     {
                         C.MechaTargetRadius = targetRadius;
@@ -595,7 +595,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     }
 
                     float matchRadius = C.MechaObjectiveMatchRadius;
-                    ImGui.SetNextItemWidth(150);
+                    ImGui.SetNextItemWidth(UiScale.Px(150));
                     if (ImGui.SliderFloat("Objective Match Radius".Loc() + "###ICEMechaObjectiveMatchRadius", ref matchRadius, 1f, 30f, "%.0f"))
                     {
                         C.MechaObjectiveMatchRadius = matchRadius;
@@ -658,7 +658,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     if (useVector)
                     {
                         ImGui.Indent();
-                        ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + 360f * ImGuiHelpers.GlobalScale);
+                        ImGui.PushTextWrapPos(ImGui.GetCursorPosX() + UiScale.Px(360f));
                         ImGui.TextColored(ImGuiColors.DalamudRed,
                             ("This reads game memory that ICE cannot verify beforehand. If the assumption behind it " +
                              "ever breaks, the game closes immediately and nothing can catch it. " +

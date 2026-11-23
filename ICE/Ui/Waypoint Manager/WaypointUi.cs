@@ -158,21 +158,21 @@ public static class WaypointUi
             _newWaypoint = Vector3.Zero;
             _newJumpFlag = false;
         }
-        ImGui.SetNextItemWidth(75);
+        ImGui.SetNextItemWidth(UiScale.Px(75));
         ImGui.InputFloat("X", ref _newWaypoint.X);
         ImGui.SameLine();
         if (ImGui.Button("Set X".Loc()))
         {
             _newWaypoint.X = Player.Position.X;
         }
-        ImGui.SetNextItemWidth(75);
+        ImGui.SetNextItemWidth(UiScale.Px(75));
         ImGui.InputFloat("Y", ref _newWaypoint.Y);
         ImGui.SameLine();
         if (ImGui.Button("Set Y".Loc()))
         {
             _newWaypoint.Y = Player.Position.Y;
         }
-        ImGui.SetNextItemWidth(75);
+        ImGui.SetNextItemWidth(UiScale.Px(75));
         ImGui.InputFloat("Z", ref _newWaypoint.Z);
         ImGui.SameLine();
         if (ImGui.Button("Set Z".Loc()))

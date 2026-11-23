@@ -16,7 +16,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
         public static void Draw()
         {
             var maxRerolls = C.MaxConsecutiveRerolls;
-            ImGui.SetNextItemWidth(120f);
+            ImGui.SetNextItemWidth(UiScale.Px(120f));
             if (ImGui.InputInt("Stop after this many failed rerolls".Loc() + "###ICEMaxRerolls", ref maxRerolls))
             {
                 if (maxRerolls < 0) maxRerolls = 0;
@@ -72,7 +72,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             if (delayGrabMission)
             {
                 var delayAmount = C.DelayIncrease;
-                ImGui.SetNextItemWidth(150);
+                ImGui.SetNextItemWidth(UiScale.Px(150));
                 ImGui.SameLine();
                 if (ImGui.SliderInt("ms".Loc() + "###Mission", ref delayAmount, 0, 1000))
                 {
@@ -96,7 +96,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             if (delayCraft)
             {
                 var delayCraftAmount = C.DelayCraftIncrease;
-                ImGui.SetNextItemWidth(150);
+                ImGui.SetNextItemWidth(UiScale.Px(150));
                 ImGui.SameLine();
                 if (ImGui.SliderInt("ms".Loc() + "###Crafting", ref delayCraftAmount, 500, 5000))
                 {
@@ -120,7 +120,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 "Notify only".Loc(),
                 "Stop the mission".Loc(),
             ];
-            ImGui.SetNextItemWidth(320f);
+            ImGui.SetNextItemWidth(UiScale.Px(320f));
             if (ImGui.Combo("When gold is no longer possible".Loc() + "###ICECraftGoldUnreachable",
                             ref goldUnreachable, goldUnreachableOptions, goldUnreachableOptions.Length))
             {
@@ -155,7 +155,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 "Expert solver".Loc(),
                 "Raphael",
             ];
-            ImGui.SetNextItemWidth(320f);
+            ImGui.SetNextItemWidth(UiScale.Px(320f));
             if (ImGui.Combo("Cosmic craft solver".Loc() + "###ICECosmicCraftSolver",
                             ref craftSolver, craftSolverOptions, craftSolverOptions.Length))
             {
@@ -235,7 +235,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 "Log the text only".Loc(),
                 "Cancel anything unrecognised (default)".Loc(),
             ];
-            ImGui.SetNextItemWidth(320f);
+            ImGui.SetNextItemWidth(UiScale.Px(320f));
             if (ImGui.Combo("Other confirmation dialogs".Loc() + "###ICEUnexpectedYesno",
                             ref unexpectedYesno, unexpectedYesnoOptions, unexpectedYesnoOptions.Length))
             {

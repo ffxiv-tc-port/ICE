@@ -1160,7 +1160,7 @@ namespace ICE.Ui.MainUi.ModeSelect
                             using (ImRaii.Disabled(builtInPreset))
                             {
                                 string presetName = missionConfig.AutoHookPresetName;
-                                ImGui.SetNextItemWidth(200);
+                                ImGui.SetNextItemWidth(UiScale.Px(200));
                                 if (ImGui.InputText("Preset Name".Loc() + "###ICEAutoHookPresetName", ref presetName))
                                 {
                                     missionConfig.AutoHookPresetName = presetName;

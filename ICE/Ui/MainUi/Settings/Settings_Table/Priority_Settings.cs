@@ -117,7 +117,7 @@ namespace ICE.Ui.SettingTabs
                     //    格式指示字元去讀一個根本不存在的參數 —— 那是原生層的未定義行為，
                     //    而且成因藏在 ini 裡，看起來完全不像程式碼的錯。所以先把 % 濾掉。
                     var sliderFormat = minGoldRate == 0 ? "Off".Loc().Replace("%", "") : "%d%%";
-                    ImGui.SetNextItemWidth(200f * ImGuiHelpers.GlobalScale);
+                    ImGui.SetNextItemWidth(UiScale.Px(200f));
                     if (ImGui.SliderInt("Minimum gold rate".Loc() + "###ICEMinGoldRate", ref minGoldRate, 0, 100, sliderFormat))
                     {
                         C.MinGoldRatePercentForPicking = Math.Clamp(minGoldRate, 0, 100);

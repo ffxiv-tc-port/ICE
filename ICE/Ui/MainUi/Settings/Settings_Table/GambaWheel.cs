@@ -27,7 +27,7 @@ namespace ICE.Ui.SettingTabs
             }
             ImGuiEx.HelpMarker("If you want to let it auto select the wheels and gamba, enable this. When enabled, opening the gamble wheel window starts it automatically. If you want to not auto run when you're running the gamble wheel, disable this.".Loc());
             var gambaCreditsMinimum = C.GambaCreditsMinimum;
-            ImGui.SetNextItemWidth(150);
+            ImGui.SetNextItemWidth(UiScale.Px(150));
             if (ImGui.SliderInt("Mininum credits to keep".Loc() + "###ICEGambaCreditsMinimum", ref gambaCreditsMinimum, 0, 10000))
             {
                 C.GambaCreditsMinimum = gambaCreditsMinimum;
@@ -42,7 +42,7 @@ namespace ICE.Ui.SettingTabs
             ImGui.SameLine();
             GambaSlider();
             var gambaDelay = C.GambaDelay;
-            ImGui.SetNextItemWidth(150);
+            ImGui.SetNextItemWidth(UiScale.Px(150));
             if (ImGui.SliderInt("Gamba Delay".Loc() + "###ICEGambaDelay", ref gambaDelay, 50, 2000))
             {
                 C.GambaDelay = gambaDelay;
@@ -75,7 +75,7 @@ namespace ICE.Ui.SettingTabs
                         if (string.IsNullOrWhiteSpace(itemName))
                             itemName = "(not released on this client)".Loc();
                         int weight = gamba.Weight;
-                        ImGui.SetNextItemWidth(120f);
+                        ImGui.SetNextItemWidth(UiScale.Px(120f));
                         if (ImGui.InputInt($"[{gamba.ItemId}] {itemName}##gamba_weight", ref weight))
                         {
                             gamba.Weight = weight;
@@ -128,7 +128,7 @@ namespace ICE.Ui.SettingTabs
                 C.SaveDebounced();
             }
 
-            ImGui.SetNextItemWidth(150);
+            ImGui.SetNextItemWidth(UiScale.Px(150));
             if (ImGui.SliderInt("Start Gambling @".Loc() + "###ICEGambaAtAmount", ref currentIndex, 0, allowedValues.Length - 1,
                 allowedValues[currentIndex].ToString()))
             {

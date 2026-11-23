@@ -19,12 +19,6 @@ namespace ICE.Ui
         public InfoWindow() : base("Ice's Cosmic Exploration - Info".Loc() + "###ICEInfoWindow")
         {
             Flags = ImGuiWindowFlags.None;
-            SizeConstraints = new()
-            {
-                MinimumSize = new Vector2(300, 300),
-                MaximumSize = new Vector2(4000, 4000),
-            };
-
             P.windowSystem.AddWindow(this);
             AllowPinning = true;
             AllowClickthrough = true;
@@ -32,6 +26,17 @@ namespace ICE.Ui
             // Do not swallow the game's ESC key while this window is focused.
             // Trade-off: ESC no longer closes this window; use the title bar X or /ice i.
             RespectCloseHotkey = false;
+        }
+
+        public override void PreDraw()
+        {
+            // 最小尺寸跟字級走；Window 會再乘 GlobalScale，所以先除掉。
+            SizeConstraints = new()
+            {
+                MinimumSize = UiScale.Px(300, 300) / Dalamud.Interface.Utility.ImGuiHelpers.GlobalScale,
+                MaximumSize = new Vector2(4000, 4000),
+            };
+            base.PreDraw();
         }
 
         public void Dispose()

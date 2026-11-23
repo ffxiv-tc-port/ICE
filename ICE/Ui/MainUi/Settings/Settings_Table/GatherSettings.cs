@@ -189,7 +189,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     C.PreventOvercap = PreventOvercap;
                     C.Save();
                 }
-                ImGui.SetNextItemWidth(200);
+                ImGui.SetNextItemWidth(UiScale.Px(200));
                 if (ImGui.SliderInt("Use cordial when below the following GP".Loc() + "###ICECordialMinGp", ref CordialMinGp, 0, maxGp))
                 {
                     C.CordialMinGp = CordialMinGp;
@@ -292,7 +292,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 ImGui.TableNextRow();
 
                 ImGui.TableSetColumnIndex(0);
-                ImGui.SetNextItemWidth(200);
+                ImGui.SetNextItemWidth(UiScale.Px(200));
                 ImGui.InputText("New Profile Name".Loc() + "###ICENewProfileName", ref newProfileName, 64);
                 using (ImRaii.Disabled(newProfileName == ""))
                 {
@@ -395,7 +395,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 #region Minimum GP + Dual Class Info
 
                 int minGP = entry.MinimumGp;
-                ImGui.SetNextItemWidth(100);
+                ImGui.SetNextItemWidth(UiScale.Px(100));
                 if (ImGui.SliderInt("Minimum GP to start mission".Loc() + "###ICEMinimumGpToStart", ref minGP, -1, maxGp))
                 {
                     entry.MinimumGp = minGP;
@@ -410,7 +410,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 ImGui.TextDisabled("?");
                 if (ImGui.IsItemHovered())
                 {
-                    ImGui.SetNextWindowSize(new(400.0f, 0.0f)); // Fixed width, auto height
+                    ImGui.SetNextWindowSize(new Vector2(UiScale.Px(400.0f), 0.0f)); // Fixed width, auto height
                     ImGui.BeginTooltip();
 
                     ImGui.TextWrapped(("Short answer: It's built in now\n" +
@@ -449,14 +449,14 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                         C.Save();
                     }
 
-                    ImGui.SetNextItemWidth(200);
+                    ImGui.SetNextItemWidth(UiScale.Px(200));
                     if (ImGui.SliderInt("Minimum Gp for Usage".Loc(), ref minUseGp, minActionGp, maxGp))
                     {
                         entry.GatherBuffs.Buffs[buffName].MinGp = minUseGp;
                         C.SaveDebounced();
                     }
 
-                    ImGui.SetNextItemWidth(200);
+                    ImGui.SetNextItemWidth(UiScale.Px(200));
                     if (ImGui.InputInt("Max Use".Loc(), ref maxActionUsage))
                     {
                         entry.GatherBuffs.Buffs[buffName].MaxUse = maxActionUsage;
@@ -491,14 +491,14 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                         C.Save();
                     }
 
-                    ImGui.SetNextItemWidth(200);
+                    ImGui.SetNextItemWidth(UiScale.Px(200));
                     if (ImGui.SliderInt("Minimum Gp for Usage".Loc(), ref minUseGp, minActionGp, maxGp))
                     {
                         entry.GatherBuffs.Buffs[buffName].MinGp = minUseGp;
                         C.SaveDebounced();
                     }
 
-                    ImGui.SetNextItemWidth(200);
+                    ImGui.SetNextItemWidth(UiScale.Px(200));
                     if (ImGui.InputInt("Max Use".Loc(), ref maxActionUsage))
                     {
                         entry.GatherBuffs.Buffs[buffName].MaxUse = maxActionUsage;
@@ -535,14 +535,14 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                         C.Save();
                     }
 
-                    ImGui.SetNextItemWidth(200);
+                    ImGui.SetNextItemWidth(UiScale.Px(200));
                     if (ImGui.SliderInt("Minimum Gp for Usage".Loc(), ref minUseGp, minActionGp, maxGp))
                     {
                         entry.GatherBuffs.Buffs[buffName].MinGp = minUseGp;
                         C.SaveDebounced();
                     }
 
-                    ImGui.SetNextItemWidth(200);
+                    ImGui.SetNextItemWidth(UiScale.Px(200));
                     if (ImGui.InputInt("Max Use".Loc(), ref maxActionUsage))
                     {
                         entry.GatherBuffs.Buffs[buffName].MaxUse = maxActionUsage;
@@ -580,14 +580,14 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                         C.Save();
                     }
 
-                    ImGui.SetNextItemWidth(200);
+                    ImGui.SetNextItemWidth(UiScale.Px(200));
                     if (ImGui.SliderInt("Minimum Gp for Usage".Loc(), ref minUseGp, minActionGp, maxGp))
                     {
                         entry.GatherBuffs.Buffs[buffName].MinGp = minUseGp;
                         C.SaveDebounced();
                     }
 
-                    ImGui.SetNextItemWidth(200);
+                    ImGui.SetNextItemWidth(UiScale.Px(200));
                     if (ImGui.InputInt("Max Use".Loc(), ref maxActionUsage))
                     {
                         entry.GatherBuffs.Buffs[buffName].MaxUse = maxActionUsage;
@@ -625,14 +625,14 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                         C.Save();
                     }
 
-                    ImGui.SetNextItemWidth(200);
+                    ImGui.SetNextItemWidth(UiScale.Px(200));
                     if (ImGui.SliderInt("Minimum Gp for Usage".Loc(), ref minUseGp, minActionGp, maxGp))
                     {
                         entry.GatherBuffs.Buffs[buffName].MinGp = minUseGp;
                         C.SaveDebounced();
                     }
 
-                    ImGui.SetNextItemWidth(200);
+                    ImGui.SetNextItemWidth(UiScale.Px(200));
                     if (ImGui.InputInt("Max Use".Loc(), ref maxActionUsage))
                     {
                         entry.GatherBuffs.Buffs[buffName].MaxUse = maxActionUsage;
@@ -670,14 +670,14 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                         C.Save();
                     }
 
-                    ImGui.SetNextItemWidth(200);
+                    ImGui.SetNextItemWidth(UiScale.Px(200));
                     if (ImGui.SliderInt("Minimum Gp for Usage".Loc(), ref minUseGp, minActionGp, maxGp))
                     {
                         entry.GatherBuffs.Buffs[buffName].MinGp = minUseGp;
                         C.SaveDebounced();
                     }
 
-                    ImGui.SetNextItemWidth(200);
+                    ImGui.SetNextItemWidth(UiScale.Px(200));
                     if (ImGui.InputInt("Max Use".Loc(), ref maxActionUsage))
                     {
                         entry.GatherBuffs.Buffs[buffName].MaxUse = maxActionUsage;
@@ -715,14 +715,14 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                         C.Save();
                     }
 
-                    ImGui.SetNextItemWidth(200);
+                    ImGui.SetNextItemWidth(UiScale.Px(200));
                     if (ImGui.SliderInt("Minimum Gp for Usage".Loc(), ref minUseGp, minActionGp, maxGp))
                     {
                         entry.GatherBuffs.Buffs[buffName].MinGp = minUseGp;
                         C.SaveDebounced();
                     }
 
-                    ImGui.SetNextItemWidth(200);
+                    ImGui.SetNextItemWidth(UiScale.Px(200));
                     if (ImGui.InputInt("Max Use".Loc(), ref maxActionUsage))
                     {
                         entry.GatherBuffs.Buffs[buffName].MaxUse = maxActionUsage;
@@ -773,14 +773,14 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                         C.Save();
                     }
 
-                    ImGui.SetNextItemWidth(200);
+                    ImGui.SetNextItemWidth(UiScale.Px(200));
                     if (ImGui.SliderInt("Minimum Gp for Usage".Loc(), ref minUseGp, minActionGp, maxGp))
                     {
                         entry.GatherBuffs.Buffs[buffName].MinGp = minUseGp;
                         C.SaveDebounced();
                     }
 
-                    ImGui.SetNextItemWidth(200);
+                    ImGui.SetNextItemWidth(UiScale.Px(200));
                     if (ImGui.InputInt("Max Use".Loc(), ref maxActionUsage))
                     {
                         entry.GatherBuffs.Buffs[buffName].MaxUse = maxActionUsage;
@@ -819,14 +819,14 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                         C.Save();
                     }
 
-                    ImGui.SetNextItemWidth(200);
+                    ImGui.SetNextItemWidth(UiScale.Px(200));
                     if (ImGui.SliderInt("Minimum Gp for Usage".Loc(), ref minUseGp, minActionGp, maxGp))
                     {
                         entry.GatherBuffs.Buffs[buffName].MinGp = minUseGp;
                         C.SaveDebounced();
                     }
 
-                    ImGui.SetNextItemWidth(200);
+                    ImGui.SetNextItemWidth(UiScale.Px(200));
                     if (ImGui.InputInt("Max Use".Loc(), ref maxActionUsage))
                     {
                         entry.GatherBuffs.Buffs[buffName].MaxUse = maxActionUsage;
@@ -865,14 +865,14 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                         C.Save();
                     }
 
-                    ImGui.SetNextItemWidth(200);
+                    ImGui.SetNextItemWidth(UiScale.Px(200));
                     if (ImGui.SliderInt("Minimum Gp for Usage".Loc(), ref minUseGp, minActionGp, maxGp))
                     {
                         entry.GatherBuffs.Buffs[buffName].MinGp = minUseGp;
                         C.SaveDebounced();
                     }
 
-                    ImGui.SetNextItemWidth(200);
+                    ImGui.SetNextItemWidth(UiScale.Px(200));
                     if (ImGui.InputInt("Max Use".Loc(), ref maxActionUsage))
                     {
                         entry.GatherBuffs.Buffs[buffName].MaxUse = maxActionUsage;
@@ -910,14 +910,14 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                         C.Save();
                     }
 
-                    ImGui.SetNextItemWidth(200);
+                    ImGui.SetNextItemWidth(UiScale.Px(200));
                     if (ImGui.SliderInt("Minimum Gp for Usage".Loc(), ref minUseGp, minActionGp, maxGp))
                     {
                         entry.GatherBuffs.Buffs[buffName].MinGp = minUseGp;
                         C.SaveDebounced();
                     }
 
-                    ImGui.SetNextItemWidth(200);
+                    ImGui.SetNextItemWidth(UiScale.Px(200));
                     if (ImGui.InputInt("Max Use".Loc(), ref maxActionUsage))
                     {
                         entry.GatherBuffs.Buffs[buffName].MaxUse = maxActionUsage;

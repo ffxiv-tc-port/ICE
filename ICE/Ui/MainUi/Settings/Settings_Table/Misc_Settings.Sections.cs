@@ -95,7 +95,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             }
 
             float repairAmount = C.RepairPercent;
-            ImGui.SetNextItemWidth(150);
+            ImGui.SetNextItemWidth(UiScale.Px(150));
             if (ImGui.SliderFloat("###Repair %", ref repairAmount, 0f, 99f, "%.0f%%"))
             {
                 if (C.RepairPercent != repairAmount)
@@ -112,7 +112,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             ImGui.Dummy(new Vector2(0, 5));
 
             int TimeHistory = C.TimeHistoryLimit;
-            ImGui.SetNextItemWidth(100);
+            ImGui.SetNextItemWidth(UiScale.Px(100));
             if (ImGui.InputInt("Average Time History to keep".Loc() + "###ICETimeHistoryLimit", ref TimeHistory))
             {
                 C.TimeHistoryLimit = TimeHistory;
@@ -236,7 +236,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 C.Save();
             }
 
-            ImGui.SetNextItemWidth(100);
+            ImGui.SetNextItemWidth(UiScale.Px(100));
             if (ImGui.DragFloat("Minimum Mounting Range".Loc() + "###ICEMinMountRange", ref minMountRange, 1))
             {
                 C.MountRadius = minMountRange;
@@ -244,7 +244,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             }
             ImGui.SameLine();
             ImGui.Checkbox("Visualize radius".Loc() + "###ICEVisualizeMountRadius", ref visualizeRadius);
-            ImGui.SetNextItemWidth(100);
+            ImGui.SetNextItemWidth(UiScale.Px(100));
             if (ImGui.DragFloat("Dismount Target Range".Loc() + "###ICEDismountRange", ref dismountRange, 1))
             {
                 C.DismountRadius = dismountRange;
@@ -279,7 +279,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             ImGui.Dummy(new Vector2(0, 5));
             ImGui.TextWrapped("儲存目前啟用的任務組合。載入預設會關閉未列入的任務，但不會改變任務優先順序或個別任務設定。");
 
-            ImGui.SetNextItemWidth(220);
+            ImGui.SetNextItemWidth(UiScale.Px(220));
             ImGui.InputText("預設名稱", ref playlistName, 100);
             ImGui.SameLine();
 
@@ -389,7 +389,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 {
                     ImGui.TableNextRow();
                     ImGui.TableSetColumnIndex(0);
-                    ImGui.SetNextItemWidth(200);
+                    ImGui.SetNextItemWidth(UiScale.Px(200));
 
                     ImGui.PushID($"{entryCounter}_MissionCommand");
                     string command = entry.command;
@@ -400,7 +400,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                     }
 
                     ImGui.TableNextColumn();
-                    ImGui.SetNextItemWidth(100);
+                    ImGui.SetNextItemWidth(UiScale.Px(100));
                     int delay = entry.Delay;
                     if (ImGui.InputInt("###Delay", ref delay))
                     {

@@ -61,7 +61,7 @@ namespace ICE.Ui.MainUi.HelpFolder
             var current = IceLogging.MinimumLevel;
 
             ImGui.SameLine();
-            ImGui.SetNextItemWidth(120);
+            ImGui.SetNextItemWidth(UiScale.Px(120));
             if (ImGui.BeginCombo("Minimum log level".Loc() + "###ICELogMinimumLevel", current.ToString()))
             {
                 foreach (var level in levels)
@@ -87,7 +87,7 @@ namespace ICE.Ui.MainUi.HelpFolder
         private static void LogHelperViewer()
         {
             // Search input
-            ImGui.SetNextItemWidth(300);
+            ImGui.SetNextItemWidth(UiScale.Px(300));
             ImGui.InputTextWithHint("##LogSearch", "Search logs...".Loc(), ref searchFilter, 256);
 
             ImGui.SameLine();

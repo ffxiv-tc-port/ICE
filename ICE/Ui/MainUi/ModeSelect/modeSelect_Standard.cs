@@ -429,7 +429,7 @@ namespace ICE.Ui.MainUi.ModeSelect
                 float buttonRowHeight = (ImGui.GetTextLineHeight() + 8 * globalScale + 4 * globalScale) + scrollbarSize;
 
                 if (C.GrindProvisionals)
-                    DrawProvisionalGoldRow(scale);
+                    DrawProvisionalGoldRow();
 
                 using (var missionButtons = ImRaii.Child("##tab_scroll", new Vector2(0, buttonRowHeight), false, ImGuiWindowFlags.HorizontalScrollbar))
                 {
@@ -463,7 +463,7 @@ namespace ICE.Ui.MainUi.ModeSelect
                 {
                     if (ImGui.BeginTable("Mission Info | Extra Details", 2, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.BordersInnerV | ImGuiTableFlags.Resizable, Vector2.Zero))
                     {
-                        ImGui.TableSetupColumn("Mission Selection Viewer".Loc(), ImGuiTableColumnFlags.WidthFixed, 200f);
+                        ImGui.TableSetupColumn("Mission Selection Viewer".Loc(), ImGuiTableColumnFlags.WidthFixed, UiScale.Px(200f));
                         ImGui.TableSetupColumn("Specific Mission Info".Loc(), ImGuiTableColumnFlags.WidthStretch);
 
                         ImGui.TableNextRow();
@@ -563,7 +563,7 @@ namespace ICE.Ui.MainUi.ModeSelect
         }
 
         /// <summary>限定任務模式：「只刷未金星」開關＋勾選數／未金星數。讀不到金星狀態時未金星畫成灰色「?」，不畫成 0。</summary>
-        private static unsafe void DrawProvisionalGoldRow(float scale)
+        private static unsafe void DrawProvisionalGoldRow()
         {
             bool onlyUngolded = C.ProvisionalOnlyUngolded;
             if (ImGui.Checkbox("Only un-golded checked missions".Loc() + "###ICEProvisionalOnlyUngolded", ref onlyUngolded))
@@ -605,9 +605,9 @@ namespace ICE.Ui.MainUi.ModeSelect
                 }
             }
 
-            ImGui.SameLine(0, 12 * scale);
+            ImGui.SameLine(0, UiScale.Px(12));
             ImGui.TextUnformatted(CountLabel("Checked: ??", checkedCount));
-            ImGui.SameLine(0, 8 * scale);
+            ImGui.SameLine(0, UiScale.Px(8));
             if (manager == null)
             {
                 ImGui.TextDisabled("Not gold: ?".Loc());
@@ -619,7 +619,7 @@ namespace ICE.Ui.MainUi.ModeSelect
                 ImGui.TextUnformatted(CountLabel("Not gold: ??", notGold));
                 if (checkedHere > 0 && notGoldHere != notGold)
                 {
-                    ImGui.SameLine(0, 4 * scale);
+                    ImGui.SameLine(0, UiScale.Px(4));
                     ImGui.TextUnformatted(CountLabel("(this planet: ??)", notGoldHere));
                 }
             }

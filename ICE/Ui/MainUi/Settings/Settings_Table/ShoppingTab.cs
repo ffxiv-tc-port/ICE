@@ -29,7 +29,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
             }
 
             int buyAtAmount = C.CosmoBuyAtAmount;
-            ImGui.SetNextItemWidth(150);
+            ImGui.SetNextItemWidth(UiScale.Px(150));
             if (ImGui.InputInt("Go buy items when you reach".Loc() + "###ICECosmoBuyAtAmount", ref buyAtAmount, 1))
             {
                 if (buyAtAmount < 0)
@@ -57,19 +57,19 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 ImGui.OpenPopup("CosmocreditMateriaPopup");
             }
 
-            ImGui.SetNextWindowSize(new Vector2(400, 0), ImGuiCond.Appearing);
+            ImGui.SetNextWindowSize(new Vector2(UiScale.Px(400), 0), ImGuiCond.Appearing);
 
             if (ImGui.BeginPopup("CosmocreditMateriaPopup"))
             {
-                ImGui.SetNextItemWidth(380);
+                ImGui.SetNextItemWidth(UiScale.Px(380));
                 ImGui.InputText("##Item Search", ref ItemSearch, 256);
 
                 ImGui.Spacing();
 
                 // Remove BeginChild and use table scrolling instead
-                if (ImGui.BeginTable("Cosmo Materia Shop", 2, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.ScrollY | ImGuiTableFlags.RowBg, new Vector2(0, 250)))
+                if (ImGui.BeginTable("Cosmo Materia Shop", 2, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.ScrollY | ImGuiTableFlags.RowBg, new Vector2(0, UiScale.Px(250))))
                 {
-                    ImGui.TableSetupColumn("Icons", ImGuiTableColumnFlags.WidthFixed, 20);
+                    ImGui.TableSetupColumn("Icons", ImGuiTableColumnFlags.WidthFixed, UiScale.Px(20));
                     ImGui.TableSetupColumn("Names", ImGuiTableColumnFlags.WidthStretch);
 
                     foreach (var item in Shop_Cosmocredits.CosmocreditShop)
@@ -89,7 +89,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                             ImGui.PushID(id);
                             if (itemInfo.Icon is { } itemIcon && Svc.Texture.TryGetFromGameIcon((int)itemIcon, out var texture))
                             {
-                                ImGui.Image(texture.GetWrapOrEmpty().Handle, new Vector2(20, 20));
+                                ImGui.Image(texture.GetWrapOrEmpty().Handle, UiScale.Px(20, 20));
                             }
                             ImGui.TableNextColumn();
                             ImGui.Text($"{itemInfo.Name}");
@@ -189,7 +189,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
                     // Keep Amount
                     ImGui.TableNextColumn();
-                    ImGui.SetNextItemWidth(80);
+                    ImGui.SetNextItemWidth(UiScale.Px(80));
                     var keepAmount = setting.KeepAmount;
                     if (ImGui.InputInt($"##keep_{itemId}", ref keepAmount))
                     {
@@ -199,7 +199,7 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
 
                     // Buy Amount
                     ImGui.TableNextColumn();
-                    ImGui.SetNextItemWidth(80);
+                    ImGui.SetNextItemWidth(UiScale.Px(80));
                     var buyAmount = setting.BuyAmount;
                     if (ImGui.InputInt($"##buy_{itemId}", ref buyAmount))
                     {
