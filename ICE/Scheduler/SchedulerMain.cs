@@ -25,6 +25,8 @@ namespace ICE.Scheduler
             Task_CriticalReturn.Reset();
             // 上一輪選的釣點（可能屬於中途停掉的那個任務）不帶進這一輪。
             Task_FindMission.ResetNavigationSelection();
+            // 「這個任務的內建 preset 已交給 AutoHook」只在這一輪重新匯入後才採信。
+            Utilities.GatheringHelper.PresetBaitPlans.ClearImported();
 
             // 啟動當下就把「前置被停用、鏈上卻還有想跑的任務」修回來 —— 這是使用者正在看著畫面的
             // 時機，訊息在這裡才看得到。修不修得動由 MissionChain 自己判斷（讀不到 WKSManager

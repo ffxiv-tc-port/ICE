@@ -64,6 +64,7 @@ namespace ICE.Scheduler.Tasks
                     SchedulerMain.State = IceState.DualClass;
                     if (fishingMission)
                     {
+                        PresetBaitPlans.ClearImported();
                         // config 是上面 TryGetValue 拿的，可能是 null；例外發生在任務裡只會讓佇列中止，
                         // 外面看起來一樣是「不動」。
                         if (config == null)
@@ -93,6 +94,7 @@ namespace ICE.Scheduler.Tasks
                         return true;
                     }
 
+                    PresetBaitPlans.ClearImported();
                     if (missionConfig.Use_BuildinPreset)
                     {
                         // Using the build in presets that are included in the plugin.
@@ -193,6 +195,10 @@ namespace ICE.Scheduler.Tasks
                         $"任務 {missionId} 需要 AutoHook 的整包資料夾匯入功能，但匯入沒有成功，釣魚無法自動進行。"
                         + "請確認 AutoHook 已更新到與這版 ICE 同一波出貨的版本。", "[ICE]");
                 }
+                else
+                {
+                    PresetBaitPlans.NoteImported(missionId);
+                }
 
                 return;
             }
@@ -212,6 +218,9 @@ namespace ICE.Scheduler.Tasks
 
             // Import first preset immediately
             P.AutoHook.CreateAndSelectAnonymousPreset(presets[0]);
+            // 單筆匯入沒有回傳值，看不出成敗；只能保證「有交給已安裝的 AutoHook」。
+            if (P.AutoHook.Installed)
+                PresetBaitPlans.NoteImported(missionId);
 
             // Queue remaining presets with delays
             for (int i = 1; i < presets.Count; i++)

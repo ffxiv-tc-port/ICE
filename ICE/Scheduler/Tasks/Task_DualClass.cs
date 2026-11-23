@@ -481,6 +481,15 @@ namespace ICE.Scheduler.Tasks
             {
                 if (EzThrottler.Throttle("Equipping bait"))
                 {
+                    var presetBait = PresetBaitPlans.PreferredInitialBait(CosmicHelper.CurrentLunarMission, handle);
+                    if (presetBait != 0)
+                    {
+                        P.AutoHook.TrySwapBait(presetBait);
+                        if (EzThrottler.Throttle("ICE: dualclass bait equip log", 5000))
+                            IceLogging.Info($"目前沒有掛餌，要求裝上 preset 指定的起始餌 {presetBait}。", handle);
+                        return false;
+                    }
+
                     foreach (var bait in GatheringUtil.MoonBaits)
                     {
                         foreach (var baitId in bait.Value)
