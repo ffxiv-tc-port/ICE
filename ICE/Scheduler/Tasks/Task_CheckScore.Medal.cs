@@ -5,6 +5,7 @@ using ICE.Utilities.Cosmic_Helper;
 using ICE.Utilities.GatheringHelper;
 using Lumina.Excel.Sheets;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using YamlDotNet.Core.Tokens;
 using static Dalamud.Interface.Utility.Raii.ImRaii;
 using static ECommons.UIHelpers.AddonMasterImplementations.AddonMaster;
@@ -46,6 +47,12 @@ namespace ICE.Scheduler.Tasks
             var goldText = GoldTimerAddon();
             TimeSpan silverRequirement = ParseRequirementTime(silverText);
             TimeSpan goldRequirement = ParseRequirementTime(goldText);
+            var fromTable = false;
+            if (CosmicHelper.TryGetCurrentMissionInfo(out var currentMission) && currentMission.IsTimeGraded)
+            {
+                fromTable |= FillRequirementFromTable(ref silverRequirement, currentMission.SilverScore);
+                fromTable |= FillRequirementFromTable(ref goldRequirement, currentMission.GoldScore);
+            }
 
             // Parse the timer string to get remaining time (left side of /)
             var remainingTime = ParseCurrentTime(timerString);
@@ -67,7 +74,7 @@ namespace ICE.Scheduler.Tasks
             else
                 result = TurninState.Bronze;
 
-            LogMedalCheckOnce(logDetails, timerString, remainingTime, silverText, silverRequirement, goldText, goldRequirement, result);
+            LogMedalCheckOnce(logDetails, timerString, remainingTime, silverText, silverRequirement, goldText, goldRequirement, fromTable, result);
             return result;
         }
 
@@ -79,7 +86,7 @@ namespace ICE.Scheduler.Tasks
 
         private static void LogMedalCheckOnce(bool decision, string timerText, TimeSpan remaining,
                                               string silverText, TimeSpan silver, string goldText, TimeSpan gold,
-                                              TurninState result)
+                                              bool fromTable, TurninState result)
         {
             var missionId = CosmicHelper.CurrentLunarMission;
             if (missionId == 0 || missionId == medalCheckLoggedMission)
@@ -95,7 +102,7 @@ namespace ICE.Scheduler.Tasks
                 + $"時間列 [24]「{EscapeForMedalLog(timerText)}」→ 剩餘 {remainingText}｜"
                 + $"銀條件 [15]「{EscapeForMedalLog(silverText)}」→ {RequirementText(silver)}｜"
                 + $"金條件 [11]「{EscapeForMedalLog(goldText)}」→ {RequirementText(gold)}｜"
-                + $"資料表門檻：{table}｜判定獎章＝{result}",
+                + $"資料表門檻：{table}｜門檻來源＝{(fromTable ? "資料表（面板條件裡讀不到時間）" : "面板")}｜判定獎章＝{result}",
                 "[Medal Check]");
         }
 
@@ -155,28 +162,30 @@ namespace ICE.Scheduler.Tasks
             return new TimeSpan(0, minutes, seconds);
         }
 
+        // 台服條件是「剩餘時間 24:30以上」，時間夾在字中間：在整段裡找半形「分:秒」（與 MissionObjectiveReader 同形狀）。
+        private static readonly Regex RequirementTimePattern = new(@"(\d{1,2}):(\d{2})", RegexOptions.Compiled);
+
         private static TimeSpan ParseRequirementTime(string requirementString)
         {
             if (string.IsNullOrWhiteSpace(requirementString))
                 return TimeSpan.Zero;
 
-            // Split on whitespace and take the first part (the time)
-            var parts = requirementString.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length == 0)
-                return TimeSpan.Zero;
-
-            var timeStr = parts[0];
-
-            // Parse the time (format: M:SS or MM:SS)
-            var timeParts = timeStr.Split(':');
-            if (timeParts.Length != 2)
-                return TimeSpan.Zero;
-
-            if (!int.TryParse(timeParts[0], out var minutes) ||
-                !int.TryParse(timeParts[1], out var seconds))
+            var match = RequirementTimePattern.Match(requirementString);
+            if (!match.Success
+                || !int.TryParse(match.Groups[1].Value, out var minutes)
+                || !int.TryParse(match.Groups[2].Value, out var seconds))
                 return TimeSpan.Zero;
 
             return new TimeSpan(0, minutes, seconds);
+        }
+
+        /// <summary>面板條件讀不到時間時，改用資料表門檻（時間型＝剩餘秒數 × 10）。回傳是否用了資料表。</summary>
+        private static bool FillRequirementFromTable(ref TimeSpan requirement, uint tableValue)
+        {
+            if (requirement > TimeSpan.Zero || tableValue == 0)
+                return false;
+            requirement = TimeSpan.FromSeconds(tableValue / 10);
+            return true;
         }
 
         private static unsafe string ActiveTimerAddon()
