@@ -146,6 +146,7 @@ internal static class CraftProgressGuard
                 _failCount = 0;
             }
             _failCount++;
+            NotePacingFailure("遊戲回報製作失敗", handle);
 
             // 要使用者回報的診斷。
             IceLogging.Info(
@@ -156,6 +157,7 @@ internal static class CraftProgressGuard
         }
 
         _consecutive++;
+        NotePacingFailure("Artisan 沒有做出東西", handle);
         var backoff = BackoffSeconds[Math.Min(_consecutive, BackoffSeconds.Length) - 1];
         _nextAttemptAt = DateTime.Now.AddSeconds(backoff);
 
@@ -166,6 +168,13 @@ internal static class CraftProgressGuard
             + $"連續第 {_consecutive}/{MaxConsecutiveNoProgress} 次沒有任何進展，等 {backoff} 秒再試。"
             + (consumed.Length > 0 ? $" 素材有被用掉（{consumed}），但沒有收到遊戲的製作失敗訊息。" : string.Empty),
             handle);
+    }
+
+    private static void NotePacingFailure(string what, string handle)
+    {
+        if (CraftSendPacing.NoteFailure())
+            IceLogging.Info($"製作指令前的等待：任務中途改用 {C.CraftMidMissionDelayMs} ms 之後出現失敗訊號（{what}），"
+                            + $"本場退回原本的 {C.DelayCraftIncrease} ms（插件重載後再試短等待）。", handle);
     }
 
     private static string DescribeConsumedMaterials()

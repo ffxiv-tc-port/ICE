@@ -64,8 +64,12 @@ namespace ICE.Scheduler.Tasks
 
         private static bool? ThrottleArtisanTask(ushort craftId, int amount)
         {
-            int delay = C.DelayCraft ? C.DelayCraftIncrease : 25;
-
+            var mission = CosmicHelper.CurrentLunarMission;
+            var isShort = false;
+            int delay = C.DelayCraft
+                ? CraftSendPacing.DelayMs(mission, C.DelayCraftIncrease, C.CraftShortDelayMidMission,
+                                          Math.Max(0, Math.Min(C.CraftMidMissionDelayMs, C.DelayCraftIncrease)), out isShort)
+                : 25;
 
             if (EzThrottler.Throttle("Waiting X Amount of seconds for artisan", delay))
             {
@@ -77,7 +81,8 @@ namespace ICE.Scheduler.Tasks
                 {
                     // 要使用者回報的診斷：這是「IPC 真的送出去了」的唯一證據，
                     // 上面那行 CheckMaterials 的「Telling artisan to craft」只是宣告要做，不代表真的呼叫了。
-                    IceLogging.Info($"Artisan IPC CraftItem sent: recipe {craftId} x{amount}");
+                    IceLogging.Info($"Artisan IPC CraftItem sent: recipe {craftId} x{amount} (waited {delay} ms{(isShort ? ", mid-mission" : string.Empty)})");
+                    CraftSendPacing.NoteSent(mission, isShort);
                     // 🔴 一定要排在 CraftItem 之前：Artisan 是在收到製作指令、
                     //    建立 CraftState 的那一刻才決定要用哪個求解器。
                     //    這一支是冪等的，而且任何失敗都只是「照原樣製作」。

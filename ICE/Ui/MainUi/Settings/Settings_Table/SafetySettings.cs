@@ -106,6 +106,8 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                         C.SaveDebounced();
                     }
                 }
+
+                DrawCraftMidMissionDelay();
             }
 
             // 「剩餘材料算不到金星就收手」。破壞性動作，所以預設是「關閉」，而且中間留了
@@ -177,6 +179,44 @@ namespace ICE.Ui.MainUi.Settings.Settings_Table
                 ("If you get stuck while navmesh moving, this will allow you to jump after a certain time has passed (3s currently)\n" +
                 "NOTE: THIS IS EXPERIMENTAL. IT WORKS, BUT IT STILL LOOKS SUS. IF YOU SEE A POINT AND YOUR STUCK, REPORT IT PLEASE\n" +
                 "through the logs function, and give info about it so we can fix it.").Loc());
+        }
+
+        /// <summary>「製作選單延遲」的子選項：同一任務第二次起改短等待，出錯本場自動退回。</summary>
+        private static void DrawCraftMidMissionDelay()
+        {
+            bool shortMid = C.CraftShortDelayMidMission;
+            if (ImGui.Checkbox("Shorter delay for later crafts in the same mission".Loc() + "###ICECraftShortDelayMidMission", ref shortMid))
+            {
+                C.CraftShortDelayMidMission = shortMid;
+                C.Save();
+            }
+            ImGuiEx.HelpMarker(("The delay above is still used before the first craft of every mission.\n" +
+                                "Later crafts in the same mission (Artisan just finished, the recipe window is still open) wait only this long.\n" +
+                                "If anything goes wrong after a short wait (Artisan makes nothing, or the game reports a failed craft), " +
+                                "the plugin goes back to the full delay above for the rest of this session and writes one line to the log.\n" +
+                                "Off: unchanged - every craft waits the full delay.").Loc());
+            if (!shortMid)
+                return;
+
+            ImGui.SameLine();
+            var shortMs = C.CraftMidMissionDelayMs;
+            ImGui.SetNextItemWidth(150f * ImGui.GetFontSize() / 16f);
+            if (ImGui.SliderInt("ms".Loc() + "###CraftingMidMission", ref shortMs, 0, 1000))
+            {
+                if (C.CraftMidMissionDelayMs != shortMs)
+                {
+                    C.CraftMidMissionDelayMs = shortMs;
+                    C.SaveDebounced();
+                }
+            }
+
+            if (CraftSendPacing.FellBack)
+            {
+                ImGui.SameLine();
+                ImGui.TextColored(ImGuiColors.DalamudGrey, "(back to full delay this session)".Loc());
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip("A craft failed after a short wait, so the full delay is used until the plugin reloads. The log has the details.".Loc());
+            }
         }
 
         /// <summary>

@@ -20,6 +20,13 @@ namespace ICE.Config
         public int DelayIncrease { get; set; } = 500;
         public bool DelayCraft { get; set; } = true;
         public int DelayCraftIncrease { get; set; } = 2500;
+
+        /// <summary>
+        /// <see cref="DelayCraft"/> 開著時，同一任務實例第二次起的製作指令改等 <see cref="CraftMidMissionDelayMs"/>。
+        /// 短等待之後出現失敗訊號就本場退回 <see cref="DelayCraftIncrease"/>（見 CraftSendPacing）。
+        /// </summary>
+        public bool CraftShortDelayMidMission { get; set; } = true;
+        public int CraftMidMissionDelayMs { get; set; } = 25;
         public bool AnimationLockAbandon { get; set; } = true;
         public bool JumpIfStuck { get; set; } = false;
 
