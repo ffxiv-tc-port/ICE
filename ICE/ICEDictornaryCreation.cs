@@ -414,6 +414,7 @@ public sealed partial class ICE
                     Name = missionName,
                     Jobs = jobs,
                     ToDoId = toDoValue,
+                    ToDoTextId = missionText,
                     Rank = rank,
                     Attributes = attributes,
                     Weather = weather,

@@ -4,8 +4,8 @@ namespace ICE.Utilities.Cosmic_Helper;
 
 /// <summary>「用剩下的材料還有沒有機會拿到金星」的判定，以及每一次製作對評價貢獻多少的觀測。</summary>
 /// <remarks>
-/// 製作任務的面板評價 ＝ 身上那些任務成品各自的評價值加總，<b>每一件的上限是
-/// <c>GoldStarRequirement ÷ 需要繳交的總件數</c></b>。
+/// 製作任務的面板評價 ＝ 身上那些任務成品各自的評價值加總；每一件的上限與出處見
+/// <see cref="CraftGoldCap.TryGet"/>（多數任務是 <c>GoldStarRequirement ÷ 需要繳交的總件數</c>）。
 /// 🔴 <b>所有「算不出來」的情況一律回 <see cref="CraftGoldOutlook.Unknown"/>，呼叫端不得放棄任務。</b>
 /// 誤判的代價是白白丟掉一個本來做得完的任務，而使用者事後分不出來是誤判還是真的做不完。
 /// </remarks>
@@ -71,14 +71,12 @@ internal static class CraftGoldFeasibility
         foreach (var craft in mission.Crafts_Main.Values)
             totalRequired += craft.RequiredAmount;
 
-        if (totalRequired <= 0)
+        if (!CraftGoldCap.TryGet(mission.Rank, mission.ToDoTextId, mission.Crafts_Main.Count, mission.Crafts_Pre.Count,
+                                 mission.GoldScore, totalRequired, out var perItemCap, out var capSource))
         {
-            detail = "任務表沒有記錄要繳交幾件（無法推算單件上限）";
+            detail = capSource;
             return CraftGoldOutlook.Unknown;
         }
-
-        // 單件上限＝金星門檻 ÷ 總繳交件數。向上取整只是為了不因為整數除法把上限估低。
-        var perItemCap = (mission.GoldScore + (uint)totalRequired - 1) / (uint)totalRequired;
 
         if (!TryCountRemainingCrafts(mission, out var remainingCrafts, out var why))
         {
@@ -109,7 +107,7 @@ internal static class CraftGoldFeasibility
         var maxAchievable = (long)score + (long)remainingCrafts * perItemCap;
 
         detail = $"目前評價 {score}｜還能再做 {remainingCrafts} 件｜單件上限 {perItemCap}"
-               + $"（金星 {mission.GoldScore} ÷ 需繳 {totalRequired} 件）｜"
+               + $"（{capSource}）｜"
                + $"預估最高 {maxAchievable}｜金星門檻 {mission.GoldScore}";
 
         return maxAchievable >= mission.GoldScore ? CraftGoldOutlook.Reachable : CraftGoldOutlook.Unreachable;

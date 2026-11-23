@@ -83,6 +83,9 @@ public static unsafe partial class CosmicHelper
         public string Name { get; set; }
         public HashSet<uint> Jobs { get; set; }
         public uint ToDoId { get; set; } = 0;
+
+        /// <summary><c>WKSMissionToDo.WKSMissionText</c>：任務怎麼評價的說明文字列號。0＝建表時沒存。</summary>
+        public uint ToDoTextId { get; set; } = 0;
         public uint Rank { get; set; } = 1;
         public MissionAttributes Attributes { get; set; }
         public CosmicWeather Weather { get; set; }
