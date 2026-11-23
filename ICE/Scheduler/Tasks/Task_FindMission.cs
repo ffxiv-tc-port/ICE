@@ -1128,6 +1128,21 @@ namespace ICE.Scheduler.Tasks
                 });
             }
 
+            // 清單上看得到的任務一定已開放：判定說沒開放也不排除（推論錯了寧可照舊）。
+            HashSet<uint>? listedNow = null;
+            if (GenericHelpers.TryGetAddonMaster<WKSMission>("WKSMission", out var listAddon) && listAddon.IsAddonReady)
+                listedNow = listAddon.StellerMissions.Select(m => m.MissionId).ToHashSet();
+            var lockedIds = new List<uint>();
+            ordered = ProvisionalGoldPlan.WithoutLocked(ordered,
+                id => listedNow?.Contains(id) != true && MissionStage.Check(id).State == MissionStage.State.Locked, lockedIds);
+            ReportLockedProvisional(lockedIds);
+
+            if (ordered.Count == 0 && lockedIds.Count > 0 && !C.ProvisionalOnlyUngolded)
+            {
+                StopProvisionalAllLocked(lockedIds.Count);
+                return true;
+            }
+
             if (C.ProvisionalOnlyUngolded)
             {
                 var goldState = ReadGoldState(ordered.Concat(checkedOtherZone));
@@ -1136,7 +1151,7 @@ namespace ICE.Scheduler.Tasks
 
                 if (plan.NothingLeft)
                 {
-                    StopProvisionalGoldGrind(ordered.Distinct().Count(), checkedOtherZone, checkedUnsupported.Count, goldState);
+                    StopProvisionalGoldGrind(ordered.Distinct().Count(), checkedOtherZone, checkedUnsupported.Count, goldState, lockedIds.Count);
                     return true;
                 }
 
@@ -1193,8 +1208,34 @@ namespace ICE.Scheduler.Tasks
             return result;
         }
 
+        private static string lastLockedSignature = string.Empty;
+
+        /// <summary>被排除的「還沒開放」限定任務有變動時寫一次 Information。只在框架執行緒呼叫。</summary>
+        private static void ReportLockedProvisional(List<uint> lockedIds)
+        {
+            var signature = string.Join(",", lockedIds.Order());
+            if (signature == lastLockedSignature)
+                return;
+            lastLockedSignature = signature;
+            if (lockedIds.Count == 0)
+                return;
+
+            IceLogging.Info($"限定任務：勾選的 {lockedIds.Count} 個任務要等建設推進到更後面的階段才會開放，這次不列入待做、"
+                            + $"也不為它們重跑已金星的前置：{string.Join("、", lockedIds.Select(id => $"[{id}]"))}"
+                            + "（任務表上標【尚未開放】，滑過看需要的階段）。", "[ICE: Provisional Grind]");
+        }
+
+        /// <summary>限定任務模式（不限未金星）勾選的全都還沒開放：等也等不到，說明後停止。</summary>
+        private static void StopProvisionalAllLocked(int locked)
+        {
+            IceLogging.ChatInfo("Provisional Grind: all ?? checked provisional missions on this planet are not offered yet at the current construction stage. Stopping I.C.E.".Loc(locked),
+                                "[ICE: Provisional Grind]");
+            SchedulerMain.StopWithNotice("勾選的限定任務都還沒開放", StopReasons.NoMission, needsHelp: true);
+            SchedulerMain.DisablePlugin(StopReasons.NoMission);
+        }
+
         /// <summary>「只刷未金星」沒有可做的：勾選的全金星，或本星球沒有勾選可跑的限定任務。說明原因後停止。</summary>
-        private static void StopProvisionalGoldGrind(int checkedHere, HashSet<uint> checkedOtherZone, int unsupported, Dictionary<uint, bool>? goldState)
+        private static void StopProvisionalGoldGrind(int checkedHere, HashSet<uint> checkedOtherZone, int unsupported, Dictionary<uint, bool>? goldState, int locked = 0)
         {
             var message = checkedHere == 0
                 ? "Provisional Grind (un-golded only): no runnable provisional mission is checked on this planet. Stopping I.C.E.".Loc()
@@ -1205,9 +1246,11 @@ namespace ICE.Scheduler.Tasks
                 message += " " + "?? checked provisional mission(s) on another planet are not gold yet.".Loc(otherPending);
             if (unsupported > 0)
                 message += " " + "?? checked mission(s) were skipped because ICE cannot run them.".Loc(unsupported);
+            if (locked > 0)
+                message += " " + "?? checked mission(s) are not offered yet at the current construction stage.".Loc(locked);
 
             IceLogging.ChatInfo(message, "[ICE: Provisional Grind]");
-            IceLogging.Info($"只刷未金星的限定任務收工：本星球勾選可跑 {checkedHere}（0＝沒有勾選，否則全數金星）、其他星球未金星 {otherPending}、ICE 跑不動 {unsupported}",
+            IceLogging.Info($"只刷未金星的限定任務收工：本星球勾選可跑 {checkedHere}（0＝沒有勾選，否則全數金星）、其他星球未金星 {otherPending}、ICE 跑不動 {unsupported}、尚未開放 {locked}",
                             "[ICE: Provisional Grind]");
 
             var reason = checkedHere == 0 ? StopReasons.NoMission : StopReasons.GoalReached;

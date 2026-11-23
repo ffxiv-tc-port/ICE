@@ -21,6 +21,27 @@ internal static class ProvisionalGoldPlan
         internal bool NothingLeft => Order.Count == 0;
     }
 
+    /// <summary>
+    /// 拿掉「建設階段還沒到、遊戲不會派」的任務，原順序不變；被拿掉的依序加進 <paramref name="locked"/>。
+    /// 要在 <see cref="Build"/> 之前做：拿掉的任務不算待做，也不會讓它的已金星前置被保留。
+    /// </summary>
+    /// <param name="isLocked">只對「確定還沒開放」回 true；判不出來要回 false。</param>
+    internal static List<uint> WithoutLocked(IReadOnlyList<uint> candidates, Func<uint, bool> isLocked, List<uint> locked)
+    {
+        var kept = new List<uint>(candidates.Count);
+        foreach (var id in candidates)
+        {
+            if (isLocked(id))
+            {
+                if (!locked.Contains(id))
+                    locked.Add(id);
+            }
+            else
+                kept.Add(id);
+        }
+        return kept;
+    }
+
     /// <param name="candidates">已勾選、在本區、ICE 跑得動的限定任務，照既有優先序排好。</param>
     /// <param name="isGolded">null＝讀不到金星狀態：不過濾、原序回傳。只會被問到 <paramref name="candidates"/> 裡的任務。</param>
     /// <param name="followUpsRecursive">任務往後整條連續任務鏈（不含自己）。</param>
