@@ -56,7 +56,8 @@ namespace ICE.Ui.MainUi.ModeSelect
             using var style = ImRaii.PushStyle(ImGuiStyleVar.ChildRounding, 10).Push(ImGuiStyleVar.ChildBorderSize, 1);
 
             // Header at the top
-            float scale = ImGuiHelpers.GlobalScale;
+            // 跟字級走：頂列的高、下拉與按鈕寬都要容得下放大後的字，只乘 GlobalScale 會裁到下緣。
+            float scale = 1f.Scale();
 
             // 自動選星同步在 SelectableSidebar.SyncAutoSelect()（含每幀閘門，一幀最多跑一次）。
             SelectableSidebar.SyncAutoSelect();
@@ -422,7 +423,9 @@ namespace ICE.Ui.MainUi.ModeSelect
                 int allEnabled = modeSelect_TableInfo.missionList.ContainsKey("All Enabled") ? modeSelect_TableInfo.missionList["All Enabled"].Count(mission => mission.enabled) : 0;
 
                 float scrollbarSize = ImGui.GetStyle().ScrollbarSize;
-                float buttonRowHeight = (ImGui.GetTextLineHeight() + 8 * scale + 4 * scale) + scrollbarSize;
+                // 8 是 DrawCategoryButton 只乘 GlobalScale 的上下內距（各 4），這一列照舊不跟字級，免得比按鈕高出一截。
+                float globalScale = ImGuiHelpers.GlobalScale;
+                float buttonRowHeight = (ImGui.GetTextLineHeight() + 8 * globalScale + 4 * globalScale) + scrollbarSize;
 
                 if (C.GrindProvisionals)
                     DrawProvisionalGoldRow(scale);
