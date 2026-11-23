@@ -724,10 +724,14 @@ namespace ICE.Scheduler.Tasks
                         P.TaskManager.Insert(() => FindReroll(), "Finding Reroll mission for Relic Grind");
                         return true;
                     }
-                    else
+                    else if (lastRelicPick.NotReady)
                     {
                         IceLogging.Error($"Okay, something is wrong. Stopping the process", "[Relic Grind]");
                         SchedulerMain.DisablePlugin(StopReasons.Error);
+                    }
+                    else
+                    {
+                        StopRelicPoolEmpty();
                     }
                 }
             }
@@ -751,9 +755,13 @@ namespace ICE.Scheduler.Tasks
                 var maxStage = CosmicHelper.MaxRelicLevel;
 
                 var wksManager = WKSManager.Instance();
+                lastRelicPick = default;
                 if (wksManager == null || wksManager->ResearchModule == null || !wksManager->ResearchModule->IsLoaded
                     || GameFunctionGuard.ResearchAnalysisMissing())
+                {
+                    lastRelicPick.NotReady = true;
                     return null;
+                }
 
                 var job = Player.JobId;
                 var toolClassId = (byte)(job - 7);
@@ -828,6 +836,7 @@ namespace ICE.Scheduler.Tasks
                 foreach (var availMission in x.StellerMissions)
                 {
                     var id = availMission.MissionId;
+                    lastRelicPick.Listed++;
                     if (CosmicHelper.SheetMissionDict.TryGetValue(id, out var mission))
                     {
                         if (requireCurrentJob && !mission.Jobs.Contains(Player.JobId))
@@ -888,11 +897,12 @@ namespace ICE.Scheduler.Tasks
                                          $"Is Manipulation required: {isManipReq}" +
                                          $"Is Manipluation even unlocked: {manipUnlocked}", tip);
 
-                        if (!properLevel) continue;
-                        if (IgnoreManual) continue;
-                        if (IgnoreNotEnabled) continue;
+                        if (!properLevel) { lastRelicPick.Level++; continue; }
+                        if (IgnoreManual) { lastRelicPick.Manual++; continue; }
+                        if (IgnoreNotEnabled) { lastRelicPick.NotEnabled++; continue; }
                         if (unSupported)
                         {
+                            lastRelicPick.Unsupported++;
                             // ⚠️ 不要靜默跳過。這裡跟 RefreshSelectedMissions 是兩條不同的候選池，
                             //    宇宙工具經驗模式的使用者只會走到這一條。
                             if (EzThrottler.Throttle($"ICE: relic xp skip unsupported {id}", 300000))
@@ -900,7 +910,7 @@ namespace ICE.Scheduler.Tasks
                                                 + $"（{MissionSupport.ReasonText(unsupportedReason)}）", tip);
                             continue;
                         }
-                        if (isManipReq && !manipUnlocked) continue;
+                        if (isManipReq && !manipUnlocked) { lastRelicPick.Manip++; continue; }
 
                         Dictionary<int, float> rewardDict = new();
                         foreach (var reward in mission.RelicXpInfo.OrderBy(x => x.Key))
@@ -983,6 +993,37 @@ namespace ICE.Scheduler.Tasks
                 return null;
             }
         }
+        /// <summary>最近一次 <see cref="FindBestRelicMission"/> 把清單上的任務排除掉的原因統計。只在框架執行緒讀寫。</summary>
+        private struct RelicPickStats
+        {
+            public bool NotReady;
+            public int Listed, Level, Manual, NotEnabled, Unsupported, Manip;
+        }
+
+        private static RelicPickStats lastRelicPick;
+
+        /// <summary>
+        /// 宇宙工具經驗模式挑不到任務、也沒辦法重骰時的停止出口：這是設定造成的（多半是「僅限已勾選的任務」
+        /// 開著、這個職業卻一個任務都沒勾），不是流程出錯，所以歸 <see cref="StopReasons.NoMission"/>、寫 Information。
+        /// </summary>
+        private static void StopRelicPoolEmpty()
+        {
+            var s = lastRelicPick;
+            IceLogging.Info(
+                $"宇宙工具經驗模式找不到可以接的任務，停止。職業 {Player.JobId}：清單上 {s.Listed} 個任務，"
+                + $"未勾選 {s.NotEnabled}、等級不足 {s.Level}、手動模式 {s.Manual}、ICE 跑不動 {s.Unsupported}、需要「掌握」但沒學 {s.Manip}；"
+                + $"「僅限已勾選的任務」={(C.XPRelicOnlyEnabled ? "開" : "關")}，這個職業在這個區域勾選的一般任務 {BasicMissionCount} 個"
+                + "（0 個就沒辦法重骰換一批）。要繼續的話：在任務表替這個職業勾選任務，或關掉「僅限已勾選的任務」。",
+                "[Relic Grind]");
+            IceLogging.ChatInfo(
+                (C.XPRelicOnlyEnabled && s.NotEnabled > 0
+                    ? "Relic XP mode found no mission to take: 'Only selected missions' is on, but none of the listed missions are selected for this job. Select some missions for this job in the mission table, or turn that option off. ICE is stopping."
+                    : "Relic XP mode found no mission it can take for this job, so ICE is stopping. See the log for why each mission was skipped.").Loc(),
+                "[ICE]");
+            SchedulerMain.StopWithNotice("宇宙工具經驗模式找不到可以接的任務", StopReasons.NoMission, needsHelp: true);
+            SchedulerMain.DisablePlugin(StopReasons.NoMission);
+        }
+
         /// <summary>已經為哪個職業記過「工具經驗都達標了」；0 ＝ 目前沒有。只在框架執行緒讀寫。</summary>
         private static uint relicXpFullLoggedJob;
 
