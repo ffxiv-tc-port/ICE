@@ -23,6 +23,8 @@ namespace ICE.Scheduler
             Task_Repair.ResetSelfRepairState();
             // 停下來之前結束的緊急任務不算：重新開始不回基地（任務還在進行的話，狀態檢查會重新標記）。
             Task_CriticalReturn.Reset();
+            // 上一輪選的釣點（可能屬於中途停掉的那個任務）不帶進這一輪。
+            Task_FindMission.ResetNavigationSelection();
 
             // 啟動當下就把「前置被停用、鏈上卻還有想跑的任務」修回來 —— 這是使用者正在看著畫面的
             // 時機，訊息在這裡才看得到。修不修得動由 MissionChain 自己判斷（讀不到 WKSManager

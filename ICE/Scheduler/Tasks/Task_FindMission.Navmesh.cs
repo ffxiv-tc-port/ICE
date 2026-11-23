@@ -18,7 +18,17 @@ namespace ICE.Scheduler.Tasks
 {
     internal static partial class Task_FindMission
     {
+        // 選中的釣點只對 fishingHoleMission 這個任務有效；換目標任務或點不在目前任務的清單裡就丟掉重選。
         private static Vector3 fishingHoleLoc = Vector3.Zero;
+        private static uint fishingHoleMission;
+
+        /// <summary>清掉單輪的導航選擇（選中的釣點）。ICE 每次開始時呼叫，不把上一輪的目的地帶過來。</summary>
+        internal static void ResetNavigationSelection()
+        {
+            fishingHoleLoc = Vector3.Zero;
+            fishingHoleMission = 0;
+        }
+
         public static unsafe bool? Navmesh_MoveToMission(uint missionId)
         {
             ThrottleMessage("Currently in a navmesh movement");
@@ -203,7 +213,16 @@ namespace ICE.Scheduler.Tasks
                     return true;
                 }
 
-                var navPos = Vector3.Zero;
+                if (fishingHoleLoc != Vector3.Zero
+                    && (fishingHoleMission != missionId || !fishingHole.Any(s => s.FishingSpot == fishingHoleLoc)))
+                {
+                    IceLogging.Info($"之前為任務 {fishingHoleMission} 選的釣點 {fishingHoleLoc} 不在目前目標任務 {missionId} 的釣點清單裡，丟掉重選。",
+                                    "[FindMission: 釣點]");
+                    // 還在往舊釣點走就先停下（只停 ICE 自己發的路徑），免得走完舊路線才轉向。
+                    if (P.Navmesh.IsRunning())
+                        P.Navmesh.StopOwn();
+                    ResetNavigationSelection();
+                }
 
                 if (!P.Navmesh.IsRunning())
                 {
@@ -212,7 +231,7 @@ namespace ICE.Scheduler.Tasks
                         if (Player.DistanceTo(fishSpot.FishingSpot) < 2)
                         {
                             IceLogging.Info("We're currently at a fishing spot! Continuing onto facing position -> grabbing the mission");
-                            fishingHoleLoc = Vector3.Zero;
+                            ResetNavigationSelection();
                             return true;
                         }
                     }
@@ -224,20 +243,26 @@ namespace ICE.Scheduler.Tasks
                     var randomIndex = _random.Next(fishingHole.Count);
                     if (EzThrottler.Throttle("Setting destination"))
                     {
-                        IceLogging.Debug($"Random number generator said we're going to the following fishing hole #: {randomIndex}");
                         fishingHoleLoc = fishingHole[randomIndex].FishingSpot;
+                        fishingHoleMission = missionId;
+                        IceLogging.Info($"任務 {missionId}：選定第 {randomIndex} 個釣點（共 {fishingHole.Count} 個）{fishingHoleLoc}，開始前往。",
+                                        "[FindMission: 釣點]");
                     }
+                }
+                else if (!Task_NavmeshMove.NavToDestination(fishingHoleLoc))
+                {
+                    if (EzThrottler.Throttle("Waitin for nav to finish"))
+                    {
+                        IceLogging.Debug($"Waiting for navmesh to get to: {fishingHoleLoc}");
+                    }
+                    return false;
                 }
                 else
                 {
-                    if (!Task_NavmeshMove.NavToDestination(fishingHoleLoc))
-                    {
-                        if (EzThrottler.Throttle("Waitin for nav to finish"))
-                        {
-                            IceLogging.Debug($"Waiting for navmesh to get to: {fishingHoleLoc}");
-                        }
-                        return false;
-                    }
+                    // 抵達就在同一幀往下走；選中的點已保證屬於這個任務，不再交給下一幀另一套判斷。
+                    IceLogging.Info($"任務 {missionId}：已抵達選定的釣點 {fishingHoleLoc}，接著領任務。", "[FindMission: 釣點]");
+                    ResetNavigationSelection();
+                    return true;
                 }
 
                 /*
