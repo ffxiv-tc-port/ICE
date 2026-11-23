@@ -27,6 +27,9 @@ namespace ICE.Scheduler.Tasks
 
         public static bool WasAbandoned = false;
 
+        /// <summary>這次接的是「接下再放棄」換一批清單的任務（從沒計時，放棄時不進放棄統計）；放棄收尾時清掉。</summary>
+        public static bool RerollPending = false;
+
         public static bool? AbandonMission()
         {
             string tag = "Abandon Mission";
@@ -36,7 +39,11 @@ namespace ICE.Scheduler.Tasks
                 if (WasAbandoned)
                 {
                     IceLogging.Debug("Mission was abandoned");
-                    P.MissionTimer.AbandonMission();
+                    // 只看旗標不夠：旗標殘留時若有真任務在計時，照舊記放棄。
+                    if (RerollPending && !P.MissionTimer.IsTiming)
+                        IceLogging.Debug("換一批任務：放棄的是為了刷新清單才接下的任務，不計入放棄統計。", "[Abandon Mission]");
+                    else
+                        P.MissionTimer.AbandonMission();
                 }
                 else
                 {
@@ -61,6 +68,7 @@ namespace ICE.Scheduler.Tasks
                 }
 
                 WasAbandoned = false;
+                RerollPending = false;
                 Task_CheckScore.ResetMedalCheckLog();
 
                 if (P.AutoHook.Installed)

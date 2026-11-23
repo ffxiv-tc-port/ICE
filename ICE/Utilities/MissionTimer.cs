@@ -12,6 +12,9 @@ public class MissionTimer
 
     public int TimeHistoryLimit => C.TimeHistoryLimit;
 
+    /// <summary>有一個真任務正在計時。</summary>
+    public bool IsTiming => isRunning && currentMission != 0;
+
     public MissionTimer()
     {
         stopwatch = new Stopwatch();

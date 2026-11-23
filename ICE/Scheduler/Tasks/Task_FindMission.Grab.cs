@@ -343,6 +343,7 @@ namespace ICE.Scheduler.Tasks
                         if (YesnoPressGuard.MayPress("接取任務：開始任務確認", select))
                         {
                             select.Yes();
+                            Task_AbandonMission.RerollPending = reroll;
                             if (reroll)
                                 SchedulerMain.State = IceState.AbandonMission;
                             else
