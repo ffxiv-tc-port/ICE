@@ -561,6 +561,10 @@ namespace ICE.Scheduler.Tasks
                     if (C.UseTableSortForMissionOrder && candidates.Count > 1)
                         candidates = modeSelect_TableInfo.SortByTableOption(candidates, m => m.MissionId).ToList();
 
+                    // 距離優先要知道哪幾道排序真的套用了，才能只在它們都分不出先後的候選之間換。
+                    Dictionary<uint, int>? goldRankUsed = null;
+                    Func<uint, int>? goldRateRankUsed = null;
+
                     // 「沒金星的優先」：同一階級之內，把還沒拿到金星的任務排前面（補完成度用）。
                     // 放在表格排序「之後」：OrderBy 是穩定排序，所以未金星優先，同組之內維持表格順序。
                     // ⚠️ 先在 unsafe 區塊把「是否已金星」算成純量再排序，不要把原生指標放進 OrderBy 的 lambda。
@@ -582,6 +586,7 @@ namespace ICE.Scheduler.Tasks
                         {
                             // OrderBy 是穩定排序，所以同組之內維持原本順序，只是把已金星的往後推。
                             candidates = candidates.OrderBy(m => goldRank.GetValueOrDefault(m.MissionId)).ToList();
+                            goldRankUsed = goldRank;
                             IceLogging.Debug(
                                 $"沒金星優先：{goldRank.Count(kv => kv.Value == 0)}/{goldRank.Count} 個尚未金星，已排到前面",
                                 "[FindMission: CheckStandard]");
@@ -608,6 +613,7 @@ namespace ICE.Scheduler.Tasks
                             return rate < C.MinGoldRatePercentForPicking ? 1 : 0;
                         }
 
+                        goldRateRankUsed = GoldRateRank;
                         var demoted = candidates.Count(m => GoldRateRank(m.MissionId) == 1);
                         if (demoted > 0 && demoted < candidates.Count)
                         {
@@ -626,6 +632,10 @@ namespace ICE.Scheduler.Tasks
                                 "[FindMission: CheckStandard]");
                         }
                     }
+
+                    if (C.PickNearbyMission && candidates.Count > 1)
+                        candidates = PreferNearbyStandard(candidates, m => m.MissionId, rankType,
+                                                          C.UseTableSortForMissionOrder, goldRankUsed, goldRateRankUsed);
 
                     foreach (var mission in candidates)
                     {
@@ -965,11 +975,13 @@ namespace ICE.Scheduler.Tasks
                     }
                 }
 
+                Func<uint, bool>? isCooling = null;
                 if (C.XPRelicAvoidGoldUnreachable && C.XPRelicAvoidGoldUnreachableMinutes > 0)
                 {
                     var nowMs = Environment.TickCount64;
                     var minutes = C.XPRelicAvoidGoldUnreachableMinutes;
                     bool Cooling(uint id) => GoldUnreachableCooldown.IsCoolingDown(id, nowMs, minutes);
+                    isCooling = Cooling;
 
                     var picked = GoldUnreachableCooldown.PickBest(scored, Cooling, allowCoolingPick);
                     if (picked != bestMissionId)
@@ -985,6 +997,9 @@ namespace ICE.Scheduler.Tasks
 
                     bestMissionId = picked;
                 }
+
+                if (C.PickNearbyMission && bestMissionId is uint chosen)
+                    bestMissionId = PreferNearbyRelic(chosen, scored, isCooling, tip);
 
                 return bestMissionId;
             }

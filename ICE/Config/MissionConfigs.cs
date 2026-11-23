@@ -72,6 +72,15 @@ namespace ICE.Config
         //    根本走不到重骰上限這個判斷點（臨時任務連刷本來就自己會照 JobPrio 換職業）。
         public bool AutoSwitchJobWhenPoolEmpty { get; set; } = false;
 
+        /// <summary>
+        /// 距離優先：既有規則認定差不多的候選裡，改接離目前位置近的（標準模式與宇宙工具經驗模式；限定任務模式不套用）。
+        /// 預設關＝維持現行挑法。只是同級裡的次序：不越過階級、沒金星優先、金星率門檻、拿不到金星的冷卻排序。
+        /// </summary>
+        public bool PickNearbyMission { get; set; } = false;
+
+        /// <summary>宇宙工具經驗模式：分數不低於最高分的 (100 − 這個值)% 就算差不多；0＝只認同分。</summary>
+        public int PickNearbyMissionScoreTolerancePercent { get; set; } = 10;
+
         #endregion
 
         #region Main Window

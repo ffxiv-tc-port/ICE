@@ -310,6 +310,7 @@ namespace ICE.Ui.MainUi.ModeSelect
                                     C.Save();
                                 }
                             }
+                            global::ICE.Ui.SettingTabs.Priority_Settings.DrawPickNearbyMission("Relic");
                             if (C.ShowManualMode)
                             {
                                 bool IgnoreManual = C.XPRelicIgnoreManual;

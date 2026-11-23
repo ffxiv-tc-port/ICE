@@ -157,6 +157,18 @@ namespace ICE.Ui.MainUi.ModeSelect
             };
         }
 
+        /// <summary>兩個任務在目前的「排序方式」下鍵值相同（<see cref="SortByTableOption"/> 分不出先後）；依 ID（0）時恆為 true。</summary>
+        internal static bool SameTableSortKey(uint a, uint b)
+        {
+            var option = C.TableSortOption;
+            return option switch
+            {
+                1 => NameKey(a) == NameKey(b),
+                >= 2 and <= LastSortOption => NumberKey(a, option).Equals(NumberKey(b, option)),
+                _ => true,
+            };
+        }
+
         private static string NameKey(uint id)
             => CosmicHelper.SheetMissionDict.TryGetValue(id, out var i) ? i.Name : string.Empty;
 

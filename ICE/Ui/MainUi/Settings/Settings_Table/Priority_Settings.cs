@@ -35,6 +35,39 @@ namespace ICE.Ui.SettingTabs
             return "  —  " + text;
         }
 
+        /// <summary>「距離優先」開關與宇宙工具經驗模式的分數容差；挑選規則分節與宇宙工具經驗設定欄共用（控制項 id 各自帶後綴）。</summary>
+        internal static void DrawPickNearbyMission(string idSuffix)
+        {
+            var pickNearby = C.PickNearbyMission;
+            if (ImGui.Checkbox("Prefer nearby missions when otherwise equal".Loc() + "###ICEPickNearby" + idSuffix, ref pickNearby))
+            {
+                C.PickNearbyMission = pickNearby;
+                C.Save();
+            }
+            ImGuiEx.HelpMarker(
+                ("Among missions the other picking rules rank the same, take the one closest to where you are now.\n" +
+                "Gathering: nearest point of the mission's route. Fishing: average distance to its fishing spots. " +
+                "Crafting missions need no travel and are not affected.\n" +
+                "Standard mode: same rank, same gold-star group, same gold-rate group, and the same table sort value when that option is on.\n" +
+                "Relic Grind: missions whose score is close to the best one (set below).\n" +
+                "Never moves a mission past the rank, gold-star, minimum gold-rate or recently gold-unreachable ordering. " +
+                "Not used in Provisional mode. Every switch is written to the log.").Loc());
+
+            if (!pickNearby)
+                return;
+
+            var tolerance = C.PickNearbyMissionScoreTolerancePercent;
+            ImGui.SetNextItemWidth(UiScale.Px(150f));
+            if (ImGui.SliderInt("Relic Grind: scores within".Loc() + "###ICEPickNearbyTolerance" + idSuffix, ref tolerance, 0, 50, "%d%%"))
+            {
+                C.PickNearbyMissionScoreTolerancePercent = Math.Clamp(tolerance, 0, 50);
+                C.Save();
+            }
+            ImGuiEx.HelpMarker(
+                ("Relic Grind only: a mission counts as close to the best one when its relic XP score is at most this many percent lower. " +
+                "0 means only exact ties (for example when every relic XP bar is already full).").Loc());
+        }
+
         public static void Draw()
         {
             // ⚠️ 收合的那一節不會被畫 ⇒ 不會有拖曳事件；三組清單都只在拖放成功之後才寫設定，
@@ -99,6 +132,8 @@ namespace ICE.Ui.SettingTabs
                     "They are demoted, never removed: removing them could empty the candidate pool and send the plugin into " +
                     "endless rerolling.\n" +
                     "Requires 'Pick missions using the table sort order' above. The mission table itself is never filtered by this.").Loc());
+
+                DrawPickNearbyMission("Prio");
             }
 
             DrawMissionTypePriority();
