@@ -252,6 +252,16 @@ public class MissionTimer
                                (silverCount * baseScore * 4.0) +
                                (goldCount * baseScore * 5.0);
 
+            double totalTimeMinutes = EffectiveMinutes(turninRecords, abandonedTimeSeconds, totalCompletions);
+
+            if (totalTimeMinutes <= 0) return 0;
+
+            return totalScore / totalTimeMinutes;
+        }
+
+        /// <summary>「有效」的分母：保留的交件總耗時＋縮放到同一時間窗的放棄耗時（分鐘）。</summary>
+        private static double EffectiveMinutes(List<TurninData> turninRecords, double abandonedTimeSeconds, int totalCompletions)
+        {
             // 負值不可能，但設定檔是使用者可編輯的文字檔，夾一下比較安全。
             var abandoned = abandonedTimeSeconds > 0 ? abandonedTimeSeconds : 0;
 
@@ -261,11 +271,40 @@ public class MissionTimer
             if (totalCompletions > turninRecords.Count)
                 abandoned *= (double)turninRecords.Count / totalCompletions;
 
-            double totalTimeMinutes = (turninRecords.Sum(t => t.Time) + abandoned) / 60.0;
+            double seconds = 0;
+            for (var i = 0; i < turninRecords.Count; i++)
+                seconds += turninRecords[i].Time;
+            return (seconds + abandoned) / 60.0;
+        }
 
-            if (totalTimeMinutes <= 0) return 0;
+        /// <param name="Attempts">交件＋放棄的生涯次數；小於 <see cref="ICE.Config.MissionConfigs.MinGoldRateSampleSize"/> 算樣本少。</param>
+        /// <param name="HasRecords">有保留的交件記錄；false 時三個時間類數字都沒有意義（不是 0）。</param>
+        /// <param name="GoldPerHour">保留記錄裡的金星數 ÷「有效」時間（含放棄）。</param>
+        /// <param name="CreditsPerHour">＝詳情頁「有效」列的宇宙信用點 ×60。</param>
+        public readonly record struct Efficiency(int Attempts, bool HasRecords, double GoldRatePercent, double AverageSeconds,
+                                                 double GoldPerHour, double CreditsPerHour)
+        {
+            public bool EnoughSamples => Attempts >= ICE.Config.MissionConfigs.MinGoldRateSampleSize;
+        }
 
-            return totalScore / totalTimeMinutes;
+        /// <summary>任務表效益欄、表格排序與詳情頁共用的一份數字（不配置記憶體，每幀呼叫也可以）。</summary>
+        public static Efficiency CalculateEfficiency(MissionSettings cfg, uint cosmoCredit)
+        {
+            var attempts = cfg.TotalCompletions + cfg.FailedCounters;
+            var goldRate = attempts > 0 ? 100.0 * cfg.GoldCompletions / attempts : 0;
+            var records = cfg.TurninRecords;
+            if (records == null || records.Count == 0)
+                return new(attempts, false, goldRate, 0, 0, 0);
+
+            var gold = 0;
+            for (var i = 0; i < records.Count; i++)
+                if (records[i].State == TurninState.Gold)
+                    gold++;
+
+            var minutes = EffectiveMinutes(records, cfg.AbandonedTimeSeconds, cfg.TotalCompletions);
+            var goldPerHour = minutes > 0 ? gold * 60.0 / minutes : 0;
+            var creditsPerHour = CalculateEffectiveScorePerMinute(records, cosmoCredit, cfg.AbandonedTimeSeconds, cfg.TotalCompletions) * 60.0;
+            return new(attempts, true, goldRate, cfg.AverageTime, goldPerHour, creditsPerHour);
         }
 
         public static double CalculateActualScorePerHour(List<TurninData> turninRecords, uint baseScore)

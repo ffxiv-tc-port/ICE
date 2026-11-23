@@ -97,7 +97,7 @@ namespace ICE.Ui.MainUi.ModeSelect
             var sorted = SortedRows.GetValue(missions, static _ => new List<Mission>());
             sorted.Clear();
             var option = C.TableSortOption;
-            if (option is < 1 or > 11)
+            if (option is < 1 or > LastSortOption)
             {
                 sorted.AddRange(missions);
                 return sorted;
@@ -121,7 +121,7 @@ namespace ICE.Ui.MainUi.ModeSelect
                 _order[i] = i;
             }
 
-            _rowOrder = option switch { 1 => RowOrder.TextAscending, 9 => RowOrder.NumberAscending, _ => RowOrder.NumberDescending };
+            _rowOrder = option switch { 1 => RowOrder.TextAscending, _ when IsAscending(option) => RowOrder.NumberAscending, _ => RowOrder.NumberDescending };
             _order.AsSpan(0, n).Sort(CompareSortedRows);
             for (var i = 0; i < n; i++)
                 sorted.Add(missions[_order[i]]);
@@ -151,8 +151,8 @@ namespace ICE.Ui.MainUi.ModeSelect
             return option switch
             {
                 1 => items.OrderBy(m => NameKey(idSelector(m))),
-                9 => items.OrderBy(m => NumberKey(idSelector(m), 9)),
-                >= 2 and <= 11 => items.OrderByDescending(m => NumberKey(idSelector(m), option)),
+                _ when IsAscending(option) => items.OrderBy(m => NumberKey(idSelector(m), option)),
+                >= 2 and <= LastSortOption => items.OrderByDescending(m => NumberKey(idSelector(m), option)),
                 _ => items,   // 0 = 依 ID，也就是維持原本的順序
             };
         }
@@ -160,11 +160,18 @@ namespace ICE.Ui.MainUi.ModeSelect
         private static string NameKey(uint id)
             => CosmicHelper.SheetMissionDict.TryGetValue(id, out var i) ? i.Name : string.Empty;
 
-        /// <summary>排序方式 2～11 的鍵（9 升冪、其餘降冪）。uint 轉 double 是精確的，排序結果與直接比 uint 相同。</summary>
+        /// <summary>排序方式 12～15＝效益欄：金星率、平均耗時（升冪）、每小時金星、每小時信用點。</summary>
+        internal const int SortGoldRate = 12, SortAverageTime = 13, SortGoldPerHour = 14, SortCreditsPerHour = 15;
+        private const int LastSortOption = SortCreditsPerHour;
+
+        private static bool IsAscending(int option) => option is 9 or SortAverageTime;
+
+        /// <summary>排序方式 2～15 的鍵（9、13 升冪、其餘降冪）。uint 轉 double 是精確的，排序結果與直接比 uint 相同。</summary>
+        /// <remarks>效益欄樣本少或沒有記錄時排在最後（降冪給 -1、升冪給最大值），不跟真的 0 混在一起。</remarks>
         private static double NumberKey(uint id, int option)
         {
             if (!CosmicHelper.SheetMissionDict.TryGetValue(id, out var i))
-                return option == 9 ? uint.MaxValue : 0d;
+                return IsAscending(option) ? uint.MaxValue : 0d;
 
             switch (option)
             {
@@ -178,6 +185,18 @@ namespace ICE.Ui.MainUi.ModeSelect
                     if (!C.MissionConfig.TryGetValue(id, out var cfg)) return 0;
                     return MissionStatsCalculator.CalculateEffectiveScorePerMinute(
                         cfg.TurninRecords, i.ClassScore, cfg.AbandonedTimeSeconds, cfg.TotalCompletions);
+                case >= SortGoldRate and <= SortCreditsPerHour:
+                    var noData = option == SortAverageTime ? double.MaxValue : -1d;
+                    if (!C.MissionConfig.TryGetValue(id, out var effCfg)) return noData;
+                    var eff = MissionStatsCalculator.CalculateEfficiency(effCfg, i.CosmoCredit);
+                    if (!eff.EnoughSamples || (option != SortGoldRate && !eff.HasRecords)) return noData;
+                    return option switch
+                    {
+                        SortGoldRate => eff.GoldRatePercent,
+                        SortAverageTime => eff.AverageSeconds,
+                        SortGoldPerHour => eff.GoldPerHour,
+                        _ => eff.CreditsPerHour,
+                    };
                 default: return 0;
             }
         }
@@ -357,7 +376,7 @@ namespace ICE.Ui.MainUi.ModeSelect
                                 ImGuiTableFlags.Reorderable |
                                 ImGuiTableFlags.Hideable |
                                 ImGuiTableFlags.SizingFixedFit;
-            int tableTotalColumns = 18; // How many columns am I using. 
+            int tableTotalColumns = 22; // How many columns am I using. 
 
             // This is here to auto show/hide specific columns that might not be necessary (gathering profiles, and planetary tokens as Ex.)
             bool hasGathering = false;
@@ -401,6 +420,11 @@ namespace ICE.Ui.MainUi.ModeSelect
                 ImGui.TableSetupColumn("Turnin Mode".Loc()); // 15
                 ImGui.TableSetupColumn("Gathering Profile".Loc());
                 ImGui.TableSetupColumn("Mission Notes".Loc()); // 17
+                // 效益欄接在最後：Reorderable／Hideable 的欄位設定按索引存，插在中間會打亂使用者既有的排版。
+                ImGui.TableSetupColumn("Gold %".Loc()); // 18
+                ImGui.TableSetupColumn("Avg Time".Loc());
+                ImGui.TableSetupColumn("Gold/hr".Loc());
+                ImGui.TableSetupColumn("Credits/hr".Loc()); // 21
 
                 #endregion
 
@@ -668,6 +692,19 @@ namespace ICE.Ui.MainUi.ModeSelect
                     ImGui.EndTooltip();
                 }
                 columnIndexCount++;
+
+                #endregion
+
+                #region Efficiency
+
+                EfficiencyHeader(ref columnIndexCount, "Gold %", SortGoldRate,
+                    "Gold turn-ins / attempts (abandoned runs count as attempts). Same number as 'Gold rate' in the mission details.");
+                EfficiencyHeader(ref columnIndexCount, "Avg Time", SortAverageTime,
+                    "Average time of the kept turn-in records (abandoned runs not included). Same as 'Average Time' in the mission details. Sorts shortest first.");
+                EfficiencyHeader(ref columnIndexCount, "Gold/hr", SortGoldPerHour,
+                    "Gold turn-ins per hour, counting the time lost to abandoned runs. Time between missions (travel) is not recorded, so real numbers are lower.");
+                EfficiencyHeader(ref columnIndexCount, "Credits/hr", SortCreditsPerHour,
+                    "Cosmo credits per hour = the 'Effective' row of the mission details x 60 (abandoned time included, travel between missions not).");
 
                 #endregion
 
@@ -1256,6 +1293,8 @@ namespace ICE.Ui.MainUi.ModeSelect
                     }
 
                     #endregion
+
+                    DrawEfficiencyCells(Id, missionConfig, missionInfo.CosmoCredit);
 
                     ImGui.PopID();
                 }

@@ -318,12 +318,13 @@ namespace ICE.Ui.MainUi.ModeSelect
                     // 金星穩定度。分母是「含放棄」的嘗試次數 —— 放棄掉的那幾次也花了時間，
                     // 只除以完成次數會把不穩的任務看成穩的。
                     // ⚠️「不知道」要在列上看得見：樣本數 0 顯示 "--"，不要畫成 0%（那會誤導成「試過都沒中」）。
-                    var goldAttempts = config.TotalCompletions + config.FailedCounters;
+                    var efficiency = MissionStatsCalculator.CalculateEfficiency(config,
+                        CosmicHelper.SheetMissionDict.TryGetValue(selectedMission, out var effInfo) ? effInfo.CosmoCredit : 0);
+                    var goldAttempts = efficiency.Attempts;
                     if (goldAttempts > 0)
                     {
-                        var goldRate = 100.0 * config.GoldCompletions / goldAttempts;
                         ImGui.Text("Gold rate: ??% (??/?? attempts, ?? abandoned)".Loc(
-                            goldRate.ToString("F0"), config.GoldCompletions, goldAttempts, config.FailedCounters));
+                            efficiency.GoldRatePercent.ToString("F0"), config.GoldCompletions, goldAttempts, config.FailedCounters));
                     }
                     else
                     {
@@ -338,6 +339,12 @@ namespace ICE.Ui.MainUi.ModeSelect
                                          "Used by the optional 'Minimum gold rate' rule in Mission Picking Rules, and by the " +
                                          "'Effective Score/Min' sort order. Display is never filtered by that rule.").Loc(
                             FormatTotalTime(config.AbandonedTimeSeconds)));
+                    }
+                    if (efficiency.HasRecords)
+                    {
+                        ImGui.Text("Gold per hour: ?? / Cosmo credits per hour: ??".Loc(
+                            efficiency.GoldPerHour.ToString("F1"), efficiency.CreditsPerHour.ToString("N0")));
+                        ImGuiEx.HelpMarker("Same numbers as the efficiency columns of the mission table (abandoned time included, travel between missions not).".Loc());
                     }
 
                     if (CosmicHelper.SheetMissionDict.TryGetValue(selectedMission, out var missionInfo))

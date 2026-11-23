@@ -14,7 +14,7 @@ public static class Settings_TableColumns
 {
     // ⚠️ 索引即 C.TableSortOption 的值，也是 modeSelect_TableInfo.SortByTableOption 的 switch case。
     //    只能往尾端加，不要插中間 —— 既有使用者存的是數字，插中間會靜默改掉他們選的排序。
-    private static string[] missionSortOptions => ["Id", "Name".Loc(), "Cosmo Credits".Loc(), "Lunar Credits".Loc(), "Exp I".Loc(), "Exp II".Loc(), "Exp III".Loc(), "Exp IV".Loc(), "Exp V".Loc(), "Map Location".Loc(), "Class Score".Loc(), "Effective Score/Min".Loc()];
+    private static string[] missionSortOptions => ["Id", "Name".Loc(), "Cosmo Credits".Loc(), "Lunar Credits".Loc(), "Exp I".Loc(), "Exp II".Loc(), "Exp III".Loc(), "Exp IV".Loc(), "Exp V".Loc(), "Map Location".Loc(), "Class Score".Loc(), "Effective Score/Min".Loc(), "Gold %".Loc(), "Avg Time".Loc(), "Gold/hr".Loc(), "Credits/hr".Loc()];
 
     public static void ColumnSettings()
     {
