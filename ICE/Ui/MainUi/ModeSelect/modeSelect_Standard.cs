@@ -1,10 +1,12 @@
 ﻿using Dalamud.Interface;
+using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
 using ECommons.GameHelpers;
 using FFXIVClientStructs.FFXIV.Client.Game.WKS;
 using FFXIVClientStructs.FFXIV.Client.LayoutEngine;
 using ICE.Ui.MainUi.Settings.Settings_Table;
+using ICE.Utilities.Cosmic_Helper;
 using ICE.Utilities.ImGuiTools;
 using System.Collections.Generic;
 using System.Reflection;
@@ -572,7 +574,7 @@ namespace ICE.Ui.MainUi.ModeSelect
                                 "Optional: also turn on \"Remove Mission Upon Gold Completion\" to watch the checked list shrink.\n" +
                                 "Off: unchanged - checked missions keep being taken even after they are gold.").Loc());
 
-            int checkedCount = 0, notGold = 0, notGoldHere = 0, checkedHere = 0;
+            int checkedCount = 0, notGold = 0, notGoldHere = 0, checkedHere = 0, stageLocked = 0;
             var manager = WKSManager.Instance();
             var territory = Player.Territory;
             foreach (var (id, config) in C.MissionConfig)
@@ -589,6 +591,8 @@ namespace ICE.Ui.MainUi.ModeSelect
                 var here = info.TerritoryId == territory;
                 if (here)
                     checkedHere++;
+                if (MissionStage.Check(id).State == MissionStage.State.Locked)
+                    stageLocked++;
                 if (manager != null && !manager->IsMissionGolded(id))
                 {
                     notGold++;
@@ -614,6 +618,14 @@ namespace ICE.Ui.MainUi.ModeSelect
                     ImGui.SameLine(0, 4 * scale);
                     ImGui.TextUnformatted(CountLabel("(this planet: ??)", notGoldHere));
                 }
+            }
+
+            if (stageLocked > 0)
+            {
+                ImGui.SameLine(0, 8 * scale);
+                ImGui.TextColored(ImGuiColors.DalamudGrey, CountLabel("Not offered yet: ??", stageLocked));
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip("Checked missions that need a later construction stage on this planet. The game will not offer them yet, so Provisional Grind cannot take them.".Loc());
             }
         }
 

@@ -840,7 +840,24 @@ namespace ICE.Ui.MainUi.ModeSelect
                         ImGui.SameLine();
                     }
 
-                    ImGui.Text(missionInfo.Name);
+                    var stage = MissionStage.Check(Id);
+                    bool stageLocked = stage.State == MissionStage.State.Locked;
+                    if (stageLocked || stage.State == MissionStage.State.Unknown)
+                    {
+                        ImGui.TextColored(ImGuiColors.DalamudGrey, stageLocked ? MissionStage.LockedMarker : MissionStage.UnknownMarker);
+                        if (ImGui.IsItemHovered())
+                            ImGui.SetTooltip(MissionStage.Explain(stage));
+                        if (ImGui.IsItemClicked())
+                            selectedMission = Id;
+                        ImGui.SameLine(0, 4);
+                    }
+
+                    if (stageLocked)
+                        ImGui.TextColored(ImGuiColors.DalamudGrey, missionInfo.Name);
+                    else
+                        ImGui.Text(missionInfo.Name);
+                    if (stageLocked && ImGui.IsItemHovered())
+                        ImGui.SetTooltip(MissionStage.Explain(stage));
                     if (ImGui.IsItemClicked())
                     {
                         selectedMission = Id;
@@ -1141,7 +1158,13 @@ namespace ICE.Ui.MainUi.ModeSelect
                                 // ⇒ 用 TryGetValue（查不到顯示 "???"）。這是每幀跑的 ImGui 迴圈，丟例外會讓整個視窗畫不出來。
                                 var prevName = CosmicHelper.SheetMissionDict.TryGetValue(prevMission, out var prevEntry)
                                     ? prevEntry.Name : "???";
-                                ImGui.Text($"{i + 1}: [{prevMission}] - {MissionSupport.NameWithMarker(prevMission, prevName)}");
+                                ImGui.Text($"{i + 1}: [{prevMission}] - {MissionSupport.NameWithMarker(prevMission, MissionStage.NameWithMarker(prevMission, prevName))}");
+                            }
+                            var chainStage = MissionStage.Check(Id);
+                            if (chainStage.State is MissionStage.State.Locked or MissionStage.State.Unknown)
+                            {
+                                ImGui.Separator();
+                                ImGui.TextUnformatted(MissionStage.Explain(chainStage));
                             }
                             ImGui.EndTooltip();
                         }

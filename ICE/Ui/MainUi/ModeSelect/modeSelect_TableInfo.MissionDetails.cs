@@ -57,6 +57,21 @@ namespace ICE.Ui.MainUi.ModeSelect
                 }
                 ImGui.Text($"{mission.Name}");
 
+                var detailStage = MissionStage.Check(id);
+                if (detailStage.State != MissionStage.State.NoGate)
+                {
+                    var stageColor = detailStage.State == MissionStage.State.Reached ? ImGuiColors.DalamudWhite : ImGuiColors.DalamudGrey;
+                    var stageLabel = detailStage.State switch
+                    {
+                        MissionStage.State.Locked => MissionStage.LockedMarker,
+                        MissionStage.State.Unknown => MissionStage.UnknownMarker,
+                        _ => string.Empty,
+                    };
+                    ImGui.PushTextWrapPos(0);
+                    ImGui.TextColored(stageColor, stageLabel + MissionStage.Explain(detailStage));
+                    ImGui.PopTextWrapPos();
+                }
+
                 #endregion
 
                 if (ImGui.BeginTable("Detailed Mission Info", 2, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.Borders))
