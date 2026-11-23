@@ -223,6 +223,7 @@ internal static class CraftProgressGuard
         IceLogging.ChatError(
             $"連續 {MaxConsecutiveNoProgress} 次要求 Artisan 製作「{itemName}」（配方 {_recipeId}）都沒有做出任何東西，已停止 ICE。"
             + (shortage.Length > 0 ? $" 素材狀況：{shortage}。" : string.Empty)
+            + (Svc.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.Mounted] ? " 目前人還在坐騎上（自動下坐騎沒有成功）。" : string.Empty)
             + " 常見原因：素材真的不夠、Artisan 沒有為這個配方指派到素材、或是 Artisan 那邊自己停用了耐力模式。",
             "[ICE]");
 

@@ -53,17 +53,38 @@ namespace ICE.Scheduler.Tasks
         {
             // 記下「要求製作前的成品持有數量」，WaitingForArtisan 才有辦法判斷有沒有進展。
             CraftProgressGuard.Arm(craftId, resultItemId, requiredItems);
+            skipNextCraftSend = false;
 
             // 這兩個任務要帶 Utils.TaskConfig（30 分鐘 + abortOnTimeout: false）：NeoTaskManager 的預設值是
             // TimeLimitMS = 30000、AbortOnTimeout = true，等 Artisan 製作必定逾時。
             P.TaskManager.InsertMulti(
+                new(() => WaitDismountedBeforeCraft(), "Dismounting before telling artisan to craft", Utils.TaskConfig),
                 new(() => ThrottleArtisanTask(craftId, amount), "Telling artisan to craft", Utils.TaskConfig),
                 new(() => WaitingForArtisan(), "Waiting for artisan", Utils.TaskConfig)
             );
         }
 
+        // 下坐騎等滿上限時設起來：下一步不送製作指令，讓 WaitingForArtisan 照「沒有進展」走斷路器（退避、連續五次停止）。
+        private static bool skipNextCraftSend;
+
+        private static bool? WaitDismountedBeforeCraft()
+        {
+            var ready = Utils.DismountBeforeCraft("[Task Craft: Dismount]");
+            if (ready == false)
+                return false;
+            skipNextCraftSend = ready == null;
+            return true;
+        }
+
         private static bool? ThrottleArtisanTask(ushort craftId, int amount)
         {
+            if (skipNextCraftSend)
+            {
+                skipNextCraftSend = false;
+                throttleCounter = 0;
+                return true;
+            }
+
             var mission = CosmicHelper.CurrentLunarMission;
             var isShort = false;
             int delay = C.DelayCraft

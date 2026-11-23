@@ -146,11 +146,17 @@ namespace ICE.Scheduler.Tasks
                 return false;
             }
 
+            // 坐騎上開工遊戲會拒絕；等滿上限仍下不來就不送，Arm 過的這一輪照「沒有進展」走斷路器。
+            var dismounted = Utils.DismountBeforeCraft("[Task_DualClass: Dismount]");
+            if (dismounted == false)
+                return false;
+
             if (PlayerHelper.GetItemCount(itemId, out var count) && count < dualCraftAmount)
             {
                 // We have enough to craft. Telling it to craft the item... x amount of times
                 CraftProgressGuard.Arm(recipeId, itemId, mainCraft.RequiredItems);
-                P.Artisan.CraftItem(recipeId, dualCraftAmount);
+                if (dismounted == true)
+                    P.Artisan.CraftItem(recipeId, dualCraftAmount);
                 P.TaskManager.Tasks.Clear();
                 InsertArtisanWait();
                 IceLogging.Info($"Told artisan to craft {dualCraftAmount} of the following recipe: {recipeId}");
@@ -160,7 +166,8 @@ namespace ICE.Scheduler.Tasks
             {
                 // We have enough for atleast 1 more craft, telling artisan to craft. Uno mas.
                 CraftProgressGuard.Arm(recipeId, itemId, mainCraft.RequiredItems);
-                P.Artisan.CraftItem(recipeId, 1);
+                if (dismounted == true)
+                    P.Artisan.CraftItem(recipeId, 1);
                 P.TaskManager.Tasks.Clear();
                 InsertArtisanWait();
                 IceLogging.Info($"Told Artisan to craft 1 item of the following recipe: {recipeId}");

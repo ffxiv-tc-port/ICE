@@ -313,6 +313,45 @@ public static unsafe class Utils
         }
     }
 
+    // 兩次輪詢隔超過 2 秒＝新的一次開工（失敗後的退避至少 3 秒）。
+    private static readonly DismountWait craftDismountWait = new(2_000);
+
+    /// <summary>
+    /// 交給 Artisan 製作前先下坐騎：坐騎上開工遊戲會拒絕，Artisan 十秒內連錯五次就自己停用。
+    /// 用一般動作 23（跳下），不用 <see cref="Dismount"/> 的 9（隨機坐騎）：狀態旗標慢一拍時重送 9 會再騎上去，23 落地後重送沒有作用。
+    /// </summary>
+    /// <returns>true＝沒在坐騎上，可以送；false＝還在等；null＝等滿上限仍在坐騎上，這次不要送製作指令。</returns>
+    public static bool? DismountBeforeCraft(string handle)
+    {
+        var mounted = Svc.Condition[ConditionFlag.Mounted];
+        var am = ActionManager.Instance();
+        var canPress = mounted && am != null && am->GetActionStatus(ActionType.GeneralAction, 23) == 0;
+        var step = craftDismountWait.Poll(Environment.TickCount64, mounted, canPress);
+
+        if (craftDismountWait.StartedRound)
+            IceLogging.Info($"人在坐騎上，先下坐騎再交給 Artisan 製作（最多等 {DismountWait.TimeoutMs / 1000} 秒）。", handle);
+
+        switch (step)
+        {
+            case DismountWait.Step.Proceed:
+                if (craftDismountWait.FinishedWaiting)
+                    IceLogging.Info($"已下坐騎（送了 {craftDismountWait.Presses} 次「跳下」、等了 {craftDismountWait.ElapsedMs / 1000.0:0.0} 秒），交給 Artisan。", handle);
+                return true;
+            case DismountWait.Step.Press:
+                var accepted = am->UseAction(ActionType.GeneralAction, 23);
+                IceLogging.Debug($"送出「跳下」第 {craftDismountWait.Presses} 次（遊戲回傳 {accepted}）。", handle);
+                return false;
+            case DismountWait.Step.Wait:
+                return false;
+            case DismountWait.Step.AfterGiveUp:
+                return null;
+            default:
+                IceLogging.Info($"等了 {craftDismountWait.ElapsedMs / 1000.0:0.0} 秒仍在坐騎上（送了 {craftDismountWait.Presses} 次「跳下」），"
+                                + "這次不送製作指令，當成製作沒有進展處理（退避後重試，連續五次就停止 ICE）。", handle);
+                return null;
+        }
+    }
+
     public static uint ToUintABGR(Vector4 col)
     {
         byte a = (byte)(col.W * 255);
