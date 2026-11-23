@@ -56,6 +56,15 @@ public static unsafe class Utils
                 return true;
         return false;
     }
+
+    /// <summary>已載入的同名插件版本；沒裝或沒載入回 null。</summary>
+    public static string? LoadedPluginVersion(string name)
+    {
+        foreach (var p in Svc.PluginInterface.InstalledPlugins)
+            if (p.InternalName == name && p.IsLoaded)
+                return p.Version?.ToString();
+        return null;
+    }
     public static TaskManagerConfiguration TaskConfig => new(timeLimitMS: 10 * 60 * 3000, abortOnTimeout: false);
 
     public static unsafe void SetFlagForNPC(uint territoryId, float x, float y)

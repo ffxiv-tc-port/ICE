@@ -627,6 +627,35 @@ namespace ICE.Ui.MainUi.ModeSelect
                 if (ImGui.IsItemHovered())
                     ImGui.SetTooltip("Checked missions that need a later construction stage on this planet. The game will not offer them yet, so Provisional Grind cannot take them.".Loc());
             }
+
+            if (onlyUngolded)
+                DrawProvisionalDemoteRow();
+        }
+
+        /// <summary>「只刷未金星」的子選項：連續沒金星就排到最後。</summary>
+        private static void DrawProvisionalDemoteRow()
+        {
+            bool demote = C.ProvisionalDemoteRepeatedMisses;
+            if (ImGui.Checkbox("Put missions that keep missing gold last".Loc() + "###ICEProvisionalDemoteRepeatedMisses", ref demote))
+            {
+                C.ProvisionalDemoteRepeatedMisses = demote;
+                C.Save();
+            }
+            ImGuiEx.HelpMarker(("When the same mission ends without gold this many times in a row this session (silver/bronze turn-in or abandoned), " +
+                                "it is tried after every other un-golded mission. It is not removed.\n" +
+                                "The count clears when it gets gold, when the plugin reloads, or when Artisan's version changes.\n" +
+                                "Off: unchanged - the order only follows your priorities.").Loc());
+            if (!demote)
+                return;
+
+            ImGui.SameLine();
+            var misses = C.ProvisionalDemoteAfterMisses;
+            ImGui.SetNextItemWidth(90f * ImGui.GetFontSize() / 16f);
+            if (ImGui.InputInt("times in a row".Loc() + "###ICEProvisionalDemoteAfterMisses", ref misses))
+            {
+                C.ProvisionalDemoteAfterMisses = Math.Clamp(misses, 1, 10);
+                C.Save();
+            }
         }
 
         private static void MissionTableInfo()

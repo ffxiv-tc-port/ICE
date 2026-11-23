@@ -1147,7 +1147,10 @@ namespace ICE.Scheduler.Tasks
             {
                 var goldState = ReadGoldState(ordered.Concat(checkedOtherZone));
                 Func<uint, bool>? isGolded = goldState == null ? null : id => goldState.GetValueOrDefault(id);
-                var plan = ProvisionalGoldPlan.Build(ordered, isGolded, MissionChain.GetFollowUpsRecursive);
+                var isDemoted = ProvisionalMissTracker.DemotionFilter();
+                var plan = ProvisionalGoldPlan.Build(ordered, isGolded, MissionChain.GetFollowUpsRecursive, isDemoted);
+                ProvisionalMissTracker.ReportDemoted(
+                    isDemoted == null ? [] : ordered.Where(id => isDemoted(id) && isGolded?.Invoke(id) != true), plan.Pending);
 
                 if (plan.NothingLeft)
                 {
@@ -1155,9 +1158,9 @@ namespace ICE.Scheduler.Tasks
                     return true;
                 }
 
-                if (plan.Order.Count != ordered.Count || !plan.GoldKnown)
+                if (plan.Order.Count != ordered.Count || !plan.GoldKnown || plan.Demoted > 0)
                 {
-                    IceLogging.Debug($"只刷未金星：候選 {ordered.Count}、未金星 {plan.Pending}、為後續保留的已金星前置 {plan.KeptPrerequisites}"
+                    IceLogging.Debug($"只刷未金星：候選 {ordered.Count}、未金星 {plan.Pending}、為後續保留的已金星前置 {plan.KeptPrerequisites}、連續未金星排到最後 {plan.Demoted}"
                                      + (plan.GoldKnown ? string.Empty : "（讀不到金星狀態，不過濾）"), "[ICE: Provisional Grind]");
                 }
                 ordered = plan.Order;

@@ -94,6 +94,8 @@ public class MissionTimer
         // Increment total completions (always tracks full history)
         stats.TotalCompletions++;
 
+        ProvisionalMissTracker.NoteTurnin(missionId, Mission_Settings.TurninState);
+
         // Apply time history limit per state if set
         if (TimeHistoryLimit > 0)
         {
@@ -356,6 +358,7 @@ public class MissionTimer
         stats.FailedCounters++;
         // 放棄耗時累加進成本。key 0 的防護在上面，走到這裡的一定是真任務。
         stats.AbandonedTimeSeconds += abandonedSeconds;
+        ProvisionalMissTracker.NoteAbandon(currentMission);
         C.Save();
         currentMission = 0;
     }

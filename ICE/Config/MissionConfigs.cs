@@ -327,6 +327,15 @@ namespace ICE.Config
         // 預設 false＝維持現行行為（勾選的照挑、拿過金星也照挑，沒任務就每 5 秒重找）。
         public bool ProvisionalOnlyUngolded { get; set; } = false;
 
+        /// <summary>
+        /// 「只刷未金星」時，同一任務本場連續 <see cref="ProvisionalDemoteAfterMisses"/> 次沒拿到金星就排到候選最後（不移除）。
+        /// 計數只在記憶體（ProvisionalMissStreak），插件重載、拿到金星或 Artisan 換版就清零。
+        /// </summary>
+        public bool ProvisionalDemoteRepeatedMisses { get; set; } = true;
+
+        /// <summary>上面那個「連續幾次」。小於 1 一律當 1。</summary>
+        public int ProvisionalDemoteAfterMisses { get; set; } = 2;
+
         // 標準任務的階級挑選順序（使用者可以拖曳調整，例如想先刷低階把任務數衝上去）。
         // ⚠️ 讀取端一定要補上這裡缺少的階級，否則舊設定檔或手動編輯少了某一階，
         //    那一階的任務會永遠不被挑到 —— 靜默失效。見 Task_FindMission.RankOrder。

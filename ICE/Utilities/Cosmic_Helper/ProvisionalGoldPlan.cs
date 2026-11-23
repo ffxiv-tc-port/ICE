@@ -11,11 +11,12 @@ namespace ICE.Utilities.Cosmic_Helper;
 /// </remarks>
 internal static class ProvisionalGoldPlan
 {
-    /// <param name="Order">要依序到任務清單上找的任務（先未金星、再為了解鎖後續而保留的已金星前置）。</param>
-    /// <param name="Pending">候選裡還沒金星的數量；讀不到金星狀態時＝候選數。</param>
+    /// <param name="Order">要依序到任務清單上找的任務（先未金星、再為了解鎖後續而保留的已金星前置，降級的整批在最後）。</param>
+    /// <param name="Pending">候選裡還沒金星的數量（含降級的）；讀不到金星狀態時＝候選數。</param>
     /// <param name="KeptPrerequisites">已金星、但後續任務也在候選裡且還沒金星而保留的前置數量。</param>
-    /// <param name="GoldKnown">false＝讀不到金星狀態，<paramref name="Order"/> 就是原候選。</param>
-    internal readonly record struct Result(List<uint> Order, int Pending, int KeptPrerequisites, bool GoldKnown)
+    /// <param name="GoldKnown">false＝讀不到金星狀態，<paramref name="Order"/> 是原候選（只依降級重排）。</param>
+    /// <param name="Demoted">排到最後的未金星任務數（降級，不是移除）。</param>
+    internal readonly record struct Result(List<uint> Order, int Pending, int KeptPrerequisites, bool GoldKnown, int Demoted = 0)
     {
         /// <summary>沒有勾選的候選，或勾選的全都金星了（不需要解鎖任何後續）。</summary>
         internal bool NothingLeft => Order.Count == 0;
@@ -45,14 +46,30 @@ internal static class ProvisionalGoldPlan
     /// <param name="candidates">已勾選、在本區、ICE 跑得動的限定任務，照既有優先序排好。</param>
     /// <param name="isGolded">null＝讀不到金星狀態：不過濾、原序回傳。只會被問到 <paramref name="candidates"/> 裡的任務。</param>
     /// <param name="followUpsRecursive">任務往後整條連續任務鏈（不含自己）。</param>
-    internal static Result Build(IReadOnlyList<uint> candidates, Func<uint, bool>? isGolded, Func<uint, IEnumerable<uint>> followUpsRecursive)
+    /// <param name="isDemoted">
+    /// 要排到最後的未金星任務；null＝不降級，結果與沒有這個參數時逐筆相同。
+    /// 只為了解鎖被降級後續而保留的已金星前置，也跟著排到最後。
+    /// </param>
+    internal static Result Build(IReadOnlyList<uint> candidates, Func<uint, bool>? isGolded, Func<uint, IEnumerable<uint>> followUpsRecursive,
+                                 Func<uint, bool>? isDemoted = null)
     {
         if (isGolded == null)
-            return new Result(new List<uint>(candidates), candidates.Count, 0, false);
+        {
+            if (isDemoted == null)
+                return new Result(new List<uint>(candidates), candidates.Count, 0, false);
+            var front = new List<uint>(candidates.Count);
+            var back = new List<uint>();
+            foreach (var id in candidates)
+                (isDemoted(id) ? back : front).Add(id);
+            var demotedCount = back.Count;
+            front.AddRange(back);
+            return new Result(front, candidates.Count, 0, false, demotedCount);
+        }
 
         var inPool = new HashSet<uint>(candidates);
         var seen = new HashSet<uint>();
         var pending = new List<uint>();
+        var pendingDemoted = new List<uint>();
         var golded = new List<uint>();
 
         foreach (var id in candidates)
@@ -61,26 +78,41 @@ internal static class ProvisionalGoldPlan
                 continue;
             if (isGolded(id))
                 golded.Add(id);
+            else if (isDemoted != null && isDemoted(id))
+                pendingDemoted.Add(id);
             else
                 pending.Add(id);
         }
 
         // 連續任務的後續不是永久解鎖：後續還沒金星時，已金星的前置仍要跑，但排在所有未金星任務之後。
         var order = new List<uint>(pending);
+        var keptForDemoted = new List<uint>();
         var kept = 0;
         foreach (var id in golded)
         {
+            var needed = false;
+            var onlyForDemoted = true;
             foreach (var followUp in followUpsRecursive(id))
             {
                 if (inPool.Contains(followUp) && !isGolded(followUp))
                 {
-                    order.Add(id);
-                    kept++;
-                    break;
+                    needed = true;
+                    if (isDemoted == null || !isDemoted(followUp))
+                    {
+                        onlyForDemoted = false;
+                        break;
+                    }
                 }
             }
+
+            if (!needed)
+                continue;
+            kept++;
+            (onlyForDemoted ? keptForDemoted : order).Add(id);
         }
 
-        return new Result(order, pending.Count, kept, true);
+        order.AddRange(pendingDemoted);
+        order.AddRange(keptForDemoted);
+        return new Result(order, pending.Count + pendingDemoted.Count, kept, true, pendingDemoted.Count);
     }
 }
