@@ -143,6 +143,52 @@ internal static class MissionChain
     }
 
     /// <summary>
+    /// 「取得金星後自動停用」：<paramref name="goldedMissionId"/> 拿到金星後，同一串其他已金星、往後也全金星的段落一起停用，
+    /// 免得下一輪又去接已做完那串的前置。<paramref name="goldedMissionId"/> 自己照原流程處理，這裡不碰。
+    /// </summary>
+    /// <remarks>讀不到 <c>WKSManager</c> 時什麼都不做（不知道金星狀態就不停用）。</remarks>
+    internal static unsafe void DisableFinishedChain(uint goldedMissionId, string handle)
+    {
+        if (!C.RemoveAfterGold)
+            return;
+
+        var manager = WKSManager.Instance();
+        if (manager == null)
+            return;
+
+        var members = FinishedChainPlan.ChainMembers(goldedMissionId, PreviousOf, NextOf);
+        if (members.Count < 2)
+            return;
+
+        var golded = new Dictionary<uint, bool>(members.Count);
+        foreach (var id in members)
+            golded[id] = manager->IsMissionGolded(id);
+
+        var toDisable = FinishedChainPlan.ToDisable(goldedMissionId, C.RemoveAfterGold, PreviousOf, NextOf,
+            id => golded.GetValueOrDefault(id),
+            id => C.MissionConfig.TryGetValue(id, out var config) && config.Enabled,
+            id => ShouldKeepEnabledForEmergency(id, out _));
+        if (toDisable.Count == 0)
+            return;
+
+        foreach (var id in toDisable)
+            if (C.MissionConfig.TryGetValue(id, out var config))
+                config.Enabled = false;
+
+        C.Save();
+        IceLogging.Info(
+            $"{DescribeMission(goldedMissionId)} 所在的連續任務整串都已拿到金星，一併停用 {toDisable.Count} 個段落："
+            + string.Join("、", toDisable.Select(DescribeMission)) + "（「取得金星後自動停用」）。",
+            handle);
+    }
+
+    private static IEnumerable<uint> PreviousOf(uint missionId)
+        => CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var info) ? info.PreviousMissions : [];
+
+    private static IEnumerable<uint> NextOf(uint missionId)
+        => FollowUps.TryGetValue(missionId, out var next) ? next : [];
+
+    /// <summary>
     /// 修復「前置被停用、但鏈上還有想跑的任務」這個自相矛盾的設定狀態。
     /// </summary>
     /// <remarks>

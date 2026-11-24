@@ -336,6 +336,9 @@ namespace ICE.Scheduler.Tasks
                 {
                     IceLogging.Info($"任務 {PreviousMissionId} 在設定檔裡沒有對應的設定，跳過「達金後停用」。", "[Gold Check Task]");
                 }
+
+                // 整串都金星時，前面被「後續還沒金星」留下來的前置也一起停用，不然下一輪會先去重跑它們。
+                MissionChain.DisableFinishedChain(PreviousMissionId, "[Gold Check Task]");
             }
             if (C.RemoveAfterGold && !isGold)
             {
