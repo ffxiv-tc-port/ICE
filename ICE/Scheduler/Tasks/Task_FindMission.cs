@@ -372,7 +372,7 @@ namespace ICE.Scheduler.Tasks
                             P.TaskManager.InsertMulti
                             (
                                 new(() => FrameDelay(16), "Delaying 8 frames for the tab"),
-                                new(() => CheckExp(), "Checking Exp Missions")
+                                new(() => CheckExp(BoardTab.Basic), "Checking Exp Missions")
                             );
                             break;
                         }
@@ -382,7 +382,7 @@ namespace ICE.Scheduler.Tasks
                             P.TaskManager.InsertMulti
                             (
                                 new(() => FrameDelay(16), "Delaying 8 frames for the tab"),
-                                new(() => CheckExp(isFallbackTab: false, requireCurrentJob: true), "Checking Exp Missions [Critical]")
+                                new(() => CheckExp(BoardTab.Critical, isFallbackTab: false, requireCurrentJob: true), "Checking Exp Missions [Critical]")
                             );
                             break;
                         }
@@ -392,7 +392,7 @@ namespace ICE.Scheduler.Tasks
                             P.TaskManager.InsertMulti
                             (
                                 new(() => FrameDelay(16), "Delaying 8 frames for the tab"),
-                                new(() => CheckExp(isFallbackTab: false, requireCurrentJob: true), "Checking Exp Missions [Provisional]")
+                                new(() => CheckExp(BoardTab.Provisional, isFallbackTab: false, requireCurrentJob: true), "Checking Exp Missions [Provisional]")
                             );
                             break;
                         }
@@ -663,11 +663,11 @@ namespace ICE.Scheduler.Tasks
         /// <param name="requireCurrentJob">
         /// 一般任務分頁本來就已依職業分頁，所以維持 false 以免動到既有行為。
         /// </param>
-        private static unsafe bool? CheckExp(bool isFallbackTab = true, bool requireCurrentJob = false)
+        private static unsafe bool? CheckExp(BoardTab tab, bool isFallbackTab = true, bool requireCurrentJob = false)
         {
             if (GenericHelpers.TryGetAddonMaster<WKSMission>("WKSMission", out var x) && x.IsAddonReady)
             {
-                var bestIndex = FindBestRelicMission(requireCurrentJob, allowCoolingPick: isFallbackTab);
+                var bestIndex = FindBestRelicMission(tab, requireCurrentJob, allowCoolingPick: isFallbackTab);
 
                 if (bestIndex > 0)
                 {
@@ -756,7 +756,8 @@ namespace ICE.Scheduler.Tasks
         /// 候選全都在「最近已經不可能拿到金星」的冷卻中時，要不要仍從中挑一個。
         /// 只有最後一個分頁是 true，其他分頁回 null 交給下一個分頁（見 <see cref="GoldUnreachableCooldown.PickBest"/>）。
         /// </param>
-        public static unsafe uint? FindBestRelicMission(bool requireCurrentJob = false, bool allowCoolingPick = true)
+        /// <param name="tab">目前開著的分頁；不屬於它的列（切分頁時上一個分頁殘留）一律略過，見 <see cref="BoardTabFilter"/>。</param>
+        public static unsafe uint? FindBestRelicMission(BoardTab tab, bool requireCurrentJob = false, bool allowCoolingPick = true)
         {
             string tip = "[Relic XP Finder]";
 
@@ -849,6 +850,13 @@ namespace ICE.Scheduler.Tasks
                     lastRelicPick.Listed++;
                     if (CosmicHelper.SheetMissionDict.TryGetValue(id, out var mission))
                     {
+                        if (!BoardTabFilter.Belongs(tab, mission.Attributes, mission.Jobs, Player.JobId))
+                        {
+                            lastRelicPick.Stale++;
+                            ReportStaleBoardEntry(tab, id, tip);
+                            continue;
+                        }
+
                         if (requireCurrentJob && !mission.Jobs.Contains(Player.JobId))
                         {
                             IceLogging.Debug($"[Mission: {id}] 不是目前職業的任務，跳過（經驗會加到別的工具上）", tip);
@@ -1012,10 +1020,20 @@ namespace ICE.Scheduler.Tasks
         private struct RelicPickStats
         {
             public bool NotReady;
-            public int Listed, Level, Manual, NotEnabled, Unsupported, Manip;
+            public int Listed, Level, Manual, NotEnabled, Unsupported, Manip, Stale;
         }
 
         private static RelicPickStats lastRelicPick;
+
+        /// <summary>任務板清單裡混進上一個分頁殘留的任務時記一行 Information（同一個任務 5 分鐘一次）。只在框架執行緒呼叫。</summary>
+        internal static void ReportStaleBoardEntry(BoardTab tab, uint missionId, string tag)
+        {
+            if (!EzThrottler.Throttle($"ICE: stale board entry {missionId}", 300000))
+                return;
+            var name = CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var info) ? GameTextUtil.StripGameIcons(info.Name) : "?";
+            IceLogging.Info($"任務板「{tab}」分頁讀到不屬於這個分頁的任務 [{missionId}]{name}（職業 {Player.JobId}），"
+                            + "視為切換分頁時上一個分頁殘留的列，略過不選。", tag);
+        }
 
         /// <summary>
         /// 宇宙工具經驗模式挑不到任務、也沒辦法重骰時的停止出口：這是設定造成的（多半是「僅限已勾選的任務」
@@ -1026,7 +1044,7 @@ namespace ICE.Scheduler.Tasks
             var s = lastRelicPick;
             IceLogging.Info(
                 $"宇宙工具經驗模式找不到可以接的任務，停止。職業 {Player.JobId}：清單上 {s.Listed} 個任務，"
-                + $"未勾選 {s.NotEnabled}、等級不足 {s.Level}、手動模式 {s.Manual}、ICE 跑不動 {s.Unsupported}、需要「掌握」但沒學 {s.Manip}；"
+                + $"未勾選 {s.NotEnabled}、等級不足 {s.Level}、手動模式 {s.Manual}、ICE 跑不動 {s.Unsupported}、需要「掌握」但沒學 {s.Manip}、上一個分頁殘留 {s.Stale}；"
                 + $"「僅限已勾選的任務」={(C.XPRelicOnlyEnabled ? "開" : "關")}，這個職業在這個區域勾選的一般任務 {BasicMissionCount} 個"
                 + "（0 個就沒辦法重骰換一批）。要繼續的話：在任務表替這個職業勾選任務，或關掉「僅限已勾選的任務」。",
                 "[Relic Grind]");

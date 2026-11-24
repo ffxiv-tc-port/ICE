@@ -53,7 +53,7 @@ namespace ICE.Scheduler.Tasks
 
             if (!missionEntry.Jobs.Contains(currentJob))
             {
-                IceLogging.Error("Somehow, we've managed to get a job that isn't suppose to be an option for our jobs?? Resetting the whole process and going to try again.\n" +
+                IceLogging.Error($"Somehow, we've managed to get a job that isn't suppose to be an option for our jobs?? (mission {missionId}, job {currentJob}) Resetting the whole process and going to try again.\n" +
                                  "If this continues on multiple times in a row, let me know.");
                 SchedulerMain.State = IceState.GrabMission;
                 P.TaskManager.Tasks.Clear();

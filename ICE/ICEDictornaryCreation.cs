@@ -151,11 +151,9 @@ public sealed partial class ICE
 
                 if (isCritical) // Criticals are sus
                 {
-                    var itemAmount = 3; // It's a pass/fail progress, you need to go till you are full on score
-                    if (keyId < 535)
-                        itemAmount = 3;
-                    else if (keyId < 1039)
-                        itemAmount = 2;
+                    // It's a pass/fail progress, you need to go till you are full on score
+                    // 渴望灣的緊急製作（512～535）每個都給 15 個宇宙貨箱、銅星 900；法恩娜（1007～1030）給 10 個、600。
+                    var itemAmount = territoryId == CosmicZones.SinusArdorum ? 3 : 2;
 
                     var missionRecipeRow = RecipeSheet?.Where(e => e.RowId == wksRecipeRow.Recipe[0].RowId).FirstOrDefault();
                     var itemId = missionRecipeRow.Value.ItemResult. RowId;

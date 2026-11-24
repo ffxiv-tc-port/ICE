@@ -47,6 +47,13 @@ namespace ICE.Scheduler.Tasks
                         continue;
                     }
 
+                    // 重骰只在一般分頁上做；上一個分頁殘留的列（別的職業或臨時任務）接了也重骰不到。
+                    if (!BoardTabFilter.Belongs(BoardTab.Basic, rerollMission.Attributes, rerollMission.Jobs, Player.JobId))
+                    {
+                        ReportStaleBoardEntry(BoardTab.Basic, missionId, "[Task_FindMission: FindReroll]");
+                        continue;
+                    }
+
                     var rank = rerollMission.Rank;
                     switch (rank)
                     {
