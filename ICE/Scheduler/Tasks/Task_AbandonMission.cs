@@ -44,6 +44,8 @@ namespace ICE.Scheduler.Tasks
                         IceLogging.Debug("換一批任務：放棄的是為了刷新清單才接下的任務，不計入放棄統計。", "[Abandon Mission]");
                     else
                         P.MissionTimer.AbandonMission();
+                    // 先按過「回報結果」沒成功、改按放棄時，那次判定的獎章不能留給下一個任務。
+                    Mission_Settings.TurninState = TurninState.None;
                 }
                 else
                 {
@@ -177,6 +179,8 @@ namespace ICE.Scheduler.Tasks
                         && EzThrottler.Throttle("Attempt to turnin", 500)
                         && AddonPressGuard.TryBeginPress("放棄任務：回報結果", "WKSMissionInfomation", addon, AddonPressGuard.WksMissionExitPressKey))
                     {
+                        Task_CheckScore.JudgeMedalBeforeReport(CosmicHelper.CurrentLunarMission, addon.CurrentScore);
+                        IceLogging.Info($"放棄流程改按「回報結果」：任務 {CosmicHelper.CurrentLunarMission}｜目前評價 {addon.CurrentScore?.ToString() ?? "讀不到"}｜判定獎章＝{Mission_Settings.TurninState}。", "[Abandon Mission]");
                         addon.Report();
                     }
                     else if (abandonPressable

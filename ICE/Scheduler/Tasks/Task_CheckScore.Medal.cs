@@ -349,6 +349,21 @@ namespace ICE.Scheduler.Tasks
         }
 
         /// <summary>
+        /// 放棄流程按「回報結果」之前判定獎章：那條路不經過交件判定，不判就停在 None（分數換算倍率 1、完成統計不記）。
+        /// 評價型讀不到目前評價時維持原值：寧可不記，也不要把銀星記成銅星。
+        /// </summary>
+        internal static void JudgeMedalBeforeReport(uint missionId, uint? currentScore)
+        {
+            if (!CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var mission))
+                return;
+
+            if (mission.Attributes.HasFlag(MissionAttributes.Critical))
+                Mission_Settings.TurninState = TurninState.Critical;
+            else if (mission.IsTimeGraded || currentScore is not null)
+                MedalChecker(mission, currentScore ?? 0);
+        }
+
+        /// <summary>
         /// 評價型任務的獎章判定。
         /// 🔴 <b>門檻 0 一律當成「沒有這個門檻」，不是「零分就達成」。</b>
         /// </summary>
