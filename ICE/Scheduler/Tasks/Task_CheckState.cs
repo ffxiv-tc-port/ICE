@@ -97,7 +97,13 @@ namespace ICE.Scheduler.Tasks
                                         $"Turnin Relic: {C.TurninRelic}\n" +
                                         $"Stop When Relic Finished: {C.StopOnceRelicFinished}");
 
+                        if (ToolXpRelay.TryTakeOver(currentMissionId))
+                        {
+                            return true;
+                        }
+
                         IceLogging.Info("You have met all necessary relic xp, and you have \"Stop on Relic Completion\" enabled, so stopping for now");
+                        ToolXpRelay.ReportTurninReady();
                         SchedulerMain.StopWithNotice("靈器經驗值已經全滿", StopReasons.ToolXpFull, playSound: true);
                         return true;
                     }

@@ -21,6 +21,7 @@ namespace ICE.Scheduler
             Mission_Settings.StartJob = Player.JobId;
             Task_CheckScore.ResetMedalCheckLog();
             Task_Repair.ResetSelfRepairState();
+            ToolXpRelay.Reset();
             // 停下來之前結束的緊急任務不算：重新開始不回基地（任務還在進行的話，狀態檢查會重新標記）。
             Task_CriticalReturn.Reset();
             // 上一輪選的釣點（可能屬於中途停掉的那個任務）不帶進這一輪。

@@ -103,6 +103,12 @@ namespace ICE.Config
         public bool XPRelicIncludeCritical { get; set; } = false;
 
         /// <summary>
+        /// 宇宙工具經驗模式：本職業工具這一階滿了（原本以 tool_xp_full 停下的那一刻），照 <see cref="JobPrio"/> 換到下一個
+        /// 這一階還沒滿、有可接任務的職業繼續。預設關＝維持「滿了就停」；找不到任務（no_mission）不觸發。
+        /// </summary>
+        public bool XPRelicAutoSwitchJob { get; set; } = false;
+
+        /// <summary>
         /// 宇宙工具經驗模式：最近記過「已經不可能拿到金星」的製作任務，在
         /// <see cref="XPRelicAvoidGoldUnreachableMinutes"/> 分鐘內排到候選最後（不移除）。
         /// 記錄只在記憶體（GoldUnreachableCooldown），插件重載就清空。

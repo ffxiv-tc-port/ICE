@@ -206,6 +206,10 @@ namespace ICE.Ui.MainUi
                     {
                         ImGui.TextWrapped("You have to be in a cosmic area for us to view this info. Blame square for not making it always accesable".Loc());
                     }
+                    if (ImGui.Button("Research progress for all jobs".Loc() + "###ICESidebarToolResearchWindow"))
+                    {
+                        P.toolResearchWindow.IsOpen = !P.toolResearchWindow.IsOpen;
+                    }
                 }
                 // ⑥ 說明與診斷 —— 刻意保留成兩個子項而不是併成一頁：
                 //    「ICE 日誌」整頁是一個吃滿剩餘高度的子視窗（helpSelect_Logs 的

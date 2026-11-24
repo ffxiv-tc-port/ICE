@@ -311,6 +311,7 @@ namespace ICE.Ui.MainUi.ModeSelect
                                 }
                             }
                             global::ICE.Ui.SettingTabs.Priority_Settings.DrawPickNearbyMission("Relic");
+                            DrawToolXpRelaySettings();
                             if (C.ShowManualMode)
                             {
                                 bool IgnoreManual = C.XPRelicIgnoreManual;
@@ -483,6 +484,31 @@ namespace ICE.Ui.MainUi.ModeSelect
                 {
                     MissionTableInfo();
                 }
+            }
+        }
+
+        /// <summary>宇宙工具經驗設定欄：全職業研究進度表的入口與「工具這一階滿了換下一個職業」開關。</summary>
+        private static void DrawToolXpRelaySettings()
+        {
+            if (ImGui.Button("Research progress for all jobs".Loc() + "###ICEOpenToolResearchWindow"))
+            {
+                P.toolResearchWindow.IsOpen = !P.toolResearchWindow.IsOpen;
+            }
+
+            bool autoSwitch = C.XPRelicAutoSwitchJob;
+            if (ImGui.Checkbox("Switch to the next job when this tool's stage is full".Loc() + "###ICEXPRelicAutoSwitchJob", ref autoSwitch))
+            {
+                C.XPRelicAutoSwitchJob = autoSwitch;
+                C.Save();
+            }
+            ImGuiEx.HelpMarker(("When this job's cosmic tool is full for the current stage (the point where \"Stop @ Relic Complete\" stops ICE), " +
+                                "switch to the next job in your job priority whose tool is not full yet and that has missions here that add to its unfinished research, and keep going.\n" +
+                                "Each job is switched to at most once per run. If no job qualifies, ICE stops as before and lists the jobs ready to turn in their tool.\n" +
+                                "Only a full tool triggers a switch; running out of missions does not.\n" +
+                                "Uses your gearsets. Jobs whose gearset main hand is not in your inventory are skipped. If the switch does not happen, ICE stops.").Loc());
+            if (autoSwitch && !C.StopOnceRelicFinished)
+            {
+                ImGui.TextColored(ImGuiColors.DalamudGrey, "Takes effect only while \"Stop @ Relic Complete\" is on.".Loc());
             }
         }
 

@@ -1053,6 +1053,7 @@ namespace ICE.Scheduler.Tasks
                     ? "Relic XP mode found no mission to take: 'Only selected missions' is on, but none of the listed missions are selected for this job. Select some missions for this job in the mission table, or turn that option off. ICE is stopping."
                     : "Relic XP mode found no mission it can take for this job, so ICE is stopping. See the log for why each mission was skipped.").Loc(),
                 "[ICE]");
+            ToolXpRelay.ReportTurninReady();
             SchedulerMain.StopWithNotice("宇宙工具經驗模式找不到可以接的任務", StopReasons.NoMission, needsHelp: true);
             SchedulerMain.DisablePlugin(StopReasons.NoMission);
         }
