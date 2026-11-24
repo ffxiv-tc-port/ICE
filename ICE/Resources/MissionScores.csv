@@ -568,7 +568,7 @@ MissionID,Class,MissionName,Score
 567,CRP,Advanced Resource Experimentation II,41
 568,CRP,Improved Tent Components,35
 569,CRP,Efficient Recycled Resource Utilization II,35
-570,CRP,Phaenna Resource Utilization Research,78
+570,CRP,Phaenna Resource Utilization Research,50
 571,CRP,EX: Outdoor Work Equipment,78
 572,CRP,EX: Premium Tools,110
 573,CRP,EX: Versatile Packaging Materials,93
@@ -610,7 +610,7 @@ MissionID,Class,MissionName,Score
 609,BSM,Planetary Ore Refinement,41
 610,BSM,Precision Component Processing,35
 611,BSM,Crafter's Tools,35
-612,BSM,Experimental Alloy Samples,78
+612,BSM,Experimental Alloy Samples,50
 613,BSM,EX: Artisanal Craftwork,78
 614,BSM,EX: Cosmoliner Parts,110
 615,BSM,EX: Glass Furnace Assembly II,93
@@ -652,7 +652,7 @@ MissionID,Class,MissionName,Score
 651,ARM,Planetary Ore Refinement,41
 652,ARM,Precision Component Processing,35
 653,ARM,Crafter's Tools,35
-654,ARM,Experimental Alloy Samples,78
+654,ARM,Experimental Alloy Samples,50
 655,ARM,EX: Artisanal Craftwork,78
 656,ARM,EX: Cosmoliner Parts,110
 657,ARM,EX: Emergency Stove Assembly,93
@@ -694,7 +694,7 @@ MissionID,Class,MissionName,Score
 693,GSM,Planetary Ore Refinement,41
 694,GSM,Precision Component Processing,35
 695,GSM,Crafter's Tools,35
-696,GSM,Experimental Alloy Samples,78
+696,GSM,Experimental Alloy Samples,50
 697,GSM,EX: Artisanal Craftwork,78
 698,GSM,EX: Cosmoliner Parts,110
 699,GSM,EX: Emergency Oven Assembly,93
@@ -736,7 +736,7 @@ MissionID,Class,MissionName,Score
 735,LTW,Advanced Resource Experimentation II,41
 736,LTW,Improved Tent Components,35
 737,LTW,Efficient Recycled Resource Utilization II,35
-738,LTW,Phaenna Resource Utilization Research,78
+738,LTW,Phaenna Resource Utilization Research,50
 739,LTW,EX: Outdoor Work Equipment,78
 740,LTW,EX: Reinforced Survey Equipment,110
 741,LTW,EX: Versatile Packaging Materials,93
@@ -778,7 +778,7 @@ MissionID,Class,MissionName,Score
 777,WVR,Advanced Resource Experimentation II,41
 778,WVR,Improved Tent Components,35
 779,WVR,Efficient Recycled Resource Utilization II,35
-780,WVR,Phaenna Resource Utilization Research,78
+780,WVR,Phaenna Resource Utilization Research,50
 781,WVR,EX: Outdoor Work Equipment,78
 782,WVR,EX: Heat-resistant Survey Equipment,110
 783,WVR,EX: Versatile Packaging Materials,93
@@ -820,7 +820,7 @@ MissionID,Class,MissionName,Score
 819,ALC,Heat-resistant Materials Resupply,41
 820,ALC,Functional Rations,35
 821,ALC,Refined Yeast II,35
-822,ALC,Endangered Aquaculture II,78
+822,ALC,Endangered Aquaculture II,50
 823,ALC,EX: Automated Fermentation,78
 824,ALC,EX: Phaenna Confectionery,110
 825,ALC,EX: Inorganic Extract Research III,93
@@ -862,7 +862,7 @@ MissionID,Class,MissionName,Score
 861,CUL,Precision Instrument Lubricant,41
 862,CUL,Weatherproof Stable Rations,35
 863,CUL,Refined Yeast II,35
-864,CUL,Endangered Aquaculture II,78
+864,CUL,Endangered Aquaculture II,50
 865,CUL,EX: Automated Fermentation,78
 866,CUL,EX: Launch Party Sweets,110
 867,CUL,EX: Coffee Break Support,93
@@ -900,7 +900,7 @@ MissionID,Class,MissionName,Score
 899,MIN,Copper Vitrilith Selection,15
 900,MIN,Alloy Procurement,18
 901,MIN,EX: Transmitter Materials,40
-902,MIN,Soda-lime Float Survey,6
+902,MIN,Soda-lime Float Survey,5
 903,MIN,Rare Minerals,6
 904,MIN,Pegmatite Ore Collection,4
 905,MIN,Lens Development Materials,4
