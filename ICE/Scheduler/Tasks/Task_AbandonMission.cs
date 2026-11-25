@@ -30,7 +30,7 @@ namespace ICE.Scheduler.Tasks
         /// <summary>這次接的是「接下再放棄」換一批清單的任務（從沒計時，放棄時不進放棄統計）；放棄收尾時清掉。</summary>
         public static bool RerollPending = false;
 
-        /// <summary>按「回報結果」時分數沒到銅星：遊戲判失敗、沒有報酬，收尾照放棄記（不進完成統計）。放棄收尾時清掉。</summary>
+        /// <summary>按「回報結果」時沒到銅星（評價型分數不足、時間型時間已到）：遊戲判失敗、沒有報酬，收尾照放棄記（不進完成統計）。放棄收尾時清掉。</summary>
         public static bool ReportedBelowBronze = false;
 
         public static bool? AbandonMission()
@@ -186,7 +186,9 @@ namespace ICE.Scheduler.Tasks
                         var missionId = CosmicHelper.CurrentLunarMission;
                         ReportedBelowBronze = Task_CheckScore.JudgeMedalBeforeReport(missionId, addon.CurrentScore) ?? ReportedBelowBronze;
                         var verdict = ReportedBelowBronze && CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var reported)
-                            ? $"未達銅星（銅星門檻 {reported.BronzeScore}；遊戲不給報酬，記為放棄）"
+                            ? reported.IsTimeGraded
+                                ? "未達銅星（時間型任務時間已到才回報；遊戲不給報酬，記為放棄）"
+                                : $"未達銅星（銅星門檻 {reported.BronzeScore}；遊戲不給報酬，記為放棄）"
                             : $"判定獎章＝{Mission_Settings.TurninState}";
                         IceLogging.Info($"放棄流程改按「回報結果」：任務 {missionId}｜目前評價 {addon.CurrentScore?.ToString() ?? "讀不到"}｜{verdict}。", "[Abandon Mission]");
                         addon.Report();

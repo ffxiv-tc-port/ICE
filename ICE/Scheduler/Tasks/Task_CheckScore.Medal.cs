@@ -133,33 +133,15 @@ namespace ICE.Scheduler.Tasks
         {
             IceLogging.Verbose($"Raw timer string: '{timerString}'");
 
-            // Trim to remove the clock icon and any whitespace
-            var currentTimeStr = timerString.Trim();
-
-            // Remove any non-numeric characters except ':' (like the clock icon)
-            currentTimeStr = new string(currentTimeStr.Where(c => char.IsDigit(c) || c == ':').ToArray());
-
-            IceLogging.Verbose($"Cleaned time string: '{currentTimeStr}'");
-
-            // Parse the time (format: M:SS or MM:SS)
-            var timeParts = currentTimeStr.Split(':');
-            IceLogging.Verbose($"Time parts count: {timeParts.Length}");
-
-            if (timeParts.Length != 2)
+            // 與放棄流程的「時間到」判定共用同一份解析（MedalRules），兩邊對 0:00 的讀法不會分岔。
+            if (!MedalRules.TryParseRemaining(timerString, out var remaining))
             {
-                IceLogging.Verbose($"Time split failed - got {timeParts.Length} parts");
-                return new TimeSpan(0, 0, 0);
+                IceLogging.Verbose("Failed to parse timer string");
+                return TimeSpan.Zero;
             }
 
-            if (!int.TryParse(timeParts[0], out var minutes) ||
-                !int.TryParse(timeParts[1], out var seconds))
-            {
-                IceLogging.Verbose($"Failed to parse time values");
-                return new TimeSpan(0, 0, 0);
-            }
-
-            IceLogging.Verbose($"Successfully parsed - Minutes: {minutes}, Seconds: {seconds}");
-            return new TimeSpan(0, minutes, seconds);
+            IceLogging.Verbose($"Successfully parsed - {remaining}");
+            return remaining;
         }
 
         // 台服條件是「剩餘時間 24:30以上」，時間夾在字中間：在整段裡找半形「分:秒」（與 MissionObjectiveReader 同形狀）。
@@ -352,7 +334,10 @@ namespace ICE.Scheduler.Tasks
         /// 放棄流程按「回報結果」之前判定獎章：那條路不經過交件判定，不判就停在 None（分數換算倍率 1、完成統計不記）。
         /// 評價型讀不到目前評價時維持原值：寧可不記，也不要把銀星記成銅星。
         /// </summary>
-        /// <returns>評價型分數沒到銅星門檻（遊戲判失敗、沒有報酬）回 true：獎章設 None，呼叫端要當放棄記；評價讀不到回 null＝沿用上次判定。</returns>
+        /// <returns>
+        /// 遊戲判失敗、沒有報酬時回 true（評價型分數沒到銅星門檻；時間型計時列 0:00 且逾時標記亮著）：獎章設 None，呼叫端要當放棄記；
+        /// 評價讀不到回 null＝沿用上次判定。
+        /// </returns>
         internal static bool? JudgeMedalBeforeReport(uint missionId, uint? currentScore)
         {
             if (!CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var mission))
@@ -361,7 +346,14 @@ namespace ICE.Scheduler.Tasks
             if (mission.Attributes.HasFlag(MissionAttributes.Critical))
                 Mission_Settings.TurninState = TurninState.Critical;
             else if (mission.IsTimeGraded)
+            {
                 MedalChecker(mission, 0);
+                if (MedalRules.TimeGradedReportFailed(ActiveTimerAddon(), CosmicHandler.IsMissionTimedOut()))
+                {
+                    Mission_Settings.TurninState = TurninState.None;
+                    return true;
+                }
+            }
             else if (currentScore is not uint score)
                 return null;
             else
