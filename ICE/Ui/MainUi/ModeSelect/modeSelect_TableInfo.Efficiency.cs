@@ -1,6 +1,7 @@
 using Dalamud.Interface.Colors;
 using Dalamud.Interface.Utility.Raii;
 using ICE.Config;
+using ICE.Utilities.Cosmic_Helper;
 using System.Collections.Generic;
 using static MissionTimer;
 
@@ -108,6 +109,17 @@ namespace ICE.Ui.MainUi.ModeSelect
                 ? "?? attempts (?? gold). Gold/hr and credits/hr count the time lost to abandoned runs.".Loc(eff.Attempts, cfg.GoldCompletions)
                 : "?? attempts, all abandoned: no turn-in time recorded, so the time columns are unknown.".Loc(eff.Attempts);
             return cached;
+        }
+
+        /// <summary>工具經驗格的說明：這一類經驗 ÷ 每次成功交件的期望分鐘（與「每分鐘期望經驗」挑選同一個分母）。只在滑鼠停留時組字串。</summary>
+        private static void RelicXpRateTooltip(MissionSettings cfg, uint timeLimitSeconds, int xpAmount)
+        {
+            var minutes = MissionStatsCalculator.ExpectedMinutesPerTurnin(cfg, timeLimitSeconds, out var estimated);
+            var source = !estimated ? "including time lost to abandoned runs".Loc()
+                : timeLimitSeconds > 0 ? "estimate: no turn-in records yet, uses the time limit".Loc()
+                : "estimate: no turn-in records and no time limit, assumes ?? minutes".Loc(RelicXpRate.DefaultEstimateMinutes.ToString("F0"));
+            ImGui.SetTooltip("?? XP per turn-in, about ?? min per successful turn-in (??), so about ?? XP per minute.\nTravel between missions is not counted."
+                .Loc(xpAmount, minutes.ToString("F1"), source, RelicXpRate.PerMinute(xpAmount, minutes).ToString("F1")));
         }
 
         private static string TimeText(MissionStatsCalculator.Efficiency eff)

@@ -118,6 +118,12 @@ namespace ICE.Config
         /// <summary>上面那個「排到最後」維持幾分鐘。0 ＝ 等同關閉。</summary>
         public int XPRelicAvoidGoldUnreachableMinutes { get; set; } = 30;
 
+        /// <summary>
+        /// 宇宙工具經驗模式：候選改依「經驗分數 ÷ 每次成功交件的期望分鐘」挑（<see cref="ICE.Utilities.Cosmic_Helper.RelicXpRate"/>）。
+        /// 預設關＝只看經驗分數（上游行為）。只換挑選用的分數，冷卻排後與距離優先照常套在這個分數上。
+        /// </summary>
+        public bool XPRelicRankByXpPerMinute { get; set; } = false;
+
         public bool ShowCritical { get; set; } = true;
         public bool ShowSequential { get; set; } = true;
         public bool ShowWeather { get; set; } = true;

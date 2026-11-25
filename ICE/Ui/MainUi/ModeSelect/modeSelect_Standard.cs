@@ -310,6 +310,17 @@ namespace ICE.Ui.MainUi.ModeSelect
                                     C.Save();
                                 }
                             }
+                            bool rankPerMinute = C.XPRelicRankByXpPerMinute;
+                            if (ImGui.Checkbox("Rank by expected XP per minute".Loc() + "###ICEXPRelicRankByXpPerMinute", ref rankPerMinute))
+                            {
+                                C.XPRelicRankByXpPerMinute = rankPerMinute;
+                                C.Save();
+                            }
+                            ImGuiEx.HelpMarker(("Off: take the mission with the highest relic XP score (XP of the bars that still need it, weighted by how far each bar is from full).\n" +
+                                                "On: divide that score by the expected minutes per successful turn-in and take the highest.\n" +
+                                                "Expected minutes = (kept turn-in times + time lost to abandoned runs) / kept turn-ins, from this mission's own records.\n" +
+                                                "No records yet: the mission's time limit is used as an estimate (10 minutes if it has none).\n" +
+                                                "Travel between missions is not counted. Hover a relic XP cell in the mission table to see the number.").Loc());
                             global::ICE.Ui.SettingTabs.Priority_Settings.DrawPickNearbyMission("Relic");
                             DrawToolXpRelaySettings();
                             if (C.ShowManualMode)

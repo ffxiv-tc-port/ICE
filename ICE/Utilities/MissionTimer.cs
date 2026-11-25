@@ -312,6 +312,18 @@ public class MissionTimer
             return new(attempts, true, goldRate, cfg.AverageTime, goldPerHour, creditsPerHour);
         }
 
+        /// <summary>每次成功交件的期望分鐘（含放棄耗時），見 <see cref="RelicXpRate.ExpectedMinutes"/>。<paramref name="cfg"/> 可為 null（＝沒有紀錄）。</summary>
+        public static double ExpectedMinutesPerTurnin(MissionSettings? cfg, uint timeLimitSeconds, out bool estimated)
+        {
+            var records = cfg?.TurninRecords;
+            double seconds = 0;
+            var count = records?.Count ?? 0;
+            for (var i = 0; i < count; i++)
+                seconds += records![i].Time;
+            return RelicXpRate.ExpectedMinutes(seconds, count, cfg?.AbandonedTimeSeconds ?? 0, cfg?.TotalCompletions ?? 0,
+                                               timeLimitSeconds, out estimated);
+        }
+
         public static double CalculateActualScorePerHour(List<TurninData> turninRecords, uint baseScore)
         {
             if (turninRecords.Count == 0) return 0;

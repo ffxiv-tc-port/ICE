@@ -966,6 +966,8 @@ namespace ICE.Ui.MainUi.ModeSelect
                         }
 
                         Table_FullCenterText(relicXp);
+                        if (xpAmount > 0 && ImGui.IsItemHovered())
+                            RelicXpRateTooltip(missionConfig, missionInfo.TimeLimitSeconds, xpAmount);
                     }
 
                     #endregion

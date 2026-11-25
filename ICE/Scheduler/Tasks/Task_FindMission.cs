@@ -943,6 +943,10 @@ namespace ICE.Scheduler.Tasks
                 uint? bestMissionId = null;
                 float bestScore = float.NegativeInfinity;
                 var scored = new List<(uint Id, float Score)>(rewardMissions.Count);
+                // 關閉時 scored 與 bestScore 就是經驗分數本身，行為與加這個選項之前相同。
+                var perMinute = C.XPRelicRankByXpPerMinute;
+                uint? rawBestId = null;
+                float rawBestScore = float.NegativeInfinity;
 
                 foreach (var kvp in rewardMissions)
                 {
@@ -972,16 +976,33 @@ namespace ICE.Scheduler.Tasks
                         }
                     }
 
-                    scored.Add((missionId, score));
+                    if (score > rawBestScore)
+                    {
+                        rawBestScore = score;
+                        rawBestId = missionId;
+                    }
+
+                    var rank = score;
+                    if (perMinute)
+                    {
+                        var minutes = RelicExpectedMinutes(missionId, out var estimated);
+                        rank = RelicXpRate.PerMinute(score, minutes);
+                        IceLogging.Debug($"[Mission: {missionId}] 經驗分數 {score:0.###} ÷ 每次約 {minutes:0.0} 分{(estimated ? "（估計）" : "")} ＝ 每分鐘 {rank:0.###}", tip);
+                    }
+
+                    scored.Add((missionId, rank));
 
                     // Compare this mission's score with the current best
-                    if (score > bestScore)
+                    if (rank > bestScore)
                     {
-                        bestScore = score;
+                        bestScore = rank;
                         bestMissionId = missionId;
-                        IceLogging.Info($"New best mission: {missionId} with score: {score}");
+                        IceLogging.Info($"New best mission: {missionId} with score: {rank}");
                     }
                 }
+
+                if (perMinute && rawBestId is uint rawId && bestMissionId is uint rateId && rawId != rateId)
+                    LogPerMinuteSwap(rawId, rawBestScore, rateId, scored, tip);
 
                 Func<uint, bool>? isCooling = null;
                 if (C.XPRelicAvoidGoldUnreachable && C.XPRelicAvoidGoldUnreachableMinutes > 0)
@@ -1016,6 +1037,25 @@ namespace ICE.Scheduler.Tasks
                 return null;
             }
         }
+        /// <summary>每次成功交件的期望分鐘：設定檔的交件／放棄紀錄，沒有紀錄時用任務時限估計。只在框架執行緒呼叫。</summary>
+        internal static double RelicExpectedMinutes(uint missionId, out bool estimated)
+        {
+            C.MissionConfig.TryGetValue(missionId, out var cfg);
+            var limit = CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var info) ? info.TimeLimitSeconds : 0u;
+            return MissionTimer.MissionStatsCalculator.ExpectedMinutesPerTurnin(cfg, limit, out estimated);
+        }
+
+        /// <summary>「每分鐘期望經驗」讓挑選跟只看經驗分數時不同的那一次，記一行 Information 說明換了誰。</summary>
+        private static void LogPerMinuteSwap(uint rawId, float rawScore, uint rateId, List<(uint Id, float Score)> scored, string tip)
+        {
+            var rawMinutes = RelicExpectedMinutes(rawId, out var rawEstimated);
+            var rateMinutes = RelicExpectedMinutes(rateId, out var rateEstimated);
+            var rateScore = scored.Find(s => s.Id == rateId).Score;
+            IceLogging.Info($"每分鐘期望經驗：經驗分數最高的 {MissionLabel(rawId)}（{rawScore:0.###}，每次約 {rawMinutes:0.0} 分{(rawEstimated ? "，估計" : "")}，"
+                            + $"每分鐘 {RelicXpRate.PerMinute(rawScore, rawMinutes):0.###}） ⇒ 改接 {MissionLabel(rateId)}"
+                            + $"（每次約 {rateMinutes:0.0} 分{(rateEstimated ? "，估計" : "")}，每分鐘 {rateScore:0.###}）。", tip);
+        }
+
         /// <summary>最近一次 <see cref="FindBestRelicMission"/> 把清單上的任務排除掉的原因統計。只在框架執行緒讀寫。</summary>
         private struct RelicPickStats
         {
