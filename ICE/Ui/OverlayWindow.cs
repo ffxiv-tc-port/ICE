@@ -15,6 +15,8 @@ using System.Linq;
 using System.Reflection;
 using System.Windows.Forms;
 using static ECommons.UIHelpers.AddonMasterImplementations.AddonMaster;
+using AtkUnitBase = FFXIVClientStructs.FFXIV.Component.GUI.AtkUnitBase;
+using AtkValueType = FFXIVClientStructs.FFXIV.Component.GUI.ValueType;
 
 namespace ICE.Ui
 {
@@ -425,9 +427,9 @@ namespace ICE.Ui
             uint? current = null, panelSilver = null, panelGold = null;
             if (GenericHelpers.TryGetAddonMaster<WKSMissionInfomation>("WKSMissionInfomation", out var missionInfo) && missionInfo.IsAddonReady)
             {
-                current = missionInfo.CurrentScore;
-                panelSilver = missionInfo.SilverScore;
-                panelGold = missionInfo.GoldScore;
+                current = PanelCurrentScore.Get(missionInfo);
+                panelSilver = PanelSilverScore.Get(missionInfo);
+                panelGold = PanelGoldScore.Get(missionInfo);
             }
 
             // 面板讀不到門檻就退回資料表（評價型的 SilverScore/GoldScore 就是分數本身）。
@@ -576,7 +578,7 @@ namespace ICE.Ui
 
             // 🔴 CriticalScore 讀不出來時不可以整列不畫 —— 那會讓使用者以為「這個任務沒有緊急進度」，
             //    而不是「進度讀不到」。未知本身要在列上看得見（畫 ?，而且刻意不畫成 0）。
-            var critical = missionInfo.CriticalScore;
+            var critical = PanelCriticalScore.Get(missionInfo);
 
             ImGui.Text("    ");
             ImGui.SameLine(0, 0);
@@ -634,20 +636,27 @@ namespace ICE.Ui
         /// 遊戲的任務板（<c>WKSMission</c>）開著的時候，把板子上「ICE 跑不動」的任務列出來。
         /// </summary>
         /// <remarks>
-        /// ⚠️ <c>StellerMissions</c> 每次讀都是從 addon 的 AtkValues 現場解析，
-        /// <b>不跨幀保存任何東西</b>。
+        /// ⚠️ 每幀現場讀 addon 的 AtkValues，<b>不跨幀保存任何原生指標</b>（跨幀重用的只有受管清單）。
         /// ⚠️ 板子上的任務 ID 不保證在 <c>SheetMissionDict</c> 裡，名字一律走 TryGetValue。
         /// </remarks>
-        private static void DrawUnsupportedOnBoard()
+        private static unsafe void DrawUnsupportedOnBoard()
         {
             if (!GenericHelpers.TryGetAddonMaster<WKSMission>("WKSMission", out var board) || !board.IsAddonReady)
                 return;
 
-            List<(uint Id, string Name, MissionSupport.UnsupportedReason Reason)> unsupported = [];
-            foreach (var entry in board.StellerMissions)
+            // 走訪順序與收尾條件照抄 StellerMissions，但不解析任務名（這裡只用 ID，名字查表）：
+            // 那個屬性每一列都把名字解析成 SeString，板子開著的每一幀都要付。
+            var unsupported = UnsupportedOnBoard;
+            unsupported.Clear();
+            var addon = board.Base;
+            for (var i = 0; i < board.NumEntries; i++)
             {
-                var id = entry.MissionId;
-                if (id == 0 || !MissionSupport.IsUnsupported(id, out var reason))
+                var id = GenericHelpers.GetAtkValueUInt(addon, 40 + i * 6);
+                if (id == 0)
+                    continue;
+                if (!IsReadableString(addon, 802 + i * 2))
+                    break;
+                if (!MissionSupport.IsUnsupported(id, out var reason))
                     continue;
 
                 var name = CosmicHelper.SheetMissionDict.TryGetValue(id, out var info) ? GameTextUtil.StripGameIcons(info.Name) : "???";
@@ -673,6 +682,22 @@ namespace ICE.Ui
                 }
             }
         }
+
+        private static readonly List<(uint Id, string Name, MissionSupport.UnsupportedReason Reason)> UnsupportedOnBoard = [];
+
+        /// <summary>
+        /// 與 ECommons <c>GenericHelpers.TryGetAtkValueSeString</c> 的三道守衛相同（界內／字串型別／指標非空），
+        /// 只是不解析內容。<c>StellerMissions</c> 遇到這格讀不到就收尾，這裡必須跟它在同一格停。
+        /// </summary>
+        private static unsafe bool IsReadableString(AtkUnitBase* addon, int index)
+            => GenericHelpers.TryGetAtkValue(addon, index, out var value)
+               && value.Type is AtkValueType.String or AtkValueType.String8 or AtkValueType.ManagedString
+               && value.String.Value != null;
+
+        private static readonly PanelValueCache<uint?> PanelCurrentScore = new(2, static m => m.CurrentScore);
+        private static readonly PanelValueCache<uint?> PanelSilverScore = new(3, static m => m.SilverScore);
+        private static readonly PanelValueCache<uint?> PanelGoldScore = new(4, static m => m.GoldScore);
+        private static readonly PanelValueCache<uint?> PanelCriticalScore = new(5, static m => m.CriticalScore);
 
         /// <summary>
         /// 疊加層版的任務狀態標記——跟主視窗任務清單「✓」欄＋任務名稱後面的旗標圖示同一份資料源

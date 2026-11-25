@@ -448,7 +448,7 @@ internal static class MissionObjectiveReader
             if (node->Type == NodeType.Text)
             {
                 var textNode = (AtkTextNode*)node;
-                var text = textNode->NodeText.GetText();
+                var text = NodeText(textNode);
                 if (string.IsNullOrWhiteSpace(text))
                     continue;
 
@@ -470,6 +470,28 @@ internal static class MissionObjectiveReader
                 CollectTexts(&componentNode->Component->UldManager, groups, index, ref budget, depth + 1);
             }
         }
+    }
+
+    /// <summary>節點原始位元組 → <c>NodeText.GetText()</c> 的結果；GetText 只看這些位元組，同位元組必同答案。</summary>
+    private static readonly List<(byte[] Bytes, string Text)> TextCache = new();
+
+    /// <summary>倒數那一列每秒換一次字，條目會一直長；滿了整批清掉重來即可。</summary>
+    private const int TextCacheLimit = 128;
+
+    private static unsafe string NodeText(AtkTextNode* textNode)
+    {
+        var raw = textNode->NodeText.AsSpan();
+        foreach (var (bytes, text) in TextCache)
+        {
+            if (raw.SequenceEqual(bytes))
+                return text;
+        }
+
+        var parsed = textNode->NodeText.GetText();
+        if (TextCache.Count >= TextCacheLimit)
+            TextCache.Clear();
+        TextCache.Add((raw.ToArray(), parsed));
+        return parsed;
     }
 
     /// <summary>
