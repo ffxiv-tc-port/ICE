@@ -392,9 +392,20 @@ internal static unsafe class PlayerHandlers
         if (missions.Count == 0)
             return missions;
 
+        // 常見路徑：全部都在，直接回原本那份。先逐筆查、不先建清單——疊加層每幀呼叫兩次。
+        var allKnown = true;
+        foreach (var x in missions)
+        {
+            if (!CosmicHelper.SheetMissionDict.ContainsKey(x.MissionId))
+            {
+                allKnown = false;
+                break;
+            }
+        }
+        if (allKnown)
+            return missions;
+
         var known = missions.Where(x => CosmicHelper.SheetMissionDict.ContainsKey(x.MissionId)).ToList();
-        if (known.Count == missions.Count)
-            return missions; // 常見路徑：全部都在，直接回原本那份，不要多配置一個 List
 
         // 節流：這個判斷每幀都會走到（疊加層一幀呼叫兩次），不節流會把 log 灌爆。
         // 📌 節流 key 帶上表名，才不會讓 Sinus 的訊息把 Phaenna 的蓋掉（反之亦然）。
