@@ -335,7 +335,8 @@ public class MissionTimer
         }
     }
 
-    public void AbandonMission()
+    /// <param name="how">只進「連續未金星」的 log 措辭，不影響計數。</param>
+    public void AbandonMission(string how = "放棄")
     {
         stopwatch.Stop();
         // 🔴 耗時要在 Reset() **之前**取走 —— Reset() 會把 Elapsed 歸零，
@@ -361,7 +362,7 @@ public class MissionTimer
         stats.FailedCounters++;
         // 放棄耗時累加進成本。key 0 的防護在上面，走到這裡的一定是真任務。
         stats.AbandonedTimeSeconds += abandonedSeconds;
-        ProvisionalMissTracker.NoteAbandon(currentMission);
+        ProvisionalMissTracker.NoteAbandon(currentMission, how);
         C.Save();
         currentMission = 0;
     }

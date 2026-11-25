@@ -30,20 +30,23 @@ namespace ICE.Scheduler.Tasks
         /// <summary>這次接的是「接下再放棄」換一批清單的任務（從沒計時，放棄時不進放棄統計）；放棄收尾時清掉。</summary>
         public static bool RerollPending = false;
 
+        /// <summary>按「回報結果」時分數沒到銅星：遊戲判失敗、沒有報酬，收尾照放棄記（不進完成統計）。放棄收尾時清掉。</summary>
+        public static bool ReportedBelowBronze = false;
+
         public static bool? AbandonMission()
         {
             string tag = "Abandon Mission";
 
             if (CosmicHelper.CurrentLunarMission == 0)
             {
-                if (WasAbandoned)
+                if (WasAbandoned || ReportedBelowBronze)
                 {
                     IceLogging.Debug("Mission was abandoned");
                     // 只看旗標不夠：旗標殘留時若有真任務在計時，照舊記放棄。
                     if (RerollPending && !P.MissionTimer.IsTiming)
                         IceLogging.Debug("換一批任務：放棄的是為了刷新清單才接下的任務，不計入放棄統計。", "[Abandon Mission]");
                     else
-                        P.MissionTimer.AbandonMission();
+                        P.MissionTimer.AbandonMission(WasAbandoned ? "放棄" : "未達銅星回報");
                     // 先按過「回報結果」沒成功、改按放棄時，那次判定的獎章不能留給下一個任務。
                     Mission_Settings.TurninState = TurninState.None;
                 }
@@ -70,6 +73,7 @@ namespace ICE.Scheduler.Tasks
                 }
 
                 WasAbandoned = false;
+                ReportedBelowBronze = false;
                 RerollPending = false;
                 Task_CheckScore.ResetMedalCheckLog();
 
@@ -179,8 +183,12 @@ namespace ICE.Scheduler.Tasks
                         && EzThrottler.Throttle("Attempt to turnin", 500)
                         && AddonPressGuard.TryBeginPress("放棄任務：回報結果", "WKSMissionInfomation", addon, AddonPressGuard.WksMissionExitPressKey))
                     {
-                        Task_CheckScore.JudgeMedalBeforeReport(CosmicHelper.CurrentLunarMission, addon.CurrentScore);
-                        IceLogging.Info($"放棄流程改按「回報結果」：任務 {CosmicHelper.CurrentLunarMission}｜目前評價 {addon.CurrentScore?.ToString() ?? "讀不到"}｜判定獎章＝{Mission_Settings.TurninState}。", "[Abandon Mission]");
+                        var missionId = CosmicHelper.CurrentLunarMission;
+                        ReportedBelowBronze = Task_CheckScore.JudgeMedalBeforeReport(missionId, addon.CurrentScore) ?? ReportedBelowBronze;
+                        var verdict = ReportedBelowBronze && CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var reported)
+                            ? $"未達銅星（銅星門檻 {reported.BronzeScore}；遊戲不給報酬，記為放棄）"
+                            : $"判定獎章＝{Mission_Settings.TurninState}";
+                        IceLogging.Info($"放棄流程改按「回報結果」：任務 {missionId}｜目前評價 {addon.CurrentScore?.ToString() ?? "讀不到"}｜{verdict}。", "[Abandon Mission]");
                         addon.Report();
                     }
                     else if (abandonPressable

@@ -345,35 +345,31 @@ namespace ICE.Scheduler.Tasks
                 return;
             }
 
-            Mission_Settings.TurninState = ScoreMedal(current, mission.SilverScore, mission.GoldScore);
+            Mission_Settings.TurninState = MedalRules.ScoreMedal(current, mission.SilverScore, mission.GoldScore);
         }
 
         /// <summary>
         /// 放棄流程按「回報結果」之前判定獎章：那條路不經過交件判定，不判就停在 None（分數換算倍率 1、完成統計不記）。
         /// 評價型讀不到目前評價時維持原值：寧可不記，也不要把銀星記成銅星。
         /// </summary>
-        internal static void JudgeMedalBeforeReport(uint missionId, uint? currentScore)
+        /// <returns>評價型分數沒到銅星門檻（遊戲判失敗、沒有報酬）回 true：獎章設 None，呼叫端要當放棄記；評價讀不到回 null＝沿用上次判定。</returns>
+        internal static bool? JudgeMedalBeforeReport(uint missionId, uint? currentScore)
         {
             if (!CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var mission))
-                return;
+                return false;
 
             if (mission.Attributes.HasFlag(MissionAttributes.Critical))
                 Mission_Settings.TurninState = TurninState.Critical;
-            else if (mission.IsTimeGraded || currentScore is not null)
-                MedalChecker(mission, currentScore ?? 0);
-        }
-
-        /// <summary>
-        /// 評價型任務的獎章判定。
-        /// 🔴 <b>門檻 0 一律當成「沒有這個門檻」，不是「零分就達成」。</b>
-        /// </summary>
-        private static TurninState ScoreMedal(uint current, uint silver, uint gold)
-        {
-            if (gold > 0 && current >= gold)
-                return TurninState.Gold;
-            if (silver > 0 && current >= silver)
-                return TurninState.Silver;
-            return TurninState.Bronze;
+            else if (mission.IsTimeGraded)
+                MedalChecker(mission, 0);
+            else if (currentScore is not uint score)
+                return null;
+            else
+            {
+                Mission_Settings.TurninState = MedalRules.ReportMedal(score, mission.BronzeScore, mission.SilverScore, mission.GoldScore);
+                return Mission_Settings.TurninState == TurninState.None;
+            }
+            return false;
         }
     }
 }

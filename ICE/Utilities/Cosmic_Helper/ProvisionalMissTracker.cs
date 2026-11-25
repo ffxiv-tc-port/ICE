@@ -35,7 +35,7 @@ internal static class ProvisionalMissTracker
             NoteMiss(missionId, state == TurninState.Bronze ? "銅星交件" : "銀星交件");
     }
 
-    internal static void NoteAbandon(uint missionId) => NoteMiss(missionId, "放棄");
+    internal static void NoteAbandon(uint missionId, string how = "放棄") => NoteMiss(missionId, how);
 
     private static void NoteMiss(uint missionId, string how)
     {
