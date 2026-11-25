@@ -52,9 +52,19 @@ namespace ICE.Ui.MainUi.ModeSelect
             for (var i = 0; i < 4; i++)
             {
                 ImGui.TableNextColumn();
+                // 直接推彈而不用 ImRaii：那個每格 new 一個結束物件，任務表每幀上百格。
                 var faded = !text.Enough;
-                using (ImRaii.PushColor(ImGuiCol.Text, ImGuiColors.DalamudGrey, faded))
+                if (faded)
+                    ImGui.PushStyleColor(ImGuiCol.Text, ImGuiColors.DalamudGrey);
+                try
+                {
                     Table_FullCenterText(text.Cells[i]);
+                }
+                finally
+                {
+                    if (faded)
+                        ImGui.PopStyleColor();
+                }
                 if (text.Tooltip.Length > 0 && ImGui.IsItemHovered())
                     ImGui.SetTooltip(text.Tooltip);
             }
