@@ -35,16 +35,51 @@ namespace ICE.Scheduler.Tasks
         internal static bool TimeGradedReportFailed(string? timerText, bool timedOutMarker)
             => timedOutMarker && TryParseRemaining(timerText, out var remaining) && remaining == TimeSpan.Zero;
 
-        /// <summary>解析面板計時列（圖示＋「分:秒」）。只留數字與冒號後必須剛好兩段，否則回 false。</summary>
+        /// <summary>
+        /// 解析面板計時列。任務進行中多半是「圖示＋剩餘/時限」（例「 29:58/30:00」），交件當下常只剩「圖示＋剩餘」；
+        /// 一律只看斜線前面那段的「分:秒」。全形數字、全形冒號與斜線視同半形，圖示、空白與不可見字元不計；
+        /// 那段裡冒號不是剛好一個、分鐘沒有數字、秒不是兩位或 ≥60，都回 false（呼叫端當成讀不到）。
+        /// </summary>
         internal static bool TryParseRemaining(string? timerText, out TimeSpan remaining)
         {
             remaining = TimeSpan.Zero;
-            if (timerText is null)
+            if (string.IsNullOrEmpty(timerText))
                 return false;
 
-            var cleaned = new string(timerText.Trim().Where(c => char.IsDigit(c) || c == ':').ToArray());
-            var parts = cleaned.Split(':');
-            if (parts.Length != 2 || !int.TryParse(parts[0], out var minutes) || !int.TryParse(parts[1], out var seconds))
+            var text = timerText.AsSpan();
+            var slash = text.IndexOfAny('/', '／', '∕');
+            var head = slash >= 0 ? text[..slash] : text;
+
+            int colonCount = 0, minuteLen = 0, secondLen = 0, minutes = 0, seconds = 0;
+            foreach (var ch in head)
+            {
+                if (ch is ':' or '：' or '∶')
+                {
+                    colonCount++;
+                    continue;
+                }
+
+                int digit;
+                if (ch is >= '0' and <= '9')
+                    digit = ch - '0';
+                else if (ch is >= '０' and <= '９')
+                    digit = ch - '０';
+                else
+                    continue;
+
+                if (colonCount == 0)
+                {
+                    minutes = minutes * 10 + digit;
+                    minuteLen++;
+                }
+                else
+                {
+                    seconds = seconds * 10 + digit;
+                    secondLen++;
+                }
+            }
+
+            if (colonCount != 1 || minuteLen is 0 or > 3 || secondLen != 2 || seconds >= 60)
                 return false;
 
             remaining = new TimeSpan(0, minutes, seconds);
