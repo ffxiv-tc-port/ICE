@@ -202,6 +202,10 @@ namespace ICE.Scheduler.Tasks
 
                     if (CosmicHelper.SheetMissionDict.TryGetValue(id, out var missionEntry))
                     {
+                        // 查分在每次釣魚狀態結束、下一次 /ahstart 之前，換 preset 不會換在竿子還在水裡的時候。
+                        ScoreStagedPresets.Apply(id, missionInfo.CurrentScore, missionEntry.SilverScore,
+                            static name => P.AutoHook.SetPreset(name), handle);
+
                         if (missionEntry.Attributes.HasFlag(MissionAttributes.ScoreTimeRemaining))
                         {
                             if (MinRequirementsMet(id, missionInfo))

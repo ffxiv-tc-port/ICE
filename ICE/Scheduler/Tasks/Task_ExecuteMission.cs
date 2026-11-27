@@ -66,6 +66,7 @@ namespace ICE.Scheduler.Tasks
                     if (fishingMission)
                     {
                         PresetBaitPlans.ClearImported();
+                        ScoreStagedPresets.ClearImported();
                         // config 是上面 TryGetValue 拿的，可能是 null；例外發生在任務裡只會讓佇列中止，
                         // 外面看起來一樣是「不動」。
                         if (config == null)
@@ -127,6 +128,7 @@ namespace ICE.Scheduler.Tasks
         internal static void ApplyFishingPreset(uint missionId, MissionSettings missionConfig, string handle)
         {
             PresetBaitPlans.ClearImported();
+            ScoreStagedPresets.ClearImported();
             if (missionConfig.Use_BuildinPreset)
             {
                 P.AutoHook.DeleteAllAnonymousPresets();
@@ -157,6 +159,8 @@ namespace ICE.Scheduler.Tasks
         }
         private static void ImportPresetsSequentially(uint missionId)
         {
+            ScoreStagedPresets.ClearImported();
+
             bool? ImportOtherPresets(string preset)
             {
                 P.AutoHook.CreateAndSelectAnonymousPreset(preset);
@@ -239,6 +243,10 @@ namespace ICE.Scheduler.Tasks
                 P.TaskManager.EnqueueDelay(100);
                 P.TaskManager.Enqueue(() => ImportOtherPresets(preset));
             }
+
+            // 排在最後一筆匯入之後：依分數切換只在全部 preset 都已掛上 AutoHook 時才生效。
+            if (ScoreStagedPresets.Has(missionId) && P.AutoHook.Installed)
+                P.TaskManager.Enqueue(() => { ScoreStagedPresets.NoteImported(missionId, "[Task: Execute Mission]"); return true; });
         }
 
     }

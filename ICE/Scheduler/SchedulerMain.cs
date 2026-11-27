@@ -28,6 +28,7 @@ namespace ICE.Scheduler
             Task_FindMission.ResetNavigationSelection();
             // 「這個任務的內建 preset 已交給 AutoHook」只在這一輪重新匯入後才採信。
             Utilities.GatheringHelper.PresetBaitPlans.ClearImported();
+            Utilities.GatheringHelper.ScoreStagedPresets.ClearImported();
 
             // 啟動當下就把「前置被停用、鏈上卻還有想跑的任務」修回來 —— 這是使用者正在看著畫面的
             // 時機，訊息在這裡才看得到。修不修得動由 MissionChain 自己判斷（讀不到 WKSManager

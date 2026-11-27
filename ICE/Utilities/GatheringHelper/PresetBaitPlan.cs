@@ -178,7 +178,7 @@ internal static class PresetBaitPlans
     }
 
     /// <summary>只認得 AutoHook 現行 schema 的前綴；舊版 AH_／AH3_ 結構不同，回 null。</summary>
-    private static string? Decode(string s)
+    internal static string? Decode(string s)
     {
         s = s.Trim();
         (string Prefix, bool Brotli)[] known = [("AHFOLDER2_", true), ("AHFOLDER_", false), ("AH7_", true), ("AH6_", false), ("AH4_", false)];
