@@ -31,6 +31,7 @@ namespace ICE.Scheduler.Tasks
                     return true;
 
                 P.MissionTimer.StartMission(missionId);
+                MissionEndWatcher.NoteMissionStarted(missionId);
                 CraftProgressGuard.NoteMissionStarted(missionId);
                 CraftSendPacing.NoteMissionStarted(missionId);
                 Task_CriticalReturn.NoteActiveMission(missionId);

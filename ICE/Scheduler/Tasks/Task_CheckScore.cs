@@ -120,19 +120,17 @@ namespace ICE.Scheduler.Tasks
                     {
                         IceLogging.Debug("We're in a mission where we need a certain amount of fish... so we're going to be checking that");
                         var requiredAmount = fishingInfo.AmountRequired;
-                        var currentAmount = 0;
-                        IceLogging.Debug($"Require'd amount of fish: {requiredAmount}");
-                        foreach (var fishEntry in fishingInfo.RequiredFish)
+                        IceLogging.Debug($"Require'd amount of fish: {requiredAmount}{(fishingInfo.AnyFishItems != null ? "（任意類：同地名釣場的魚都算）" : "")}");
+                        // 「New Current Amount … Added via」的格式有離線工具在解析（逐竿重建），不要改字。
+                        var runningAmount = 0;
+                        var currentAmount = MissionEndRules.CountFish(fishingInfo.CountedFishItems, fishId =>
                         {
-                            foreach (var fishId in fishEntry.Value)
-                            {
-                                if (PlayerHelper.GetItemCount(fishId, out var fishAmount) && fishAmount > 0)
-                                {
-                                    currentAmount += fishAmount;
-                                    IceLogging.Debug($"New Current Amount: {currentAmount} | Added via {fishId}");
-                                }
-                            }
-                        }
+                            if (!PlayerHelper.GetItemCount(fishId, out var fishAmount) || fishAmount <= 0)
+                                return 0;
+                            runningAmount += fishAmount;
+                            IceLogging.Debug($"New Current Amount: {runningAmount} | Added via {fishId}");
+                            return fishAmount;
+                        });
 
                         if (currentAmount >= requiredAmount)
                         {
@@ -182,6 +180,10 @@ namespace ICE.Scheduler.Tasks
                 {
                     var id = CosmicHelper.CurrentLunarMission;
 
+                    // 遊戲已宣告評價已定就以遊戲為準，排在逾時判斷前面：同一刻兩個都成立時要交件，不走放棄。
+                    if (TurninOnGameSignal(id, missionInfo, handle))
+                        return true;
+
                     if (CosmicHandler.IsMissionTimedOut())
                     {
                         IceLogging.Info("We've met a timeout state, so we're just going to see if we can turnin... and if not then just abandon");
@@ -214,7 +216,7 @@ namespace ICE.Scheduler.Tasks
                                 SchedulerMain.State = IceState.TurninMission;
                                 P.TaskManager.Tasks.Clear();
 
-                                Mission_Settings.TurninState = DetermineTurninState();
+                                Mission_Settings.TurninState = MissionEndRules.Higher(DetermineTurninState(), MissionEndWatcher.Signals.AnnouncedMedal(id));
                                 return true;
                             }
                             else

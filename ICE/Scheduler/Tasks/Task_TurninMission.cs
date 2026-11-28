@@ -39,6 +39,7 @@ namespace ICE.Scheduler.Tasks
                 PathfoundToRed = false;
                 HasInteracted = false;
 
+                MissionEndWatcher.ReconcileReportedMedal(PreviousMissionId, tag);
                 // Complete the timer and get duration
                 var duration = P.MissionTimer.CompleteMission();
 

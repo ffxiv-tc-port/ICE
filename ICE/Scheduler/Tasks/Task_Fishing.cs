@@ -91,6 +91,18 @@ namespace ICE.Scheduler.Tasks
             if (SchedulerMain.CurrentMissionUnavailable(handle, out var currentMission))
                 return true;
 
+            // 遊戲已宣告評價已定：再送 /ahstart 只會換來「目前該釣場無法進行垂釣」，回去查分那一步交件。
+            var signalMission = CosmicHelper.CurrentLunarMission;
+            var signalNow = DateTime.UtcNow;
+            if (MissionEndWatcher.Signals.IsEvaluationFixed(signalMission, signalNow)
+                && !currentMission.Attributes.HasFlag(MissionAttributes.Critical))
+            {
+                if (EzThrottler.Throttle("ICE: fishing stop on evaluation fixed", 5000))
+                    IceLogging.Info($"任務 {signalMission}：遊戲已宣告評價已定，不再開始釣魚，回去交件。", handle);
+                P.TaskManager.Tasks.Clear();
+                return true;
+            }
+
             // 傳送 / 讀取地圖途中 InventoryManager 讀不到東西，所有 GetItemCount 都會回 0。
             // 底下「沒餌了 → 放棄任務」是破壞性判斷，在這種瞬間做會直接誤殺一個好好的任務，
             // 所以整個檢查在玩家不可用時一律先等。
@@ -190,6 +202,17 @@ namespace ICE.Scheduler.Tasks
             }
             else if (!Svc.Condition[ConditionFlag.Gathering])
             {
+                // 遊戲剛拒絕垂釣：每一則拒絕回去重判一次任務狀態，之後到 CastHoldAfterRefusal 為止不再送開始釣魚。
+                if (MissionEndWatcher.Signals.HoldCast(signalMission, signalNow))
+                {
+                    if (MissionEndWatcher.Signals.TakeUnjudgedRefusal(signalMission))
+                    {
+                        P.TaskManager.Tasks.Clear();
+                        return true;
+                    }
+                    return false;
+                }
+
                 if (!_fishingDebug.IsFishable())
                 {
                     if (_fishingDebug.FindFishableLocation(out var fishablePos, searchSteps:64))

@@ -318,16 +318,92 @@ namespace ICE.Scheduler.Tasks
         /// </remarks>
         private static void MedalChecker(CosmicHelper.CosmicInfo mission, uint current)
         {
+            // 遊戲宣告過的獎章（「評價已成功達到了金星！」等）是下限：ICE 晚一步讀面板也不會記低。
+            var announced = MissionEndWatcher.Signals.AnnouncedMedal(CosmicHelper.CurrentLunarMission);
             if (mission.IsTimeGraded)
             {
                 // 時間型走時間語意：讀面板的時間列來比。
                 // 這正是既有 ScoreTimeRemaining 路徑本來就在用的函式，
                 // 四個呼叫端統一走這裡之後兩邊不會再分岔。
-                Mission_Settings.TurninState = DetermineTurninState();
+                Mission_Settings.TurninState = MissionEndRules.Higher(DetermineTurninState(), announced);
                 return;
             }
 
-            Mission_Settings.TurninState = MedalRules.ScoreMedal(current, mission.SilverScore, mission.GoldScore);
+            Mission_Settings.TurninState = MissionEndRules.Higher(MedalRules.ScoreMedal(current, mission.SilverScore, mission.GoldScore), announced);
+        }
+
+        /// <summary>
+        /// 遊戲已宣告「探索任務的評價已定」：不再看 ICE 自己數的條數或分數門檻設定，直接交件；
+        /// 判到的獎章是失敗（時間用完、分數沒到銅星）就交給放棄流程按「回報結果」記成未達銅星。
+        /// </summary>
+        /// <returns>已切換狀態（呼叫端 return true）。</returns>
+        private static bool TurninOnGameSignal(uint id, WKSMissionInfomation missionInfo, string handle)
+        {
+            LogExitButtonsOnce(id, missionInfo, handle);
+            var signals = MissionEndWatcher.Signals;
+            if (!signals.IsEvaluationFixed(id, DateTime.UtcNow) || !CosmicHelper.SheetMissionDict.TryGetValue(id, out var mission))
+                return false;
+
+            var critical = mission.Attributes.HasFlag(MissionAttributes.Critical);
+            var announced = signals.AnnouncedMedal(id);
+            var medal = TurninState.Critical;
+            var basis = "緊急任務";
+            if (!critical)
+            {
+                var timeGraded = mission.IsTimeGraded;
+                var timerText = timeGraded ? ActiveTimerAddon() : "";
+                var reportFailed = timeGraded && announced == TurninState.None
+                                   && MedalRules.TimeGradedReportFailed(timerText, CosmicHandler.IsMissionTimedOut());
+                var timerMedal = timeGraded ? DetermineTurninState() : TurninState.None;
+                medal = MissionEndRules.FixedMedal(timeGraded, reportFailed, timerMedal, missionInfo.CurrentScore,
+                                                   mission.BronzeScore, mission.SilverScore, mission.GoldScore, announced);
+                basis = timeGraded
+                    ? $"時間型，計時列「{EscapeForMedalLog(timerText)}」→ {timerMedal}{(reportFailed ? "（時間已到）" : "")}"
+                    : $"評價型，目前評價 {missionInfo.CurrentScore?.ToString() ?? "讀不到"}（銅 {mission.BronzeScore}）";
+            }
+
+            var verdict = MissionEndRules.OnEvaluationFixed(true, critical, medal);
+            if (verdict == MissionEndRules.SignalVerdict.None)
+                return false;
+
+            bool reportPressable, abandonPressable;
+            unsafe
+            {
+                reportPressable = GenericHelpers.IsComponentEnabled(missionInfo.ReportResultsButton);
+                abandonPressable = GenericHelpers.IsComponentEnabled(missionInfo.AbandonMissionButton);
+            }
+
+            IceLogging.Info($"依遊戲訊號交件：任務 {id}「{mission.Name}」｜遊戲已宣告評價已定｜{basis}｜遊戲宣告的獎章＝{announced}｜"
+                            + $"記為＝{(verdict == MissionEndRules.SignalVerdict.Turnin ? medal.ToString() : "未達銅星（走放棄流程按回報結果）")}｜"
+                            + $"回報鈕可按＝{reportPressable}、放棄鈕可按＝{abandonPressable}。", handle);
+
+            if (verdict == MissionEndRules.SignalVerdict.Turnin)
+            {
+                Mission_Settings.TurninState = medal;
+                SchedulerMain.State = IceState.TurninMission;
+            }
+            else
+                SchedulerMain.State = IceState.AbandonMission;
+            P.TaskManager.Tasks.Clear();
+            return true;
+        }
+
+        private static uint exitButtonsLoggedMission;
+
+        /// <summary>
+        /// 要使用者回報的診斷：任務進行中回報／放棄鈕的狀態，與評價已定那一行對照，
+        /// 才知道「回報鈕可按」能不能取代聊天訊息當完成訊號。每個任務 ID 換人時記一行。
+        /// </summary>
+        private static void LogExitButtonsOnce(uint id, WKSMissionInfomation missionInfo, string handle)
+        {
+            if (id == 0 || id == exitButtonsLoggedMission)
+                return;
+            exitButtonsLoggedMission = id;
+            unsafe
+            {
+                IceLogging.Info($"任務 {id} 進行中：回報鈕可按＝{GenericHelpers.IsComponentEnabled(missionInfo.ReportResultsButton)}、"
+                                + $"放棄鈕可按＝{GenericHelpers.IsComponentEnabled(missionInfo.AbandonMissionButton)}。", handle);
+            }
         }
 
         /// <summary>
@@ -348,7 +424,9 @@ namespace ICE.Scheduler.Tasks
             else if (mission.IsTimeGraded)
             {
                 MedalChecker(mission, 0);
-                if (MedalRules.TimeGradedReportFailed(ActiveTimerAddon(), CosmicHandler.IsMissionTimedOut()))
+                // 遊戲已宣告過獎章＝目標在時間內完成了，計時列之後走到 0:00 也不是失敗。
+                if (MissionEndWatcher.Signals.AnnouncedMedal(missionId) == TurninState.None
+                    && MedalRules.TimeGradedReportFailed(ActiveTimerAddon(), CosmicHandler.IsMissionTimedOut()))
                 {
                     Mission_Settings.TurninState = TurninState.None;
                     return true;
@@ -358,7 +436,9 @@ namespace ICE.Scheduler.Tasks
                 return null;
             else
             {
-                Mission_Settings.TurninState = MedalRules.ReportMedal(score, mission.BronzeScore, mission.SilverScore, mission.GoldScore);
+                Mission_Settings.TurninState = MissionEndRules.Higher(
+                    MedalRules.ReportMedal(score, mission.BronzeScore, mission.SilverScore, mission.GoldScore),
+                    MissionEndWatcher.Signals.AnnouncedMedal(missionId));
                 return Mission_Settings.TurninState == TurninState.None;
             }
             return false;

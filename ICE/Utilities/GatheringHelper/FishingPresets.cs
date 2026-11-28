@@ -1,6 +1,7 @@
 ﻿using ICE.Utilities;
 using ICE.Utilities.Cosmic;
 using ICE.Utilities.Cosmic_Helper;
+using ICE.Scheduler.Tasks;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -18,6 +19,47 @@ public static partial class GatheringUtil
         public bool UniqueFish = false;
         public Dictionary<string, List<uint>> Baits = new();
         public Dictionary<string, List<uint>> RequiredFish = new();
+
+        /// <summary>任意類任務（見 <see cref="MissionEndRules.AnyFishCountText"/>）實際計數的魚；null＝不是任意類，照 <see cref="RequiredFish"/> 計。</summary>
+        public HashSet<uint>? AnyFishItems;
+
+        /// <summary>總條數要數的道具：任意類用資料表補出來的集合，其餘用手寫清單。</summary>
+        public IEnumerable<uint> CountedFishItems => AnyFishItems ?? RequiredFish.Values.SelectMany(v => v);
+    }
+
+    /// <summary>
+    /// 任意類釣魚任務的計數魚種改由資料表決定：任務 <c>WKSMissionUnit.PlaceName</c> 底下每個 <c>FishingSpot</c> 的 <c>Item[]</c>。
+    /// 遊戲對這一類任何一條魚都算數；手寫清單只列了目標魚，會少算（例：任務 493 只列深月海龍）。
+    /// </summary>
+    private static void BackfillAnyFishFromSheet()
+    {
+        var unitSheet = ExcelHelper.MoonMissionSheet;
+        var spotSheet = Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.FishingSpot>();
+        if (unitSheet == null || spotSheet == null)
+        {
+            IceLogging.Info("讀不到 WKSMissionUnit／FishingSpot，任意類釣魚任務維持用手寫清單計數。", "[FishingPresets]");
+            return;
+        }
+
+        var spots = spotSheet
+            .Select(s => (s.PlaceName.RowId, (IEnumerable<uint>)s.Item.Select(i => i.RowId).ToList()))
+            .ToList();
+
+        var lines = new List<string>();
+        foreach (var (missionId, tools) in FishingPreset)
+        {
+            if (!CosmicHelper.SheetMissionDict.TryGetValue(missionId, out var entry)
+                || entry.ToDoTextId != MissionEndRules.AnyFishCountText
+                || !unitSheet.TryGetRow(missionId, out var unit))
+                continue;
+
+            var hand = tools.RequiredFish.Values.SelectMany(v => v).Distinct().Count();
+            tools.AnyFishItems = MissionEndRules.AnyFishItems(
+                unit.PlaceName.RowId, spots, tools.RequiredFish.Values.SelectMany(v => v));
+            lines.Add($"{missionId}＝{tools.AnyFishItems.Count} 種（手寫 {hand} 種）");
+        }
+
+        IceLogging.Info($"任意類釣魚任務改以同地名釣場的全部魚計數（共 {lines.Count} 個）：" + string.Join("｜", lines), "[FishingPresets]");
     }
 
     /// <summary>
@@ -36,6 +78,8 @@ public static partial class GatheringUtil
             IceLogging.Info("讀不到 WKSMissionUnit／WKSMissionToDo，跳過 AmountRequired 的資料表補值。", "[FishingPresets]");
             return;
         }
+
+        BackfillAnyFishFromSheet();
 
         var filled = 0;
         var skippedNoRequiredFish = new List<uint>();
@@ -56,7 +100,7 @@ public static partial class GatheringUtil
             if (amount <= 0)
                 continue;
 
-            if (tools.RequiredFish.Count == 0)
+            if (tools.RequiredFish.Count == 0 && tools.AnyFishItems is not { Count: > 0 })
             {
                 // 沒有目標魚清單時不填數量：填了會讓這個任務永遠交不出去。
                 skippedNoRequiredFish.Add(missionId);
@@ -106,7 +150,7 @@ public static partial class GatheringUtil
             if (tools.AmountRequired != 0)
                 basis = $"數量語意（AmountRequired = {tools.AmountRequired}"
                       + $"{(tools.UniqueFish ? "，計不重複魚種" : "，計總條數")}"
-                      + $"、魚種 {tools.RequiredFish.Count} 種）";
+                      + $"、魚種 {tools.CountedFishItems.Distinct().Count()} 種{(tools.AnyFishItems != null ? "，任意類" : "")}）";
             else if (entry.Gathering_Min.Count > 0)
                 basis = $"① 資料表 RequiredItem（{entry.Gathering_Min.Count} 項）";
             else if (tools.RequiredFish.Count > 0)

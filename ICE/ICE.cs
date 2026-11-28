@@ -152,6 +152,8 @@ public sealed partial class ICE : IDalamudPlugin
         MechaContextMenu.Enable();
         // 製作失敗訊息：讓斷路器分得出「做完但失敗」與「Artisan 沒動」。
         CraftFailureWatcher.Enable();
+        // 任務結束訊息：遊戲宣告評價已定時直接交件，不靠 ICE 自己數。
+        MissionEndWatcher.Enable();
         Svc.PluginInterface.UiBuilder.OpenMainUi += () =>
         {
             mainWindow.IsOpen = true;
@@ -268,6 +270,7 @@ public sealed partial class ICE : IDalamudPlugin
         GenericHelpers.Safe(() => Svc.PluginInterface.UiBuilder.Draw -= MechaAoeOverlay.Draw);
         GenericHelpers.Safe(MechaContextMenu.Disable);
         GenericHelpers.Safe(CraftFailureWatcher.Disable);
+        GenericHelpers.Safe(MissionEndWatcher.Disable);
         GenericHelpers.Safe(TextAdvancedManager.UnlockTA);
         GenericHelpers.Safe(YesAlreadyManager.Unlock);
         // 守衛的 AddonLifecycle 監聽器：本 pin 卸載時會自動拆，但仍主動拆乾淨、不留指向本組件的委派。

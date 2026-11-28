@@ -52,6 +52,7 @@ namespace ICE.Scheduler.Tasks
                 }
                 else
                 {
+                    MissionEndWatcher.ReconcileReportedMedal(Task_TurninMission.PreviousMissionId, "[Abandon Mission]");
                     Task_TurninMission.UpdateScoreInfo();
                     var duration = P.MissionTimer.CompleteMission();
                     Mission_Settings.TurninState = TurninState.None;
