@@ -27,11 +27,11 @@ internal static class CraftGoldFeasibility
     /// <param name="detail">給記錄檔的算式明細（三種結果都會填，方便事後判斷是不是誤判）。</param>
     internal static CraftGoldOutlook Evaluate(CosmicHelper.CosmicInfo mission, uint? currentScore, out string detail)
     {
-        // 高難任務是通過／未通過，不是評價分數；時間型的門檻單位是「剩餘秒數 × 10」。
+        // 緊急任務是通過／未通過，不是評價分數；時間型的門檻單位是「剩餘秒數 × 10」。
         // 兩種都不能拿分數去比大小。
         if (mission.Attributes.HasFlag(MissionAttributes.Critical))
         {
-            detail = "高難任務不是用評價分數計分";
+            detail = "緊急任務不是用評價分數計分";
             return CraftGoldOutlook.Unknown;
         }
 
@@ -166,7 +166,7 @@ internal static class CraftGoldFeasibility
             possible = Math.Min(possible, held / material.Value);
         }
 
-        // 一項有效材料都沒有 ＝ 建表時就沒存材料資訊（高難任務的 CraftingInfo 就是這樣），
+        // 一項有效材料都沒有 ＝ 建表時就沒存材料資訊（緊急任務的 CraftingInfo 就是這樣），
         // 那就不是「可以做無限多件」而是「不知道」。
         if (possible == int.MaxValue)
         {

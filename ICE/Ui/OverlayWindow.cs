@@ -564,7 +564,7 @@ namespace ICE.Ui
         }
 
         /// <summary>
-        /// 高難任務的緊急進度（另起一行、達標變綠）。
+        /// 緊急任務的進度（另起一行、達標變綠）。
         /// </summary>
         private static void DrawCriticalProgress(uint missionId)
         {

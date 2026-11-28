@@ -358,7 +358,7 @@ namespace ICE.Scheduler.Tasks
                             if (criticalScore == null)
                             {
                                 if (EzThrottler.Throttle("ICE: timeout critical unreadable (craft)", 10000))
-                                    IceLogging.Info($"任務逾時但高難進度讀不出來，本輪先不決定交件/放棄，等面板可讀。" +
+                                    IceLogging.Info($"任務逾時但緊急任務進度讀不出來，本輪先不決定交件/放棄，等面板可讀。" +
                                                     $"（面板原字串：「{missionInfo.CriticalScoreRaw ?? "<面板尚未載入>"}」）", tag);
                                 return false;
                             }
@@ -413,7 +413,7 @@ namespace ICE.Scheduler.Tasks
                         if (criticalScore == null)
                         {
                             if (EzThrottler.Throttle("ICE: critical score unreadable (craft)", 10000))
-                                IceLogging.Info($"高難任務進度讀不出來，本輪不交件、繼續製作。" +
+                                IceLogging.Info($"緊急任務進度讀不出來，本輪不交件、繼續製作。" +
                                                 $"（面板原字串：「{missionInfo.CriticalScoreRaw ?? "<面板尚未載入>"}」）", tag);
                         }
                         else if (criticalScore == 1)
@@ -588,7 +588,7 @@ namespace ICE.Scheduler.Tasks
                             if (criticalScore == null)
                             {
                                 if (EzThrottler.Throttle("ICE: timeout critical unreadable (gather)", 10000))
-                                    IceLogging.Info($"任務逾時但高難進度讀不出來，本輪先不決定交件/放棄，等面板可讀。" +
+                                    IceLogging.Info($"任務逾時但緊急任務進度讀不出來，本輪先不決定交件/放棄，等面板可讀。" +
                                                     $"（面板原字串：「{missionInfo.CriticalScoreRaw ?? "<面板尚未載入>"}」）", "[Check Score: Gather]");
                                 return false;
                             }
@@ -639,7 +639,7 @@ namespace ICE.Scheduler.Tasks
                         else
                         {
                             if (criticalScore == null && EzThrottler.Throttle("ICE: critical score unreadable (gather)", 10000))
-                                IceLogging.Info($"高難任務進度讀不出來，本輪不交件、繼續採集。" +
+                                IceLogging.Info($"緊急任務進度讀不出來，本輪不交件、繼續採集。" +
                                                 $"（面板原字串：「{missionInfo.CriticalScoreRaw ?? "<面板尚未載入>"}」）",
                                                 "[Check Score: Gather]");
 
@@ -836,7 +836,7 @@ namespace ICE.Scheduler.Tasks
                             if (criticalScore == null)
                             {
                                 if (EzThrottler.Throttle("ICE: timeout critical unreadable (dual)", 10000))
-                                    IceLogging.Info($"任務逾時但高難進度讀不出來，本輪先不決定交件/放棄，等面板可讀。" +
+                                    IceLogging.Info($"任務逾時但緊急任務進度讀不出來，本輪先不決定交件/放棄，等面板可讀。" +
                                                     $"（面板原字串：「{missionInfo.CriticalScoreRaw ?? "<面板尚未載入>"}」）", tag);
                                 return false;
                             }
